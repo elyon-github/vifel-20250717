@@ -1,0 +1,184 @@
+<odoo>
+
+<record id="view_pallet_kilos_record_search" model="ir.ui.view">
+    <field name="name">pallet.kilos.record.search</field>
+    <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+    <field name="arch" type="xml">
+        <search string="Search Pallet and Kilos Records">
+            <field name="report_no"/>
+            <field name="owner_id"/>
+            <field name="warehouse"/>
+            <field name="record_reference"/>
+            <field name="truck_type"/>
+            <field name="trucks_plate"/>
+            <field name="gate_pass"/>
+            <field name="create_date"/>
+
+            <separator/>
+
+            <group expand="0" string="Group By">
+                <filter string="Owner" name="group_by_owner" context="{'group_by': 'owner_id'}"/>
+                <filter string="Operation Type" name="group_by_operation_type" context="{'group_by': 'operation_type_id'}"/>
+                <filter string="Warehouse" name="group_by_warehouse" context="{'group_by': 'warehouse'}"/>
+            </group>
+        </search>
+    </field>
+</record>
+    
+<record id="view_pallet_kilos_record_tree" model="ir.ui.view">
+    <field name="name">pallet.kilos.record.tree</field>
+    <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+    <field name="arch" type="xml">
+        <tree string="Pallet and Kilos Records"  default_order="start_time desc">
+            <field name="active" optional="hide" string="Active"/>
+            <field name="create_date" optional="hide"/>
+            <field name="owner_id"/>
+            <field name="start_time"/>
+            <field name="end_time"/>
+            <field name="effective_document" widget="many2onebutton"/>
+            <field name="return_id" widget="many2onebutton"/>
+            <!-- <field name="report_no"/> -->
+            
+            <field name="warehouse"/>
+            <field name="record_reference" optional="hide"/>
+            <field name="truck_type" optional="hide"/>
+            <field name="trucks_plate" optional="hide"/>
+            <field name="gate_pass" optional="hide"/>
+            <!-- <field name="overall_units" sum="Total Units"/>
+            <field name="overall_packaging" sum="Total Packaging"/> -->
+
+
+            <field name="pallets_received" sum="Sum"/>
+            <field name="pallets_withdrawn" sum="Sum"/>
+            <field name="kilos_received" sum="Sum"/>
+            <field name="kilos_withdrawn" sum="Sum"/>
+            <field name="total_balance_in_units" optional="show"/>
+            <field name="total_balance_in_packaging" optional="show"/>
+            <field name="total_balance_in_pallets" optional="show"/>
+            <field name="total_balance_in_kilos" optional="show"/>
+            <field name="overall_pallets" sum="Total Pallets" optional="hide"/>
+            <field name="overall_kilos" sum="Total Kilos" optional="hide"/>
+
+        </tree>
+    </field>
+</record>
+
+<record id="view_pallet_kilos_record_form" model="ir.ui.view">
+    <field name="name">pallet.kilos.record.form</field>
+    <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+    <field name="arch" type="xml">
+        <form string="Pallet and Kilos Record">
+            <sheet>
+                <group>
+                    <group string="Basic Information">
+                        <group>
+                            <field name="owner_id" readonly="1"/>
+                            <field name="warehouse" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="effective_document"/>
+                            <field name="report_no" readonly="1" invisible="1"/>
+                            <field name="record_reference" readonly="1"/>
+                            <field name="readjustment_document"/>
+                        </group>
+                        
+                    </group>
+
+
+                    <group string="Rates">
+                        <field name="holding_rate"/>
+                        <field name="handling_rate"/>
+                    </group>
+                </group>
+                
+                <group>
+                    <group string="Transportation Details">
+                        <field name="truck_type"/>
+                        <field name="trucks_plate"/>
+                        <field name="gate_pass"/>
+                        <field name="start_time"/>
+                        <field name="end_time"/>
+                    </group>
+                </group>
+                
+                <notebook>
+                    <page string="Movement Information">
+                        <group>
+                            <group string="Pallet Movement">
+                                <field name="pallets_received" string="Pallets Received"/>
+                                <field name="pallets_withdrawn" string="Pallets Withdrawn"/>
+                                <!-- <field name="overall_pallets"/> -->
+                                <field name="total_balance_in_pallets" string="Total Balance in Pallets"/>
+                                <field name="beginning_balance_in_pallets" string="Beginning Balance in Pallets"/>
+                            </group>
+                            <group string="Unit Movement">
+                                <field name="units_received" string="Minimum Received"/>
+                                <field name="units_withdrawn" string="Minimum Withdrawn"/>
+                                <!-- <field name="overall_units"/> -->
+                                <field name="total_balance_in_units" string="Total Balance in Minimum"/>
+                            </group>
+                        </group>
+                        <group>
+                            <group string="Kilos Movement">
+                                <field name="kilos_received" string="Weight (KG) Received"/>
+                                <field name="kilos_withdrawn" string="Weight (KG) Withdrawn"/>
+                                <!-- <field name="overall_kilos"/> -->
+                                <field name="total_balance_in_kilos" string="Total Balance in Weight (KG)"/>
+                                <field name="beginning_balance_in_kilos" string="Beginning Balance in Weight (KG)"/>
+                            </group>
+                            <group string="Packaging Movement">
+                                <field name="packaging_received" string="Quantity Received"/>
+                                <field name="packaging_withdrawn" string="Quantity Withdrawn"/>
+                                <!-- <field name="overall_packaging"/> -->
+                                <field name="total_balance_in_packaging" string="Total Balance in Quantity"/>
+                            </group>
+                        </group>
+                    </page>
+                    <page string="Return Information">
+                        <group>
+                            <group string="Returns">
+                                <field name="return_id" string="Return RR"/>
+                                <field name="return_pallets" string="Pallets Returned"/>
+                                <field name="return_kilos" string="Weight (KG) Returned"/>
+                                <field name="return_heads" string="Minimum Returned"/>
+                                <field name="return_packaging" string="Quantity Returned"/>
+
+                            </group>
+                        </group>
+                    </page>
+                    <page string="Adjustment Information">
+                        <group>
+                            <group string="Adjustment">
+                                <field name="adjustment_heads"/>
+                                <field name="adjustment_packaging"/>
+                                <field name="adjustment_pallets" />
+                                <field name="adjustment_kilos"/>
+                            </group>
+                        </group>
+                    </page>
+
+                </notebook>
+            </sheet>
+        </form>
+    </field>
+</record>
+
+<record id="action_pallet_kilos_records" model="ir.actions.act_window">
+    <field name="name">Pallet and Kilos Records</field>
+    <field name="res_model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+    <field name="view_mode">tree,form</field>
+    <field name="search_view_id" ref="view_pallet_kilos_record_search"/>
+    <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">
+            Create a new Pallet and Kilos Record
+        </p>
+    </field>
+</record>
+
+<menuitem id="menu_pallet_kilos_records" 
+          name="Pallet and Kilos Records" 
+          parent="stock.menu_warehouse_report" 
+          action="action_pallet_kilos_records" 
+          sequence="10"/>
+
+</odoo>
