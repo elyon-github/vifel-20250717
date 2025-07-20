@@ -907,15 +907,11 @@ class ensure_ownership(models.Model):
                 lines.owner_id.push_unused_pallet(lines.x_studio_pallet_series_id)
             if lines.location_dest_id:
                 # Unreserve the move.lines for the locations assigned
-                lines.location_dest_id.x_studio_is_reserved = False
-                # Unassign receiving report document name to the location assigned
-                lines.location_dest_id.x_studio_receiving_report_id = ''
+                lines.location_dest_id.remove_reservation()
                     
             if lines.result_package_id:
                 # Unreserve the move.lines for the package assigned
-                lines.result_package_id.x_studio_is_reserved = False
-                # Unassign receiving report document name for the packages assigned
-                lines.result_package_id.x_studio_receiving_report_id = ''
+                lines.result_package_id.remove_reservation()
         
         if existing_move_lines:
             existing_move_lines.unlink()
@@ -2112,6 +2108,32 @@ class transfer_locations(models.Model):
         
         return page_total_by_uom
 
+
+    def get_weight_totals_for_page(self, processed_lines, start_idx, end_idx):
+        """
+        Calculate UOM totals for a specific page range.
+        
+        Args:
+            processed_lines: List of processed line data
+            start_idx: Start index for page
+            end_idx: End index for page
+        
+        Returns:
+            dict: Dictionary with UOM totals for the page
+        """
+        page_weight_by_uom = {}
+        
+        for line_data in processed_lines[start_idx:end_idx]:
+            uom = line_data['uom']
+            weight = line_data['weight']
+            
+            if uom:
+                if uom not in page_weight_by_uom:
+                    page_weight_by_uom[uom] = 0
+                page_weight_by_uom[uom] += weight
+        
+        return page_weight_by_uom
+
     def get_pallet_count_for_page(self, processed_lines, start_idx, end_idx):
         """
         Calculate unique pallet count for a specific page range.
@@ -2244,6 +2266,7 @@ class transfer_locations(models.Model):
                     # Add move-level quantities (documented/demand) only ONCE per move globally
                     # This ensures same product quantities are not duplicated across different date groups
                     if move.id not in globally_processed_moves:
+                        # grouped_moves[key]['qty_actual'] += move.x_studio_actual_packaging_demand if hasattr(move, 'x_studio_actual_packaging_demand') else 0
                         grouped_moves[key]['qty_demand'] += move.x_studio_demand_packaging if hasattr(move, 'x_studio_demand_packaging') else 0
                         grouped_moves[key]['weight_demand'] += move.product_uom_qty if hasattr(move, 'product_uom_qty') else 0
                         globally_processed_moves.add(move.id)
@@ -2337,17 +2360,16 @@ class transfer_locations(models.Model):
 
         for uom, kg in uom_total_demand_kg.items():
             kg_demand_parts.append(f"{kg:,.0f}")
-            
+                    
         return {
             'qty_formatted': "<br/>".join(qty_parts) if qty_parts else "0",
             'uom_formatted': "<br/>".join(uom_parts) if uom_parts else "",
-            'qty_demand_formatted': "<br/>".join(qty_demand_parts) if qty_demand_parts else "0",
-            'qty_actual_formatted': "<br/>".join(qty_actual_parts) if qty_actual_parts else "0",
-            'kg_actual_formatted': "<br/>".join(kg_actual_parts) if kg_actual_parts else "0",
-            'kg_demand_formatted': "<br/>".join(kg_demand_parts) if kg_demand_parts else "0"
-            
+            'qty_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in qty_demand_parts]) if qty_demand_parts else "0.00",
+            'qty_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in qty_actual_parts]) if qty_actual_parts else "0.00",
+            'kg_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_actual_parts]) if kg_actual_parts else "0.00",
+            'kg_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_demand_parts]) if kg_demand_parts else "0.00"
         }
-    
+            
     def calculate_page_data(self, processed_moves, page_size=9):
         """
         Calculate pagination data for the processed moves
@@ -2403,7 +2425,7 @@ class transfer_locations(models.Model):
             'kg_actual_formatted': grand_uom_data['kg_actual_formatted'],
             'kg_demand_formatted': uom_data['kg_demand_formatted'],
         }
-        
+
         return {
             'pages': page_data,
             'pages_count': pages_count,
@@ -3132,3 +3154,22 @@ class ProductProduct(models.Model):
             else:
                 product.name = template_name
 
+
+
+class StockLocation(models.Model):
+    _inherit = 'stock.location'
+
+    def remove_reservation(self):
+        for record in self:
+            record.x_studio_is_reserved = False
+            record.x_studio_receiving_report_id = False
+
+
+
+class StockQuantPackages(models.Model):
+    _inherit = 'stock.quant.package'
+
+    def remove_reservation(self):
+        for record in self:
+            record.x_studio_is_reserved = False
+            record.x_studio_receiving_report_id = False

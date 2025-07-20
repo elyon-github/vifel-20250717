@@ -957,8 +957,8 @@
               <xpath expr="//field[@name='location_id']" position="after">
                 <field optional="hide" name="x_studio_relocation_id" string="ID-&gt;"/>
                 <field name="x_studio_dest_relocation" optional="hide" domain="[&quot;&amp;&quot;, &quot;&amp;&quot;, &quot;&amp;&quot;, &quot;&amp;&quot;, (&quot;child_ids&quot;, &quot;=&quot;, False), (&quot;usage&quot;, &quot;=&quot;, &quot;internal&quot;), (&quot;x_studio_is_a_blast_freezer&quot;, &quot;!=&quot;, True), (&quot;location_id&quot;, &quot;!=&quot;, False), (&quot;child_ids&quot;, &quot;=&quot;, False)]" options="{&quot;no_create&quot;:true}"/>
-                <field name="original_record_reference" optional="show" readonly="1"/>
-                <field name="x_studio_record_reference" optional="show"/>
+                <field name="original_record_reference" optional="show" readonly="1" widget="many2one_clickable"/>
+                <field name="x_studio_record_reference" optional="show" widget="many2one_clickable"/>
                 <field optional="show" name="x_studio_stock_code"/>
                 <field name="x_studio_return_count" optional="show"/>
                 <field optional="show" name="x_studio_pallet_series_id"/>

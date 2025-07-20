@@ -107,6 +107,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 
                 # NEW: Update the corresponding pallet kilos record
                 self._update_pallet_kilos_record(line, changes, batch_number)
+
         
         return {'type': 'ir.actions.act_window_close'}
 
@@ -274,11 +275,13 @@ class StockQuantCorrectionWizard(models.TransientModel):
         for field_name in changes.keys():
             if hasattr(self.env['stock.move.line'], field_name):
                 current_value = getattr(quant, field_name, False)
+                if isinstance(current_value, models.Model):
+                    current_value = current_value.id
                 if field_name in ['x_studio_production_date', 'x_studio_expiration_date']:
                     move_line_vals[field_name] = current_value
                 elif field_name.startswith('x_studio_'):
                     move_line_vals[field_name] = current_value
-        
+
         move_line = self.env['stock.move.line'].create(move_line_vals)
         
         return move
@@ -292,6 +295,23 @@ class StockQuantCorrectionWizard(models.TransientModel):
             return f"{len(changes)} fields updated"
 
     
+    def _format_quantity_change_reference(self, old_quantity, new_quantity):
+        """Format quantity change reference to match the same format as other corrections"""
+        # Timestamp in UTC+8 and user info
+        from datetime import datetime, timezone, timedelta
+        utc_plus_8 = timezone(timedelta(hours=8))
+        timestamp = datetime.now(utc_plus_8).strftime('%m/%d/%y %H:%M:%S')
+        user = self.env.user.name
+        
+        # Get field label using the same helper method
+        field_label = self._get_field_label('product_uom_qty')
+        
+        # Format the quantity change in the same style as other field changes
+        old_display = self._format_value_for_display(old_quantity)
+        new_display = self._format_value_for_display(new_quantity)
+        
+        return f"CORRECTION ({timestamp} by {user}): [{field_label}: {old_display} → {new_display}]"
+    
     def _format_changes_reference(self, changes, original_state):
         """Format changes for reference field, including timestamp and user"""
         change_list = []
@@ -304,11 +324,11 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 old_display = self._format_value_for_display(old_val)
                 new_display = self._format_value_for_display(new_val)
     
-            # Clean and title-case field name
-            display_field = field.replace('x_studio_', '').replace('_', ' ').title()
+            # Get field label instead of cleaning field name
+            field_label = self._get_field_label(field)
     
             # Append formatted field change, wrapped in []
-            change_list.append(f"[{display_field}: {old_display} → {new_display}]")
+            change_list.append(f"[{field_label}: {old_display} → {new_display}]")
     
         # Timestamp in UTC+8 and user info
         from datetime import datetime, timezone, timedelta
@@ -316,21 +336,23 @@ class StockQuantCorrectionWizard(models.TransientModel):
         timestamp = datetime.now(utc_plus_8).strftime('%m/%d/%y %H:%M:%S')
         user = self.env.user.name
         return f"CORRECTION ({timestamp} by {user}): " + " ".join(change_list)
-
     
-    def _format_quantity_change_reference(self, old_quantity, new_quantity):
-        """Format quantity change reference to match the same format as other corrections"""
-        # Timestamp in UTC+8 and user info
-        from datetime import datetime, timezone, timedelta
-        utc_plus_8 = timezone(timedelta(hours=8))
-        timestamp = datetime.now(utc_plus_8).strftime('%m/%d/%y %H:%M:%S')
-        user = self.env.user.name
+    def _get_field_label(self, field_name):
+        """Helper method to get field label from field name"""
+        # First try to get from _fields
+        if field_name in self._fields:
+            return self._fields[field_name].string
         
-        # Format the quantity change in the same style as other field changes
-        old_display = self._format_value_for_display(old_quantity)
-        new_display = self._format_value_for_display(new_quantity)
+        # If not found, try fields_get() for related or computed fields
+        try:
+            field_info = self.fields_get([field_name])
+            if field_name in field_info:
+                return field_info[field_name]['string']
+        except:
+            pass
         
-        return f"CORRECTION ({timestamp} by {user}): [Quantity: {old_display} → {new_display}]"
+        # Fallback: clean and title-case field name (original behavior)
+        return field_name.replace('x_studio_', '').replace('_', ' ').title()
     
     def _format_value_for_display(self, value):
         """Format a value for display in reference"""
@@ -454,10 +476,10 @@ class StockQuantCorrectionLine(models.TransientModel):
     x_studio_start_time = fields.Datetime(string='Start Time')
     x_studio_end_time = fields.Datetime(string='End Time')
     x_studio_truck_number = fields.Char(string='Truck Number')
-    x_studio_2nd_uom = fields.Float(string='2nd UOM')
+    x_studio_2nd_uom = fields.Float(string='Total Quantity')
     x_studio_quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM')
-    x_studio_total_units = fields.Float(string='Total Units')
-    x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Min Quantity UOM')
+    x_studio_total_units = fields.Float(string='Total Heads')
+    x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Heads UOM')
     owner_id = fields.Many2one('res.partner', string="Owner")
     quantity = fields.Float(string='Quantity')
     lot_id = fields.Many2one('stock.lot', string='Lot/Serial', readonly=True)
