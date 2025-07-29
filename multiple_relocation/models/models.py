@@ -2656,7 +2656,7 @@ class transfer_locations(models.Model):
         }
         
     
-    @api.depends('location_id', 'location_dest_id')
+    @api.depends('location_id', 'location_dest_id', 'truck_type')
     def _compute_allowed_product_ids(self):
         for record in self:
             # Reset allowed product IDs
