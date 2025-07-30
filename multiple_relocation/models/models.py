@@ -932,7 +932,7 @@ class ensure_ownership(models.Model):
                 'location_dest_id': self.location_dest_id.id,
                 'move_id': self.id,
                 'picking_id': self.picking_id.id,
-                'result_package_id': generic_blast_freeze_package_id.id if is_blast_freeze else False,
+                # 'result_package_id': generic_blast_freeze_package_id.id if is_blast_freeze else False,
                 'x_studio_quantity_uom': self.x_studio_packaging_unit.id if self.x_studio_packaging_unit else False,
                 'x_studio_min_quantity_uom': self.x_studio_min_unit.id if self.x_studio_min_unit else False,
             })
