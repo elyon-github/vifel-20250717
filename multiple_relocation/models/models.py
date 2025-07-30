@@ -63,14 +63,14 @@ class multiple_relocation(models.TransientModel):
                     quants_to_unpack.move_quants(location_dest_id=dest_location_id, message=self.message, unpack=True)
                     quants -= quants_to_unpack
 
-
                 quants.move_quants(
                     location_dest_id=dest_location_id,
                     package_dest_id=self.dest_package_id,
                     message=self.message,
                     warehouseman=self.warehouseman,
                     x_reloc_batch_number=x_reloc_batch_number,
-                    x_studio_pallet_series_id=quants.x_studio_pallet_series_id,
+                    x_studio_pallet_series_id=quants[0].x_studio_pallet_series_id,
+                    bf_pallet_char=quants[0].bf_pallet_char
                 )
             
     
@@ -1607,7 +1607,7 @@ class OverrideStockQuant(models.Model):
 
 
 
-    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False):
+    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
         """ Called when user manually set a new quantity (via `inventory_quantity`)
         just before creating the corresponding stock move.
 
@@ -1650,15 +1650,16 @@ class OverrideStockQuant(models.Model):
                 'package_id': package_id.id if package_id else False,
                 'result_package_id': package_dest_id.id if package_dest_id else False,
                 'owner_id': self.owner_id.id,
-                'warehouseman': warehouseman,
+                'warehouseman': warehouseman.id if warehouseman else '',
                 'x_relocate_batch': x_reloc_batch_number,
                 'x_studio_pallet_series_id': x_studio_pallet_series_id,
+                'bf_pallet_char': bf_pallet_char,
                 'is_relocation': True if x_reloc_batch_number else False,
             })]
         }
 
 
-    def move_quants(self, location_dest_id=False, package_dest_id=False, message=False, unpack=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False):
+    def move_quants(self, location_dest_id=False, package_dest_id=False, message=False, unpack=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
         """ Directly move a stock.quant to another location and/or package by creating a stock.move.
 
         :param location_dest_id: `stock.location` destination location for the quants
@@ -1679,9 +1680,10 @@ class OverrideStockQuant(models.Model):
                 location_dest_id or quant.location_id,
                 quant.package_id,
                 result_package_id,
-                warehouseman.id,
+                warehouseman,
                 x_reloc_batch_number,
                 x_studio_pallet_series_id,
+                bf_pallet_char
             ))
         
         moves = self.env['stock.move'].create(move_vals)
@@ -2346,21 +2348,22 @@ class transfer_locations(models.Model):
         kg_actual_parts = []
         
         for uom, qty in uom_totals.items():
-            qty_parts.append(f"{qty:,.0f}")
+            qty_parts.append(f"{qty:,.2f}")
             uom_parts.append(uom)
             
         for uom, qty in uom_totals_demand.items():
-            qty_demand_parts.append(f"{qty:,.0f}")
+            qty_demand_parts.append(f"{qty:,.2f}")
 
         for uom, qty in uom_totals_actual.items():
-            qty_actual_parts.append(f"{qty:,.0f}")
+            qty_actual_parts.append(f"{qty:,.2f}")
 
         for uom, kg in uom_total_actual_kg.items():
-            kg_actual_parts.append(f"{kg:,.0f}")
+            kg_actual_parts.append(f"{kg:,.2f}")
 
         for uom, kg in uom_total_demand_kg.items():
-            kg_demand_parts.append(f"{kg:,.0f}")
-                    
+            kg_demand_parts.append(f"{kg:,.2f}")
+
+        
         return {
             'qty_formatted': "<br/>".join(qty_parts) if qty_parts else "0",
             'uom_formatted': "<br/>".join(uom_parts) if uom_parts else "",
@@ -2423,7 +2426,7 @@ class transfer_locations(models.Model):
             'qty_actual_formatted': grand_uom_data['qty_actual_formatted'],
             'uom_formatted': grand_uom_data['uom_formatted'],
             'kg_actual_formatted': grand_uom_data['kg_actual_formatted'],
-            'kg_demand_formatted': uom_data['kg_demand_formatted'],
+            'kg_demand_formatted': grand_uom_data['kg_demand_formatted'],
         }
 
         return {
@@ -2857,7 +2860,7 @@ class transfer_locations(models.Model):
     
             elif record.picking_type_code == 'incoming':
                 if record.x_studio_is_a_blast_freezer:
-                    record.allowed_value_ids = self.env['stock.location'].search([('x_studio_is_a_blast_freezer', '=', True)])
+                    record.allowed_value_ids = self.env['stock.location'].search(['|', ('x_studio_is_a_blast_freezer', '=', True), ('name', '=', 'BF'), ('warehouse_id.id', '=', record.partner_id.x_studio_warehouse.id)])
                 else:
                     domain = [
                         '&',
