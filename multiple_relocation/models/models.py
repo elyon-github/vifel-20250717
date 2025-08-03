@@ -36,7 +36,6 @@ class multiple_relocation(models.TransientModel):
                 if line_quants.x_studio_dest_relocation.id == quant.location_id.id and not quant.x_studio_dest_relocation.id and not line_quants.x_studio_dest_relocation.x_studio_is_an_aisle:
                     # raise UserError(f"Please assign a relocation location for the pallet {quant.package_id.name} first")
                     pass
-
         
         for quant in self.quant_ids:
             if quant.x_studio_special_holding:
@@ -46,6 +45,7 @@ class multiple_relocation(models.TransientModel):
         
             if not quant.x_studio_dest_relocation and not quant.x_studio_dest_relocation.x_studio_is_an_aisle:
                 raise UserError(f"It seems like a record with a Pallet Series ID of {quant.x_studio_pallet_series_id} has no Relocation Location set.")
+        
         # Group quants by package_id and location_id
         grouped_quants = {}
         for quant in self.quant_ids:
@@ -57,12 +57,20 @@ class multiple_relocation(models.TransientModel):
         for (package_id, location_id), quants in grouped_quants.items():
             dest_location_id = quants[0].x_studio_dest_relocation
             if dest_location_id:
-                # Perform relocation actions for the group of quants
+                # Handle partial package unpacking first
                 if self.is_partial_package and not self.dest_package_id:
                     quants_to_unpack = quants.filtered(lambda q: not all(sub_q in quants.ids for sub_q in q.package_id.quant_ids.ids))
-                    quants_to_unpack.move_quants(location_dest_id=dest_location_id, message=self.message, unpack=True)
+                    for unpack_quant in quants_to_unpack:
+                        unpack_quant.move_quants(
+                            location_dest_id=dest_location_id, 
+                            message=self.message, 
+                            unpack=True,
+                            warehouseman=self.warehouseman,
+                            x_reloc_batch_number=x_reloc_batch_number
+                        )
                     quants -= quants_to_unpack
-
+                
+                # Move quants as a group - the move_quants method will handle individual field values
                 quants.move_quants(
                     location_dest_id=dest_location_id,
                     package_dest_id=self.dest_package_id,
@@ -1682,8 +1690,8 @@ class OverrideStockQuant(models.Model):
                 result_package_id,
                 warehouseman,
                 x_reloc_batch_number,
-                x_studio_pallet_series_id,
-                bf_pallet_char
+                quant.x_studio_pallet_series_id,
+                quant.bf_pallet_char
             ))
         
         moves = self.env['stock.move'].create(move_vals)
