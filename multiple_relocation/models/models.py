@@ -1754,6 +1754,57 @@ class transfer_locations(models.Model):
 
     other_reasons = fields.Char(string="Specific Reason for Return", readonly=True, copy=False)
 
+
+    def process_move_lines_get_total_out(self, move_lines):
+        """
+        Simple function to group stock move lines by UOM delivery and sum packaging/kg
+        
+        Args:
+            move_lines: stock.move.line recordset or list of IDs
+        
+        Returns:
+            List of dicts: [
+                {'uom': 'Boxes', 'packaging': 700.0, 'kg': 500.0},
+                {'uom': 'Sacks', 'packaging': 350.0, 'kg': 250.0}
+            ]
+        
+        QWeb Usage:
+        <t t-foreach="totals" t-as="total">
+            <tr>
+                <td><span t-esc="total['uom']"/></td>
+                <td><span t-esc="total['packaging']"/></td>
+                <td><span t-esc="total['kg']"/></td>
+            </tr>
+        </t>
+        """
+        # Handle if move_lines is passed as IDs
+        if isinstance(move_lines, (list, tuple)):
+            move_lines = self.env['stock.move.line'].browse(move_lines)
+        
+        # Group by UOM delivery
+        grouped = {}
+        
+        for line in move_lines:
+            uom = line.x_studio_quantity_uom_delivery.name if line.x_studio_quantity_uom_delivery else ''
+            packaging = float(line.x_studio_actual_packaging or 0)
+            kg = float(line.x_studio_actual_kg or 0)
+            
+            if uom not in grouped:
+                grouped[uom] = {'packaging': 0, 'kg': 0}
+            
+            grouped[uom]['packaging'] += packaging
+            grouped[uom]['kg'] += kg
+        
+        # Convert to list format for easy QWeb iteration
+        result = []
+        for uom, totals in grouped.items():
+            result.append({
+                'uom': uom,
+                'packaging': totals['packaging'],
+                'kg': totals['kg']
+            })
+        
+        return result
     # @api.model
     def _get_max_days_back_config(self):
         """Get the maximum days back configuration from static variables"""
@@ -2608,9 +2659,10 @@ class transfer_locations(models.Model):
             lot_ids = picking.move_line_ids.mapped('lot_id.id')  # Get lot/serial numbers
 
             domain = []
+            is_blast_freeze, is_receiving = picking.operation_type_checker(picking.picking_type_id)
             if picking.picking_type_id.code == 'incoming':
                 domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False)]
-            elif picking.picking_type_id.code == 'outgoing':
+            elif picking.picking_type_id.code == 'outgoing' and not is_blast_freeze:
                 child_location_ids = self.env['stock.location'].search([
                     ('id', 'child_of', picking.location_id.id)
                 ]).ids
@@ -2624,7 +2676,20 @@ class transfer_locations(models.Model):
                     ('x_studio_record_reference', '!=', False),
                     ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
                 ]
-
+            elif picking.picking_type_id.code == 'outgoing' and is_blast_freeze:
+                child_location_ids = self.env['stock.location'].search([
+                    ('id', 'child_of', picking.location_id.id)
+                ]).ids
+                domain = [
+                    ('location_id', 'in', child_location_ids),
+                    ('owner_id', '=', picking.partner_id.id if picking.partner_id else False),
+                    # ('package_id', '!=', False),
+                    ('lot_id', '!=', False),
+                    ('lot_id', 'not in', lot_ids),
+                    ('quantity', '!=', 0),
+                    ('x_studio_record_reference', '!=', False),
+                    ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
+                ]
             # Compute count based on filtered quants
             picking.quant_count = self.env['stock.quant'].search_count(domain)
            
@@ -2634,10 +2699,10 @@ class transfer_locations(models.Model):
         self.ensure_one()
         lot_ids = self.move_line_ids.mapped('lot_id.id')
         domain = []
-
+        is_blast_freeze, is_receiving = self.operation_type_checker(self.picking_type_id)
         if self.picking_type_id.code == 'incoming':
             domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False )]
-        elif self.picking_type_id.code == 'outgoing':
+        elif self.picking_type_id.code == 'outgoing' and not is_blast_freeze:
             child_location_ids = self.env['stock.location'].search([
                     ('id', 'child_of', self.location_id.id)
                 ]).ids
@@ -2648,6 +2713,20 @@ class transfer_locations(models.Model):
                 ('quantity', '!=', 0),
                 ('package_id', '!=', False), ('lot_id', '!=', False), ('x_studio_record_reference', '!=', False), ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
 
+        elif self.picking_type_id.code == 'outgoing' and is_blast_freeze:
+            child_location_ids = self.env['stock.location'].search([
+                                ('id', 'child_of', self.location_id.id)
+                            ]).ids
+            domain = [
+                ('location_id', 'in', child_location_ids),  # Get all child locations, including self
+                ('owner_id', '=', self.partner_id.id if self.partner_id else False),
+                ('lot_id', 'not in', lot_ids),
+                ('quantity', '!=', 0),
+                # ('package_id', '!=', False),
+                ('lot_id', '!=', False),
+                ('x_studio_record_reference', '!=', False),
+                ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
+            
         return {
             'name': 'Stock Quants',
             'type': 'ir.actions.act_window',
