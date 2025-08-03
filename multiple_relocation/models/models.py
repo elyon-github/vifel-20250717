@@ -1762,7 +1762,20 @@ class transfer_locations(models.Model):
 
     other_reasons = fields.Char(string="Specific Reason for Return", readonly=True, copy=False)
 
+    return_id_already_done = fields.Boolean(string="Return Already Validated", compute="_compute_return_id_already_validated", store=True)
 
+    @api.depends('return_ids.state')
+    def _compute_return_id_already_validated(self):
+        for record in self:
+            already_done = False
+            if record.return_ids:
+                for rr_return_id in record.return_ids:
+                    if rr_return_id.state == 'done':
+                        already_done = True
+                        break
+            record.return_id_already_done = already_done
+            
+    
     def process_move_lines_get_total_out(self, move_lines):
         """
         Simple function to group stock move lines by UOM delivery and sum packaging/kg
