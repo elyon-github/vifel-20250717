@@ -13,47 +13,89 @@ import { ListController } from "@web/views/list/list_controller";
  */
 
 console.log("🔥 Patch file loading!"); 
-
 patch(ListController.prototype, {
-    // Add getter
-    get SelectedQuantitySum() {
+    // Helper function to format numbers with commas
+    formatNumberWithCommas(number) {
+        return parseFloat(number).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    },
+
+    // Add getter for selected quantity sum
+    get selectedQuantitySum() {
         const selection = this.model.root.selection;
         if (!selection || selection.length === 0) {
             return "0.00";
         }
         
         const total = selection.reduce((sum, record) => {
-            const qty = parseFloat(record.data?.available_quantity) || 0;
+            const qty = parseFloat(record.data.x_studio_2nd_uom) || 0;
             return sum + qty;
         }, 0);
         
-        return total.toFixed(2);
+        return this.formatNumberWithCommas(total);
     },
 
-    // Or add regular method
-    getSelectedQuantitySum() {
+    // Add getter for selected KG sum
+    get selectedKgSum() {
         const selection = this.model.root.selection;
         if (!selection || selection.length === 0) {
             return "0.00";
         }
         
         const total = selection.reduce((sum, record) => {
-            const qty = parseFloat(record.data?.available_quantity) || 0;
-            return sum + qty;
+            const kg = parseFloat(record.data.available_quantity) || 0;
+            return sum + kg;
         }, 0);
         
-        return total.toFixed(2);
+        return this.formatNumberWithCommas(total);
     },
 
-    // If you need to extend setup method
+    // Add getter for selected packs sum
+    get selectedPacksSum() {
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return "0.00";
+        }
+        
+        const total = selection.reduce((sum, record) => {
+            const pcks = parseFloat(record.data.x_studio_total_units) || 0;
+            return sum + pcks;
+        }, 0);
+        
+        return this.formatNumberWithCommas(total);
+    },
+
+    // Add getter for unique pallets count
+    get selectedPalletsCount() {
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return "0";
+        }
+        
+        const uniquePallets = new Set();
+        selection.forEach(record => {
+            const palletId = record.data.x_studio_pallet_series_id;
+            if (palletId) {
+                // Handle both string and array formats (in case it's a relational field)
+                const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
+                if (palletValue) {
+                    uniquePallets.add(palletValue);
+                }
+            }
+        });
+        
+        return uniquePallets.size.toString();
+    },
+
+    // Setup method for additional initialization
     setup() {
         super.setup();
-        // Add your additional setup logic here
-        console.log("Custom setup logic executed");
+        // Custom setup logic if needed
+        console.log("Custom ListController setup completed");
     }
 });
-
-
 
 // I Flippin DID IT!!! I was here Mark Angelo Templanza. 
 patch(ListRenderer.prototype, {
