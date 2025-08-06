@@ -640,7 +640,14 @@ class ReturnPackageWizard(models.TransientModel):
             'return_id': self.picking_id.id,
             'return_reason': self.return_reason,
             'x_studio_for_revision': True if self.return_reason == 'Wrong Details Encoded' else False,
-            'other_reasons': self.other_reasons
+            'other_reasons': self.other_reasons,
+            'x_studio_start_time': self.picking_id.x_studio_end_time,
+            'x_studio_truck_time': self.picking_id.x_studio_truck_time,
+            'truck_type': self.picking_id.truck_type,
+            'x_studio_trucks_plate_': self.picking_id.x_studio_trucks_plate_,
+            'x_studio_driver': self.picking_id.x_studio_driver,
+            'x_studio_loading_dock_no': self.picking_id.x_studio_loading_dock_no,
+            'x_studio_source': self.picking_id.name,
         })
 
         product_data = {}

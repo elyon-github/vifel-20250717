@@ -6,11 +6,54 @@ import { patch } from "@web/core/utils/patch";
  * then use that path. Adjust if it's different in your system.
  */
 import { ListRenderer } from "@web/views/list/list_renderer";
-
+import { ListController } from "@web/views/list/list_controller";
 /**
  * IMPORTANT: The new patch API in Odoo 17 does not allow
  * a second argument as the patch name. We pass only the object.
  */
+
+console.log("🔥 Patch file loading!"); 
+
+patch(ListController.prototype, {
+    // Add getter
+    get SelectedQuantitySum() {
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return "0.00";
+        }
+        
+        const total = selection.reduce((sum, record) => {
+            const qty = parseFloat(record.data?.available_quantity) || 0;
+            return sum + qty;
+        }, 0);
+        
+        return total.toFixed(2);
+    },
+
+    // Or add regular method
+    getSelectedQuantitySum() {
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return "0.00";
+        }
+        
+        const total = selection.reduce((sum, record) => {
+            const qty = parseFloat(record.data?.available_quantity) || 0;
+            return sum + qty;
+        }, 0);
+        
+        return total.toFixed(2);
+    },
+
+    // If you need to extend setup method
+    setup() {
+        super.setup();
+        // Add your additional setup logic here
+        console.log("Custom setup logic executed");
+    }
+});
+
+
 
 // I Flippin DID IT!!! I was here Mark Angelo Templanza. 
 patch(ListRenderer.prototype, {

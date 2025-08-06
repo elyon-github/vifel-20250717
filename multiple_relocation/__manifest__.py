@@ -32,19 +32,21 @@ Long description of module's purpose
         'wizard/stock_quant_correction.xml',
         'reports/inventory_summary_view.xml',
         'reports/count_sheet_view.xml',
-        'data/data.xml'
+        'data/data.xml',
         
     ],
     # only loaded in demonstration mode
     'demo': [
         'demo/demo.xml',
+        
     ],
     'assets': {
         'web.assets_backend': [
             'multiple_relocation/static/src/images/logo_1.jpg',
             'multiple_relocation/static/src/css/custom_css.scss',
             'multiple_relocation/static/src/js/test.js',
-            'multiple_relocation/static/src/js/test2.js'
+            'multiple_relocation/static/src/js/test2.js',
+            'multiple_relocation/static/src/views/templates.xml',
         ],
         
     }

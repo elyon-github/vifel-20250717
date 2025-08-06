@@ -1092,7 +1092,97 @@ class OverrideStockQuant(models.Model):
 
     #         return self.env['stock.move.line'].search(domain)
 
+    
+    def re_sync_pallet_kilos_from_quants(self, records):
+        # Get unique owner_ids and create grouped array
+        owner_ids = list(set(records.mapped('owner_id')))
+        result = [
+            {'owner_id': records.filtered(lambda r: r.owner_id == owner_id)}
+            for owner_id in owner_ids
+        ]
+        
+        # Loop through groups
+        for group in result:
+            owner_records = group['owner_id']
+            owner_name = owner_records[0].owner_id.name if owner_records and owner_records[0].owner_id else 'No Owner'
+            print(f"Owner: {owner_name}")
+            
+            for record in owner_records:
+                # Process each record in the group
+                print(f"  Record: {record.name}")
 
+    
+    def write(self, vals):
+        """ Override to handle the "inventory mode" and create the inventory move. """
+        forbidden_fields = self._get_forbidden_fields_write()
+        if self._is_inventory_mode() and any(field for field in forbidden_fields if field in vals.keys()):
+            if any(quant.location_id.usage == 'inventory' for quant in self):
+                # Do nothing when user tries to modify manually a inventory loss
+                return
+            self = self.sudo()
+            # raise UserError(_("Quant's editing is restricted, you can't do this operation."))
+        return super(OverrideStockQuant, self).write(vals)
+        
+    @api.model_create_multi
+    def create(self, vals_list):
+        """ Override to handle the "inventory mode" and create a quant as
+        superuser the conditions are met.
+        """
+        quants = self.env['stock.quant']
+        is_inventory_mode = self._is_inventory_mode()
+        allowed_fields = self._get_inventory_fields_create()
+        for vals in vals_list:
+            if is_inventory_mode and any(f in vals for f in ['inventory_quantity', 'inventory_quantity_auto_apply']):
+                # if any(field for field in vals.keys() if field not in allowed_fields):
+                #     raise UserError(_("Quant's creation is restricted, you can't do this operation."))
+                auto_apply = 'inventory_quantity_auto_apply' in vals
+                inventory_quantity = vals.pop('inventory_quantity_auto_apply', False) or vals.pop(
+                    'inventory_quantity', False) or 0
+                # Create an empty quant or write on a similar one.
+                product = self.env['product.product'].browse(vals['product_id'])
+                location = self.env['stock.location'].browse(vals['location_id'])
+                lot_id = self.env['stock.lot'].browse(vals.get('lot_id'))
+                package_id = self.env['stock.quant.package'].browse(vals.get('package_id'))
+                owner_id = self.env['res.partner'].browse(vals.get('owner_id'))
+                quant = self.env['stock.quant']
+                if not self.env.context.get('import_file'):
+                    # Merge quants later, to make sure one line = one record during batch import
+                    quant = self._gather(product, location, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=True)
+                if lot_id:
+                    if self.env.context.get('import_file') and lot_id.product_id != product:
+                        lot_name = lot_id.name
+                        lot_id = self.env['stock.lot'].search([('product_id', '=', product.id), ('name', '=', lot_name)], limit=1)
+                        if not lot_id:
+                            company_id = location.company_id or self.env.company
+                            lot_id = self.env['stock.lot'].create({'name': lot_name, 'product_id': product.id, 'company_id': company_id.id})
+                        vals['lot_id'] = lot_id.id
+                    quant = quant.filtered(lambda q: q.lot_id)
+                if quant:
+                    quant = quant[0].sudo()
+                else:
+                    quant = self.sudo().create(vals)
+                    if 'quants_cache' in self.env.context:
+                        self.env.context['quants_cache'][
+                            quant.product_id.id, quant.location_id.id, quant.lot_id.id, quant.package_id.id, quant.owner_id.id
+                        ] |= quant
+                if auto_apply:
+                    quant.write({'inventory_quantity_auto_apply': inventory_quantity})
+                else:
+                    # Set the `inventory_quantity` field to create the necessary move.
+                    quant.inventory_quantity = inventory_quantity
+                    quant.user_id = vals.get('user_id', self.env.user.id)
+                    quant.inventory_date = fields.Date.today()
+                quants |= quant
+            else:
+                quant = super().create(vals)
+                if 'quants_cache' in self.env.context:
+                    self.env.context['quants_cache'][
+                        quant.product_id.id, quant.location_id.id, quant.lot_id.id, quant.package_id.id, quant.owner_id.id
+                    ] |= quant
+                quants |= quant
+                if self._is_inventory_mode():
+                    quant._check_company()
+        return quants
 
     @api.model
     def _update_available_quantity(self, product_id, location_id, quantity=False, reserved_quantity=False, lot_id=None, package_id=None, owner_id=None, in_date=None):
@@ -1161,6 +1251,7 @@ class OverrideStockQuant(models.Model):
                 vals['reserved_quantity'] = reserved_quantity
             self.create(vals)
         return self._get_available_quantity(product_id, location_id, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=True, allow_negative=True), in_date
+        
     def action_view_stock_moves(self):
         self.ensure_one()
         
@@ -1168,7 +1259,7 @@ class OverrideStockQuant(models.Model):
     
         # Set domain
         domain = [
-            ('x_studio_pallet_series_id', '=', self.x_studio_pallet_series_id),
+            # ('x_studio_pallet_series_id', '=', self.x_studio_pallet_series_id),
             ('lot_id', '=', self.lot_id.id),
         ]
         if self.package_id:
@@ -2694,7 +2785,7 @@ class transfer_locations(models.Model):
                     ('lot_id', '!=', False),
                     ('lot_id', 'not in', lot_ids),
                     ('quantity', '!=', 0),
-                    ('x_studio_record_reference', '!=', False),
+                    # ('x_studio_record_reference', '!=', False),
                     ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
                 ]
             elif picking.picking_type_id.code == 'outgoing' and is_blast_freeze:
@@ -2708,7 +2799,7 @@ class transfer_locations(models.Model):
                     ('lot_id', '!=', False),
                     ('lot_id', 'not in', lot_ids),
                     ('quantity', '!=', 0),
-                    ('x_studio_record_reference', '!=', False),
+                    # ('x_studio_record_reference', '!=', False),
                     ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
                 ]
             # Compute count based on filtered quants
@@ -2732,7 +2823,9 @@ class transfer_locations(models.Model):
                 ('owner_id', '=', self.partner_id.id if self.partner_id else False),
                 ('lot_id', 'not in', lot_ids),
                 ('quantity', '!=', 0),
-                ('package_id', '!=', False), ('lot_id', '!=', False), ('x_studio_record_reference', '!=', False), ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
+                ('package_id', '!=', False), ('lot_id', '!=', False),
+                # ('x_studio_record_reference', '!=', False),
+                ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
 
         elif self.picking_type_id.code == 'outgoing' and is_blast_freeze:
             child_location_ids = self.env['stock.location'].search([
@@ -2745,7 +2838,7 @@ class transfer_locations(models.Model):
                 ('quantity', '!=', 0),
                 # ('package_id', '!=', False),
                 ('lot_id', '!=', False),
-                ('x_studio_record_reference', '!=', False),
+                # ('x_studio_record_reference', '!=', False),
                 ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
             
         return {

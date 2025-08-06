@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <!-- Option 1: Target the unselect button and add before it -->
+    <t t-name="web.ListView.Selection" t-inherit="web.ListView.Selection" t-inherit-mode="extension">
+        <xpath expr="//a[@class='o_list_unselect_all btn btn-link py-0']" position="before">
+            <span t-if="nbSelected > 0" class="ms-3 badge bg-success text-white px-2 py-1 rounded-pill">
+                <i class="oi oi-balance-scale me-1"></i>
+                Total Qty: <span t-esc="SelectedQuantitySum"/>
+            </span>
+        </xpath>
+    </t>
+    
+    <!-- Option 2: Target the select domain link and add after it -->
+    <!--
+    <t t-name="web.ListView.Selection" t-inherit="web.ListView.Selection" t-inherit-mode="extension">
+        <xpath expr="//a[@class='o_list_select_domain ms-3 btn btn-sm btn-info p-1 me-n2 border-0 fw-normal']" position="after">
+            <span t-if="nbSelected > 0" class="ms-3 badge bg-success text-white px-2 py-1 rounded-pill">
+                <i class="oi oi-balance-scale me-1"></i>
+                Total Qty: <span t-esc="getSelectedQuantitySum()"/>
+            </span>
+        </xpath>
+    </t>
+    -->
+    
+    <!-- Option 3: Target the t-else block -->
+    <!--
+    <t t-name="web.ListView.Selection" t-inherit="web.ListView.Selection" t-inherit-mode="extension">
+        <xpath expr="//t[@t-else]" position="after">
+            <span t-if="nbSelected > 0" class="ms-3 badge bg-success text-white px-2 py-1 rounded-pill">
+                <i class="oi oi-balance-scale me-1"></i>
+                Total Qty: <span t-esc="getSelectedQuantitySum()"/>
+            </span>
+        </xpath>
+    </t>
+    -->
+</templates>

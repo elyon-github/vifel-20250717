@@ -1265,6 +1265,7 @@
             <field name="arch" type="xml">
                 <!-- Example: Add a column after 'inventory_quantity' field -->
                 <xpath expr="//field[@name='location_id']" position="after">
+                    <field name="owner_id"/>
                     <field optional="show" name="x_studio_opening_balance_record_reference"/>
                     <field optional="show" name="x_studio_building_dropped"/>
                 </xpath>
