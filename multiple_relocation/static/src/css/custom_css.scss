@@ -1,0 +1,11 @@
+@media (min-width: 992px) {
+  .modal-lg {
+    max-width: 95%;
+
+  }
+}
+
+.o-mail-ChatWindow {
+    z-index: 9999999 !important; /* Higher than modal (usually 1050) */
+
+}

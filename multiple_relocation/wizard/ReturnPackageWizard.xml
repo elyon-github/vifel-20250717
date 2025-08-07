@@ -1,0 +1,113 @@
+<odoo>
+    <!-- Action for the Return Package Wizard -->
+    <record id="act_return_package_wizard" model="ir.actions.act_window">
+        <field name="name">Return Packages</field>
+        <field name="res_model">return.package.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_return_package_wizard_form"/>
+        <field name="target">new</field>
+        <field name="context">{'dialog_size': 'medium'}</field>
+    </record>
+
+    <!-- Inheritance of stock picking form to add 'Return Packages' buttons -->
+    <record id="stock_picking_form_inherit" model="ir.ui.view">
+        <field name="name">stock.picking.form.inherit.return.package</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form[1]/header[1]/button[@name='button_validate']" position="after">
+                <button name="action_return_packages" string="Return Pallets" type="object" class="oe_highlight"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Form view for the Return Package Wizard -->
+    <record id="view_return_package_wizard_form" model="ir.ui.view">
+        <field name="name">return.package.wizard.form</field>
+        <field name="model">return.package.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Return Package Wizard" class="o_form_view o_form_wizard">
+                <sheet  style="width: 100%; max-width: none;">
+                    <group col="2">
+                        <field name="picking_id"/>
+                        <field name="existing_return_picking_id" readonly="1"/>
+                        <field name="location_id"/>
+                        <field name="is_a_blast_freeze" invisible="1"/>
+                        <field name="has_sync_warnings" invisible="1"/>
+                        <field name="select_all"/>
+                        <field name="return_reason"/>
+                        <field name="other_reasons" required="return_reason == 'Others'"/>
+                    </group>
+                    
+                    <!-- Warning message display -->
+                    <div class="alert alert-warning" role="alert" invisible="not has_sync_warnings">
+                        <field name="sync_warning_message" nolabel="1"/>
+                    </div>
+                    
+                    <!-- Notebook with full width -->
+                    <div style="width: 100%; height: 450px; margin-top: 10px;">
+                        <notebook class="o_notebook">
+                            <page string="Package Lines" class="o_notebook_page">
+                                <field name="package_line_ids" nolabel="1" widget="one2many" style="width: 100%; height: 100%;" readonly="not return_reason">
+                                    <tree editable="bottom" multi_edit="1" limit="80">
+                                        <field name="location_id" column_invisible="1" invisible="1"/>
+                                        <field name="pallet_type" column_invisible="1" invisible="1"/>
+                                        <field name="warehouse_id" column_invisible="1" invisible="1"/>
+                                        <field name="lot_id" column_invisible="1" invisible="1"/>
+                                        <field name="select_package"/>
+
+                                        <field name="is_a_blast_freeze" column_invisible="1"/>
+                                        <field name="has_pack_sync_issue" column_invisible="1"/>
+                                        <field name="has_min_sync_issue" column_invisible="1"/>
+                                        <field name="has_qty_sync_issue" column_invisible="1"/>
+                                        <field name="x_studio_building_dropped"/>
+                                        <field name="original_record_reference"/>
+                                        <field name="product_id"/>
+                                        <field name="return_counter" readonly="1"/>
+                                        <field name="pallet_series_id" readonly="is_a_blast_freeze"/>
+                                        <field name="bf_pallet_char" readonly="not is_a_blast_freeze"/>
+                                        <field name="result_package_id" domain="[
+                                                                               ('location_id', '=', False), 
+                                                                               ('x_studio_is_reserved', '=', False)
+                                                                           ]"/>
+                                        <field name="location_dest_id" domain="[
+                                                                                ('x_studio_occupied_by', '=', False),
+                                                                                ('x_studio_is_reserved', '=', False), 
+                                                                                ('child_ids', '=', False),
+                                                                                ('id', 'child_of', location_id)
+                                                                            ]"/>
+                                        <field name="container_number"/>
+                                        <field name="production_date"/>
+                                        <field name="expiration_date"/>
+                                        <field name="actual_pack_uom_unit" readonly="1" force_save="1"/>
+                                        <field name="pack_uom_unit" 
+                                               decoration-bg-info="select_package and actual_pack_uom_unit"
+                                             />
+                                          <!-- decoration-warning="pack_uom_unit != actual_pack_uom_unit" --> 
+                                        <field name="pack_uom"/>
+                                        <field name="actual_min_uom_unit" readonly="1" force_save="1"/>
+                                        <field name="min_uom_unit" 
+                                               decoration-bg-info="select_package and min_uom_unit"
+                                                />
+                                        <!-- decoration-warning="min_uom_unit != actual_min_uom_unit" -->
+                                        <field name="min_uom"/>
+                                        <field name="actual_quantity" readonly="1" force_save="1"/>
+                                        <field name="quantity" 
+                                            decoration-bg-info="select_package" 
+                                             />
+                                        <!-- decoration-warning="actual_quantity != quantity" -->
+                                    </tree>
+                                </field>
+                            </page>
+                        </notebook>
+                    </div>
+                </sheet>
+                
+                <footer>
+                    <button name="action_process_return" string="Process Return" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

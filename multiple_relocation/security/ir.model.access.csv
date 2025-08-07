@@ -1,0 +1,8 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_return_package_wizard,return.package.wizard,model_return_package_wizard,base.group_user,1,1,1,1
+access_return_package_wizard_line,return.package.wizard.line,model_return_package_wizard_line,base.group_user,1,1,1,1
+access_client_expiry_table,client.expiry.table,model_client_expiry_table,base.group_user,1,1,1,1
+access_select_quant.wizard,select_quant.wizard,model_select_quant_wizard,base.group_user,1,1,1,1
+access_partial_package_notice,wizard.partial.package.notice,model_wizard_partial_package_notice,,1,0,1,0
+access_stock_quant_correction_wizard,stock.quant.correction.wizard,model_stock_quant_correction_wizard,stock.group_stock_user,1,1,1,1
+access_stock_quant_correction_line,stock.quant.correction.line,model_stock_quant_correction_line,stock.group_stock_user,1,1,1,1

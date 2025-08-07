@@ -1,0 +1,24 @@
+<odoo noupdate="0">
+    <!-- Define the server action -->
+
+    <record id="service_product" model="product.product">
+        <field name="name">Reboxing</field>
+        <field name="sale_ok">1</field>
+        <field name="detailed_type">service</field>
+        <field name="standard_price">0.00</field>
+    </record>
+
+    <record id="service_product_2" model="product.product">
+        <field name="name">Resacking</field>
+        <field name="sale_ok">1</field>
+        <field name="detailed_type">service</field>
+        <field name="standard_price">0.00</field>
+    </record>
+
+    <record id="service_product_3" model="product.product">
+        <field name="name">Repacking</field>
+        <field name="sale_ok">1</field>
+        <field name="detailed_type">service</field>
+        <field name="standard_price">0.00</field>
+    </record>
+</odoo>

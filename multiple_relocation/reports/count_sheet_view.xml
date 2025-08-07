@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+        <record id="xlsx_count_sheet" model="ir.actions.report">
+                <field name="name">Count Sheet</field>
+                <field name="model">stock.location</field>
+                <field name="report_type">xlsx</field>
+                <field name="report_name">stock_location.count_sheet_xlsx</field>
+                <field name="report_file">stock_location.count_sheet_xlsx</field>
+                <field name="print_report_name">'Count Sheet'</field>
+        </record>
+</odoo>
+
