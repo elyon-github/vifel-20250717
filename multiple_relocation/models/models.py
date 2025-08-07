@@ -347,7 +347,8 @@ class stock_move_line_Override(models.Model):
     def _computed_computed_quant_id(self):
         for record in self:
             if record.lot_id:
-                record.computed_quant_id = self.env['stock.quant'].search([('lot_id', '=', record.lot_id.id)])[0]
+                lots = self.env['stock.quant'].search([('lot_id', '=', record.lot_id.id)])
+                record.computed_quant_id = lots[0] if lots else False
             else:
                 record.computed_quant_id = False
     def unlink(self):
@@ -1260,7 +1261,7 @@ class OverrideStockQuant(models.Model):
         # Set domain
         domain = [
             # ('x_studio_pallet_series_id', '=', self.x_studio_pallet_series_id),
-            ('lot_id', '=', self.lot_id.id),
+            # ('lot_id', '=', self.lot_id.id),
         ]
         if self.package_id:
             domain += [
