@@ -178,9 +178,9 @@ class SelectQuantWizard(models.TransientModel):
                 
                 # Clear existing quant selections for this product in this move
                 # to avoid duplicates (will re-add all needed quants)
-                existing_quants = this_stock_move.quant_ids_picked
-                if existing_quants:
-                    this_stock_move.write({'quant_ids_picked': [(5, 0, 0)]})
+                # existing_quants = this_stock_move.quant_ids_picked
+                # if existing_quants:
+                #     this_stock_move.write({'quant_ids_picked': [(5, 0, 0)]})
                 
                 # Process all quants for the main product
                 for quant in main_product_quants:
@@ -238,8 +238,8 @@ class SelectQuantWizard(models.TransientModel):
                     
                     # CRITICAL: Clear any existing quants for this move to avoid carrying over
                     # quants from other products
-                    if target_move.quant_ids_picked:
-                        target_move.write({'quant_ids_picked': [(5, 0, 0)]})
+                    # if target_move.quant_ids_picked:
+                    #     target_move.write({'quant_ids_picked': [(5, 0, 0)]})
                         
                     # Also clear any move lines
                     if target_move.move_line_ids:
@@ -410,225 +410,7 @@ class SelectQuantWizard(models.TransientModel):
             'target': 'new',
         }
             
-    # def action_confirm(self):
-    #     # Browse the stock.move record and the transfer (picking)
-    #     this_stock_move = self.env['stock.move'].browse(self.stock_move_id)
-    #     transfer_id = self.env['stock.picking'].browse(self.transfer_id)
-        
-    #     # Basic validation
-    #     if not this_stock_move.exists():
-    #         raise UserError("The Stock Move record does not exist.")
-        
-    #     # --- Identify packages to work with ---
-    #     # Get currently selected packages in this wizard
-    #     selected_packages = self.quant_ids_picked.mapped('package_id')
-        
-    #     # Get previously selected packages from the stock move
-    #     previous_packages = this_stock_move.quant_ids_picked.mapped('package_id')
-        
-    #     # Identify packages to remove (those that were previously selected but aren't anymore)
-    #     packages_to_remove = previous_packages - selected_packages
-    #     packages_to_add = selected_packages - previous_packages
-    #     packages_unchanged = selected_packages & previous_packages
-        
-    #     # --- Step 1: Handle removals first ---
-    #     if packages_to_remove:
-    #         # Find all quants and move lines related to these packages in the entire transfer
-    #         for move in transfer_id.move_ids:
-    #             # Remove quants for these packages
-    #             quants_to_remove = move.quant_ids_picked.filtered(
-    #                 lambda q: q.package_id in packages_to_remove
-    #             )
-    #             if quants_to_remove:
-    #                 move.write({'quant_ids_picked': [(3, quant.id) for quant in quants_to_remove]})
-                
-    #             # Remove move lines for these packages
-    #             move_lines_to_remove = move.move_line_ids.filtered(
-    #                 lambda ml: ml.package_id in packages_to_remove
-    #             )
-    #             if move_lines_to_remove:
-    #                 move_lines_to_remove.unlink()
-        
-    #     # --- Step 2: Process packages to add or keep ---
-    #     if packages_to_add or packages_unchanged:
-    #         # Get all active quants from packages to process with positive quantity
-    #         packages_to_process = packages_to_add | packages_unchanged
-            
-    #         # PREVENTION: Only get quants with positive quantity and valid lot
-    #         all_package_quants = self.env['stock.quant'].search([
-    #             ('package_id', 'in', packages_to_process.ids),
-    #             ('lot_id', '!=', False),
-    #             ('quantity', '>', 0),
-    #             ('owner_id', '=', self.owner_id.id if self.owner_id else False)
-    #         ])
-            
-    #         # Track which product-location combinations have been processed
-    #         processed_combinations = set()
-            
-    #         # Process main product quants
-    #         main_product_quants = all_package_quants.filtered(lambda q: q.product_id.id == this_stock_move.product_id.id)
-            
-    #         for quant in main_product_quants:
-    #             # Create a unique key for this product-location combination
-    #             key = (quant.product_id.id, quant.location_id.id, quant.package_id.id)
-                
-    #             # PREVENTION: Skip if we've already processed this combination
-    #             if key in processed_combinations:
-    #                 continue
-    #             processed_combinations.add(key)
-                
-    #             # Add to quant_ids_picked if not already there
-    #             if quant not in this_stock_move.quant_ids_picked:
-    #                 this_stock_move.write({'quant_ids_picked': [(4, quant.id)]})
-                
-    #             # Check if move line exists
-    #             existing_line = this_stock_move.move_line_ids.filtered(
-    #                 lambda ml: ml.lot_id.id == quant.lot_id.id and 
-    #                           ml.package_id.id == quant.package_id.id
-    #             )
-                
-    #             if existing_line:
-    #                 # Update existing line
-    #                 existing_line.write({'quantity': quant.quantity})
-    #             else:
-    #                 # Create new move line
-    #                 self.env['stock.move.line'].create({
-    #                     'move_id': this_stock_move.id,
-    #                     'product_id': quant.product_id.id,
-    #                     'quantity': quant.quantity,
-    #                     'lot_id': quant.lot_id.id,
-    #                     'package_id': quant.package_id.id,
-    #                     'location_id': this_stock_move.location_id.id,
-    #                     'location_dest_id': this_stock_move.location_dest_id.id if this_stock_move.location_dest_id else 5,
-    #                     'quant_id': quant.id,
-    #                     'computed_quant_id': quant.id,
-    #                 })
-            
-    #         # Update quantity for main move
-    #         this_stock_move.product_uom_qty = sum(this_stock_move.quant_ids_picked.mapped('quantity'))
-            
-    #         # Process other products in the same packages
-    #         other_product_quants = all_package_quants.filtered(lambda q: q.product_id.id != this_stock_move.product_id.id)
-            
-    #         # Group other quants by product
-    #         quants_by_product = {}
-    #         for quant in other_product_quants:
-    #             # PREVENTION: Skip if we've already processed this combination
-    #             key = (quant.product_id.id, quant.location_id.id, quant.package_id.id)
-    #             if key in processed_combinations:
-    #                 continue
-    #             processed_combinations.add(key)
-                
-    #             quants_by_product.setdefault(quant.product_id.id, []).append(quant)
-            
-    #         # Process each product group
-    #         for product_id, quants in quants_by_product.items():
-    #             # Skip if no quants left
-    #             if not quants:
-    #                 continue
-                    
-    #             # Find existing move or create new one
-    #             existing_move = transfer_id.move_ids.filtered(
-    #                 lambda m: m.id != this_stock_move.id and m.product_id.id == product_id
-    #             )
-                
-    #             if existing_move:
-    #                 target_move = existing_move[0]
-    #             else:
-    #                 # PREVENTION: Only create new move if we have valid quants
-    #                 target_move = self.env['stock.move'].create({
-    #                     'name': quants[0].product_id.name,
-    #                     'picking_id': transfer_id.id,
-    #                     'product_id': product_id,
-    #                     'product_uom': quants[0].product_id.uom_id.id,
-    #                     'product_uom_qty': sum(q.quantity for q in quants),
-    #                     'location_id': this_stock_move.location_id.id,
-    #                     'location_dest_id': this_stock_move.location_dest_id.id,
-    #                     'automatically_added': True,
-    #                 })
-                
-    #             # Add quants to target move
-    #             for quant in quants:
-    #                 # Add to quant_ids_picked
-    #                 if quant not in target_move.quant_ids_picked:
-    #                     target_move.write({'quant_ids_picked': [(4, quant.id)]})
-                    
-    #                 # Check if move line exists
-    #                 existing_line = target_move.move_line_ids.filtered(
-    #                     lambda ml: ml.lot_id.id == quant.lot_id.id and 
-    #                               ml.package_id.id == quant.package_id.id
-    #                 )
-                    
-    #                 if existing_line:
-    #                     # Update existing line
-    #                     existing_line.write({'quantity': quant.quantity})
-    #                 else:
-    #                     # Create new move line
-    #                     self.env['stock.move.line'].create({
-    #                         'move_id': target_move.id,
-    #                         'product_id': quant.product_id.id,
-    #                         'quantity': quant.quantity,
-    #                         'lot_id': quant.lot_id.id,
-    #                         'package_id': quant.package_id.id,
-    #                         'location_id': target_move.location_id.id,
-    #                         'location_dest_id': target_move.location_dest_id.id if target_move.location_dest_id else 5,
-    #                         'quant_id': quant.id,
-    #                         'computed_quant_id': quant.id,
-    #                     })
-                
-    #             # Update quantity for this move
-    #             target_move.product_uom_qty = sum(target_move.quant_ids_picked.mapped('quantity'))
-        
-    #     # --- Step 3: Clean up empty moves ---
-    #     # Delete any moves with no quants left
-    #     for move in transfer_id.move_ids:
-    #         if move.id != this_stock_move.id:  # Don't delete the main move
-    #             if not move.quant_ids_picked or sum(move.quant_ids_picked.mapped('quantity')) <= 0:
-    #                 move.move_line_ids.unlink()
-    #                 move.unlink()
-        
-    #     # Update destination location for all move lines
-    #     location = self.env['stock.location'].browse(5)
-    #     for move in transfer_id.move_ids:
-    #         move.move_line_ids.write({'location_dest_id': location.id})
 
-        
-
-    
-    # @api.onchange('quant_ids_picked')
-    # def _onchange_quant_ids_picked(self):
-    #     """React when quants are added or removed from the wizard"""
-    #     if not self.env.context.get('transfer_id'):
-    #         return
-        
-    #     # Get current package selection
-    #     current_package_ids = self.quant_ids_picked.mapped('package_id.id')
-        
-    #     # We need to track what packages were previously selected
-    #     # This is trickier in onchange, but we can use the context
-    #     if not hasattr(self, '_previous_package_ids'):
-    #         self._previous_package_ids = current_package_ids
-        
-    #     # Get packages that have been removed
-    #     removed_package_ids = list(set(self._previous_package_ids) - set(current_package_ids))
-        
-    #     # Update the tracking
-    #     self._previous_package_ids = current_package_ids
-        
-    #     # If no packages were removed, nothing to do
-    #     if not removed_package_ids:
-    #         return
-        
-    #     # Here we would apply cross-move package removal, but 
-    #     # onchange context doesn't allow direct modification of other records
-    #     # Just show a warning that packages will be removed from other moves on confirmation
-    #     return {
-    #         'warning': {
-    #             'title': 'Packages Will Be Removed',
-    #             'message': 'The removed packages will also be removed from other products in this transfer when you confirm.'
-    #         }
-    #     }
-        
 class StockAdjustmentAdd(models.TransientModel):
     _inherit = 'stock.inventory.adjustment.name'
     

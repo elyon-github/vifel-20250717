@@ -1831,7 +1831,7 @@ class transfer_locations(models.Model):
             ('N/A', 'N/A')
         ]
     )
-    allowed_product_ids = fields.Many2many('product.product', compute="_compute_allowed_product_ids", string="Allowed Products", store=True)
+    allowed_product_ids = fields.Many2many('product.product', compute="_compute_allowed_product_ids", string="Allowed Products")
     allowed_value_ids = fields.Many2many(
         'stock.location', compute="_compute_allowed_value_ids", string="Allowed Locations", store=True
     )
