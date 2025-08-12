@@ -16,6 +16,7 @@ class PalletKilosRecordModel(models.Model):
     record_reference = fields.Many2one('stock.picking', 'Record Reference', store=True, ondelete='set null', 
                                       readonly=True, index=True)
 
+    remarks = fields.Char(string="Remarks", readonly=True)
     active = fields.Boolean(string="active", default=True)
     # Adjusted document - this replaces the original reference for computations
     readjustment_document = fields.Many2one('stock.picking', string="Adjusted Document Reference", 
@@ -342,7 +343,15 @@ class PalletKilosRecordModel(models.Model):
             beginning_kilos = owner_balances[owner_id]['total_kilos']
             
             # Calculate new balance totals for this owner including adjustments
-            if record.effective_document and record.effective_document.picking_type_id.code == 'outgoing':
+            # Handle opening balance records (no effective_document)
+            if not record.effective_document and record.remarks == 'imported via opening balance':
+                # For opening balance, use the received amounts directly
+                owner_balances[owner_id]['total_packaging'] += record.packaging_received
+                owner_balances[owner_id]['total_units'] += record.units_received
+                owner_balances[owner_id]['total_kilos'] += record.kilos_received
+                owner_balances[owner_id]['total_pallets'] += record.pallets_received
+            # Calculate new balance totals for this owner including adjustments
+            elif record.effective_document and record.effective_document.picking_type_id.code == 'outgoing':
                 owner_balances[owner_id]['total_packaging'] -= record.packaging_withdrawn
                 owner_balances[owner_id]['total_units'] -= record.units_withdrawn
                 owner_balances[owner_id]['total_kilos'] -= record.kilos_withdrawn
@@ -352,7 +361,8 @@ class PalletKilosRecordModel(models.Model):
                 owner_balances[owner_id]['total_units'] += record.units_received
                 owner_balances[owner_id]['total_kilos'] += record.kilos_received
                 owner_balances[owner_id]['total_pallets'] += record.pallets_received
-            
+                owner_balances[owner_id]['total_pallets'] += record.pallets_received
+                
             # Apply adjustments to owner balances
             owner_balances[owner_id]['total_packaging'] += record.adjustment_packaging
             owner_balances[owner_id]['total_units'] += record.adjustment_heads
@@ -542,3 +552,160 @@ class PalletKilosRecordModel(models.Model):
             if key not in warehouses_processed:
                 record._recalculate_running_balances(record.warehouse.id, record.is_blast_freezer)
                 warehouses_processed.add(key)
+
+
+
+    @api.model
+    def import_opening_balances_from_quants(self, quant_ids):
+        """
+        Import opening balances from selected stock.quant records
+        Creates PalletKilosRecordModel records grouped by owner+warehouse
+        """
+        if not quant_ids:
+            raise UserError("No stock quant records selected.")
+        
+        # Get selected quants
+        quants = self.env['stock.quant'].browse(quant_ids)
+        
+        # Validate quants haven't been imported before
+        existing_records = self.search([
+            ('remarks', '=', 'imported via opening balance')
+        ])
+        
+        # Get current datetime in UTC+8
+        from datetime import datetime, timezone, timedelta
+        utc_plus_8 = timezone(timedelta(hours=8))
+        current_time = datetime.now(utc_plus_8).replace(tzinfo=None) - timedelta(days=5)  # Remove timezone info for Odoo
+        
+        # Group quants by owner + warehouse
+        grouped_data = {}
+        
+        for quant in quants:
+            if not quant.location_id.warehouse_id:
+                _logger.warning(f"Skipping quant {quant.id} - no warehouse found for location {quant.location_id.name}")
+                continue
+                
+            key = (quant.owner_id.id if quant.owner_id else False, quant.location_id.warehouse_id.id)
+            
+            if key not in grouped_data:
+                grouped_data[key] = {
+                    'owner_id': quant.owner_id.id if quant.owner_id else False,
+                    'warehouse_id': quant.location_id.warehouse_id.id,
+                    'total_units': 0,
+                    'total_packaging': 0,
+                    'total_kilos': 0,
+                    'unique_packages': set(),
+                    'quant_ids': []
+                }
+            
+            # Accumulate totals
+            grouped_data[key]['total_units'] += quant.x_studio_total_units or 0
+            grouped_data[key]['total_packaging'] += quant.x_studio_2nd_uom or 0
+            grouped_data[key]['total_kilos'] += quant.inventory_quantity_auto_apply or 0
+            
+            # Track unique packages (pallets)
+            if quant.package_id:
+                grouped_data[key]['unique_packages'].add(quant.package_id.id)
+                
+            grouped_data[key]['quant_ids'].append(quant.id)
+        
+        if not grouped_data:
+            raise UserError("No valid stock quant records found with warehouse information.")
+        
+        # Check for duplicates - see if any of these quants were already imported
+        all_quant_ids = []
+        for data in grouped_data.values():
+            all_quant_ids.extend(data['quant_ids'])
+        
+        # This is a simple check - you might want to implement a more sophisticated tracking system
+        # For now, we'll just warn but not block
+        
+        created_records = []
+        
+        # Create opening balance records
+        for (owner_id, warehouse_id), data in grouped_data.items():
+            
+            # Generate report number for opening balance
+            report_no = f"OB-{warehouse_id}-{current_time.strftime('%Y%m%d%H%M%S')}"
+            if owner_id:
+                owner_name = self.env['res.partner'].browse(owner_id).name
+                report_no += f"-{owner_name[:3].upper()}"
+            
+            vals = {
+                'report_no': report_no,
+                'owner_id': owner_id,
+                'warehouse': warehouse_id,
+                'record_reference': False,  # No source document
+                'readjustment_document': False,
+                'active': True,
+                
+                # Opening balance - show as received (initial stock coming in)
+                'pallets_received': len(data['unique_packages']),
+                'pallets_withdrawn': 0,
+                'kilos_received': data['total_kilos'],
+                'kilos_withdrawn': 0,
+                'packaging_received': data['total_packaging'],
+                'packaging_withdrawn': 0,
+                'units_received': data['total_units'],
+                'units_withdrawn': 0,
+                
+                # Balance fields from quant data (for opening balance, these equal the received amounts)
+                'total_balance_in_units': data['total_units'],
+                'total_balance_in_packaging': data['total_packaging'],
+                'total_balance_in_kilos': data['total_kilos'],
+                'total_balance_in_pallets': len(data['unique_packages']),
+                
+                # Beginning balance is zero for opening records (this IS the beginning)
+                'beginning_balance_in_pallets': 0,
+                'beginning_balance_in_kilos': 0,
+                
+                # Return and adjustment fields are zero
+                'return_heads': 0,
+                'return_packaging': 0,
+                'return_pallets': 0,
+                'return_kilos': 0,
+                'adjustment_heads': 0,
+                'adjustment_packaging': 0,
+                'adjustment_pallets': 0,
+                'adjustment_kilos': 0,
+                
+                # Vehicle fields are blank (no transport involved)
+                'truck_type': 'N/A',
+                'trucks_plate': '',
+                'gate_pass': '',
+                'start_time': current_time,
+                'end_time': current_time,
+                
+                # Blast freezer flag
+                'is_blast_freezer': False,
+                
+                # Special remarks
+                'remarks': 'imported via opening balance',
+            }
+            
+            # Create the record (this will trigger the create() method which handles balance calculations)
+            record = self.create(vals)
+            created_records.append(record)
+            
+            _logger.info(f"Created opening balance record {record.id} for warehouse {warehouse_id}, owner {owner_id}")
+        
+        # After all records are created, recalculate overall warehouse totals
+        # Group by warehouse for recalculation
+        warehouses_to_recalc = set()
+        for record in created_records:
+            warehouses_to_recalc.add(record.warehouse.id)
+        
+        for warehouse_id in warehouses_to_recalc:
+            # Recalculate from the beginning since these are opening balances
+            self._recalculate_running_balances(warehouse_id, False, None)
+        
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Opening Balances Imported',
+                'message': f'Successfully created {len(created_records)} opening balance records.',
+                'type': 'success',
+                'sticky': False,
+            }
+        }
