@@ -1077,9 +1077,27 @@
               <xpath expr="//field[@name='x_studio_stock_code']" position="after">
                 <field name="x_studio_special_holding" optional="hide" string="Special Holding"/>
               </xpath>
-              <!-- <xpath expr="//field[@name='product_id']" position="after">
-                <field optional="show" name="x_studio_brand" widget="many2many_tags"/>
-              </xpath> -->
+              <xpath expr="//field[@name='location_id']" position="after">
+                <field optional="show" name="x_studio_opening_balance_record_reference"/>
+              </xpath>
+              <xpath expr="//field[@name='x_studio_dest_relocation']" position="attributes">
+                <attribute name="domain">["&amp;", "&amp;", ("child_ids", "=", False), ("location_id.location_id.location_id.location_id", "!=", False), ("x_studio_occupied_by", "=", False)]</attribute>
+              </xpath>
+              <xpath expr="//field[@name='x_studio_stock_code']" position="after">
+                <field name="x_studio_building_dropped" optional="show" string="Building Dropped"/>
+              </xpath>
+              <xpath expr="//field[@name='package_id']" position="after">
+                <field name="bf_pallet_char" optional="show" string="BF Pallet # - Text"/>
+              </xpath>
+              <xpath expr="//field[@name='x_studio_quantity_uom']" position="attributes">
+                <attribute name="string">Quantity UOM</attribute>
+              </xpath>
+              <xpath expr="//field[@name='x_studio_total_units']" position="attributes">
+                <attribute name="string">Total Heads</attribute>
+              </xpath>
+              <xpath expr="//field[@name='x_studio_min_quantity_uom']" position="attributes">
+                <attribute name="string">Heads UOM</attribute>
+              </xpath>
 
         </field>
     </record>

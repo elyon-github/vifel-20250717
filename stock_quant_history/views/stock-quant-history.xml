@@ -29,13 +29,18 @@
 
                 <group expand="0" string="Group By">
                     <filter
+                        name="group_by_owner_id"
+                        string="Owner"
+                        context="{'group_by':'owner_id'}"
+                    />
+                    <filter
                         name="group_by_x_studio_container_number"
                         string="Container Number"
                         context="{'group_by':'x_studio_container_number'}"
                     />
                     <filter
                         name="group_by_package_id"
-                        string="Container Number"
+                        string="Pallet #"
                         context="{'group_by':'package_id'}"
                     />
                     <filter
