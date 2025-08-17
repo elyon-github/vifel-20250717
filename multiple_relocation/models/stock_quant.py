@@ -138,15 +138,20 @@ class OverrideStockQuant(models.Model):
 
     
     def write(self, vals):
-        """ Override to handle the "inventory mode" and create the inventory move. """
+        """ Override to handle the "inventory mode" and create the inventory move. 
+        Removed the UserError restriction for quant editing.
+        """
         forbidden_fields = self._get_forbidden_fields_write()
         if self._is_inventory_mode() and any(field for field in forbidden_fields if field in vals.keys()):
             if any(quant.location_id.usage == 'inventory' for quant in self):
                 # Do nothing when user tries to modify manually a inventory loss
-                return
-            self = self.sudo()
-            # raise UserError(_("Quant's editing is restricted, you can't do this operation."))
-        return super(OverrideStockQuant, self).write(vals)
+                return self
+            # Remove the UserError and just proceed with sudo
+            # We skip calling super() here to avoid the original restriction
+            from odoo import models
+            return models.Model.write(self.sudo(), vals)
+        
+        return super().write(vals)
         
     @api.model_create_multi
     def create(self, vals_list):
