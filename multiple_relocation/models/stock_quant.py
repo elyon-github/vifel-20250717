@@ -115,8 +115,44 @@ class OverrideStockQuant(models.Model):
 
     x_studio_building_dropped = fields.Char(string="Building")
     original_record_reference = fields.Many2one('stock.picking')
+    
+    x_studio_aging_days = fields.Integer(
+        string='Aging Day/s',
+        compute='_compute_aging_days',
+        store=True,  # Optional: set to True if you want to store the computed value
+        help='Number of days from today to expiration date. Negative values indicate expired items.'
+    )
 
+    @api.depends('x_studio_expiration_date')
+    def _compute_aging_days(self):
+        """
+        Compute aging days based on expiration date
+        Positive values: days until expiration
+        Negative values: days since expiration (expired)
+        """
+        today = fields.Date.today()
+        
+        for record in self:
+            if record.x_studio_expiration_date:
+                # Calculate the difference in days
+                delta = record.x_studio_expiration_date - today
+                record.x_studio_aging_days = delta.days
+            else:
+                # If no expiration date is set, aging days is 0
+                record.x_studio_aging_days = 0
 
+    def recompute_aging_days(self):
+        """
+        Method to recompute aging days for all records
+        This will be called by the scheduled action
+        """
+        # Get all records that have an expiration date
+        records_with_expiration = self.search([('x_studio_expiration_date', '!=', False)])
+        
+        # Force recomputation of the aging days field
+        records_with_expiration._compute_aging_days()
+        
+        return True
     
     def re_sync_pallet_kilos_from_quants(self, records):
         # Get unique owner_ids and create grouped array
@@ -290,7 +326,7 @@ class OverrideStockQuant(models.Model):
         # Set domain
         domain = [
             # ('x_studio_pallet_series_id', '=', self.x_studio_pallet_series_id),
-            # ('lot_id', '=', self.lot_id.id),
+            ('lot_id', '=', self.lot_id.id),
         ]
         if self.package_id:
             domain += [

@@ -168,6 +168,80 @@ patch(ListController.prototype, {
         
         return uniquePallets.size.toString();
     },
+
+
+// Add numeric getters for template comparisons
+    get selectedQuantitySumNumeric() {
+        if (this.model.root.isDomainSelected) {
+            return this._domainTotals ? (this._domainTotals.quantity || 0) : 0;
+        }
+        
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return 0;
+        }
+        
+        return selection.reduce((sum, record) => {
+            const qty = parseFloat(record.data.x_studio_2nd_uom) || 0;
+            return sum + qty;
+        }, 0);
+    },
+    
+    get selectedKgSumNumeric() {
+        if (this.model.root.isDomainSelected) {
+            return this._domainTotals ? (this._domainTotals.kg || 0) : 0;
+        }
+        
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return 0;
+        }
+        
+        return selection.reduce((sum, record) => {
+            const kg = parseFloat(record.data.available_quantity) || 0;
+            return sum + kg;
+        }, 0);
+    },
+    
+    get selectedPacksSumNumeric() {
+        if (this.model.root.isDomainSelected) {
+            return this._domainTotals ? (this._domainTotals.packs || 0) : 0;
+        }
+        
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return 0;
+        }
+        
+        return selection.reduce((sum, record) => {
+            const pcks = parseFloat(record.data.x_studio_total_units) || 0;
+            return sum + pcks;
+        }, 0);
+    },
+    
+    get selectedPalletsCountNumeric() {
+        if (this.model.root.isDomainSelected) {
+            return this._domainTotals ? (this._domainTotals.pallets || 0) : 0;
+        }
+        
+        const selection = this.model.root.selection;
+        if (!selection || selection.length === 0) {
+            return 0;
+        }
+        
+        const uniquePallets = new Set();
+        selection.forEach(record => {
+            const palletId = record.data.x_studio_pallet_series_id;
+            if (palletId) {
+                const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
+                if (palletValue) {
+                    uniquePallets.add(palletValue);
+                }
+            }
+        });
+        
+        return uniquePallets.size;
+    },
     
     // Override onSelectDomain (this handles "Select all")
     async onSelectDomain() {
