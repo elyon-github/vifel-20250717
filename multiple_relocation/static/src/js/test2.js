@@ -21,9 +21,69 @@ patch(ListController.prototype, {
             maximumFractionDigits: 2
         });
     },
-
+    
+    // Cache for domain totals
+    _domainTotals: null,
+    
+    // Method to fetch domain totals from server
+    async fetchDomainTotals() {
+        if (!this.model.root.isDomainSelected) {
+            return null;
+        }
+        
+        try {
+            // Use readGroup for aggregation (Odoo 17 compatible)
+            const result = await this.orm.readGroup(
+                this.model.root.resModel,
+                this.model.root.domain,
+                ['x_studio_2nd_uom:sum', 'available_quantity:sum', 'x_studio_total_units:sum'],
+                []
+            );
+            
+            if (result && result.length > 0) {
+                this._domainTotals = {
+                    quantity: result[0].x_studio_2nd_uom || 0,
+                    kg: result[0].available_quantity || 0,
+                    packs: result[0].x_studio_total_units || 0
+                };
+            }
+            
+            // Get unique pallets count
+            const palletResult = await this.orm.searchRead(
+                this.model.root.resModel,
+                this.model.root.domain,
+                ['x_studio_pallet_series_id']
+            );
+            
+            const uniquePallets = new Set();
+            palletResult.forEach(record => {
+                const palletId = record.x_studio_pallet_series_id;
+                if (palletId) {
+                    const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
+                    if (palletValue) {
+                        uniquePallets.add(palletValue);
+                    }
+                }
+            });
+            
+            this._domainTotals.pallets = uniquePallets.size;
+            return this._domainTotals;
+            
+        } catch (error) {
+            console.error('Error fetching domain totals:', error);
+            return null;
+        }
+    },
+    
     // Add getter for selected quantity sum
     get selectedQuantitySum() {
+        if (this.model.root.isDomainSelected) {
+            if (this._domainTotals && this._domainTotals.quantity !== undefined) {
+                return this.formatNumberWithCommas(this._domainTotals.quantity);
+            }
+            return "Loading...";
+        }
+        
         const selection = this.model.root.selection;
         if (!selection || selection.length === 0) {
             return "0.00";
@@ -36,9 +96,16 @@ patch(ListController.prototype, {
         
         return this.formatNumberWithCommas(total);
     },
-
+    
     // Add getter for selected KG sum
     get selectedKgSum() {
+        if (this.model.root.isDomainSelected) {
+            if (this._domainTotals && this._domainTotals.kg !== undefined) {
+                return this.formatNumberWithCommas(this._domainTotals.kg);
+            }
+            return "Loading...";
+        }
+        
         const selection = this.model.root.selection;
         if (!selection || selection.length === 0) {
             return "0.00";
@@ -51,9 +118,16 @@ patch(ListController.prototype, {
         
         return this.formatNumberWithCommas(total);
     },
-
+    
     // Add getter for selected packs sum
     get selectedPacksSum() {
+        if (this.model.root.isDomainSelected) {
+            if (this._domainTotals && this._domainTotals.packs !== undefined) {
+                return this.formatNumberWithCommas(this._domainTotals.packs);
+            }
+            return "Loading...";
+        }
+        
         const selection = this.model.root.selection;
         if (!selection || selection.length === 0) {
             return "0.00";
@@ -66,9 +140,16 @@ patch(ListController.prototype, {
         
         return this.formatNumberWithCommas(total);
     },
-
+    
     // Add getter for unique pallets count
     get selectedPalletsCount() {
+        if (this.model.root.isDomainSelected) {
+            if (this._domainTotals && this._domainTotals.pallets !== undefined) {
+                return this._domainTotals.pallets.toString();
+            }
+            return "...";
+        }
+        
         const selection = this.model.root.selection;
         if (!selection || selection.length === 0) {
             return "0";
@@ -78,7 +159,6 @@ patch(ListController.prototype, {
         selection.forEach(record => {
             const palletId = record.data.x_studio_pallet_series_id;
             if (palletId) {
-                // Handle both string and array formats (in case it's a relational field)
                 const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
                 if (palletValue) {
                     uniquePallets.add(palletValue);
@@ -88,15 +168,33 @@ patch(ListController.prototype, {
         
         return uniquePallets.size.toString();
     },
-
-    // Setup method for additional initialization
+    
+    // Override onSelectDomain (this handles "Select all")
+    async onSelectDomain() {
+        const result = await super.onSelectDomain();
+        
+        // Clear previous totals and fetch new ones
+        this._domainTotals = null;
+        this.render(false);
+        
+        // Fetch domain totals from server
+        await this.fetchDomainTotals();
+        this.render(false);
+        
+        return result;
+    },
+    
+    // Override onUnselectAll to clear domain totals
+    onUnselectAll() {
+        this._domainTotals = null;
+        return super.onUnselectAll();
+    },
+    
     setup() {
         super.setup();
-        // Custom setup logic if needed
         console.log("Custom ListController setup completed");
     }
 });
-
 // I Flippin DID IT!!! I was here Mark Angelo Templanza. 
 patch(ListRenderer.prototype, {
     onCellKeydownEditMode(hotkey, cell, group, record) {

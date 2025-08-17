@@ -116,16 +116,19 @@ class CountSheet(models.AbstractModel):
             for idx, record in enumerate(group):
                 location_name = record.complete_name
                 
+                pallet_names = ", ".join(record.x_studio_pallets.mapped("name")) if record.x_studio_pallet else ""
+                
                 if idx % 2 == 0:
                     sheet.write(row, col, self.convert_location_string(location_name), justify_format_location)
                     sheet.write(row, col + 1, "", justify_format)
-                    sheet.write(row, col + 2, record.x_studio_pallet.name if record.x_studio_pallet.name else '', justify_format)
+                    sheet.write(row, col + 2, pallet_names, justify_format)  # fixed
                     sheet.write(row, col + 7, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
                 else:
                     sheet.write(row, col + 9, self.convert_location_string(location_name), justify_format_location)
                     sheet.write(row, col + 10, "", justify_format)
-                    sheet.write(row+1, col + 11, record.x_studio_pallet.name if record.x_studio_pallet.name else '', justify_format)
+                    sheet.write(row+1, col + 11, pallet_names, justify_format)  # fixed
                     sheet.write(row+1, col + 16, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
+
                     row += 1
                 
                 product_names = []

@@ -57,7 +57,7 @@ class transfer_locations(models.Model):
     )
     allowed_product_ids = fields.Many2many('product.product', compute="_compute_allowed_product_ids", string="Allowed Products")
     allowed_value_ids = fields.Many2many(
-        'stock.location', compute="_compute_allowed_value_ids", string="Allowed Locations", store=True
+        'stock.location', compute="_compute_allowed_value_ids", string="Allowed Locations"
     )
 
     gentle_reminder = fields.Char(string="Reminder")
@@ -1262,18 +1262,18 @@ class transfer_locations(models.Model):
                     record.allowed_value_ids = self.env['stock.location'].browse(locations_with_partner_quants)
                 else:
                     allowed_locations = self.env["stock.location"].search([
-                        "&", 
-                        "|", 
-                        "|", 
-                        "|", 
-                        "|",
-                        ("child_ids.child_ids.child_ids.child_ids.child_ids.x_studio_occupied_by", "=", record.partner_id.id),
-                        ("child_ids.child_ids.child_ids.child_ids.x_studio_occupied_by", "=", record.partner_id.id),
-                        ("child_ids.child_ids.child_ids.x_studio_occupied_by", "=", record.partner_id.id),
-                        ("child_ids.child_ids.x_studio_occupied_by", "=", record.partner_id.id),
-                        ("child_ids.child_ids.child_ids.child_ids.child_ids.child_ids.x_studio_occupied_by", "=", record.partner_id.id),
-                        ("warehouse_id.code", "=", record.x_studio_warehouse_sh)
+                        "&",    # first AND
+                        "&",    # second AND (for warehouse + new condition)
+                        "|", "|", "|", "|", 
+                        ("child_ids.child_ids.child_ids.child_ids.child_ids.x_studio_occupied_by_1", "in", record.partner_id.id),
+                        ("child_ids.child_ids.child_ids.child_ids.x_studio_occupied_by_1", "in", record.partner_id.id),
+                        ("child_ids.child_ids.child_ids.x_studio_occupied_by_1", "in", record.partner_id.id),
+                        ("child_ids.child_ids.x_studio_occupied_by_1", "in", record.partner_id.id),
+                        ("child_ids.child_ids.child_ids.child_ids.child_ids.child_ids.x_studio_occupied_by_1", "in", record.partner_id.id),
+                        ("warehouse_id.code", "=", record.x_studio_warehouse_sh),
+                        ("child_ids.child_ids.x_studio_is_a_blast_freezer", "=", False)
                     ])
+
                     record.allowed_value_ids = allowed_locations
     
             elif record.picking_type_code == 'incoming':
