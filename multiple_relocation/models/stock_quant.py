@@ -1,0 +1,818 @@
+# -*- coding: utf-8 -*-
+
+
+from odoo import models, fields, api, tools
+from odoo.exceptions import ValidationError, UserError
+from odoo.osv import expression
+import logging
+from datetime import datetime, timedelta, date
+import re
+from odoo import _, api, fields, models, SUPERUSER_ID
+from odoo.osv.expression import AND, OR
+from odoo.tools.float_utils import float_compare, float_is_zero, float_round
+from collections import defaultdict
+_logger = logging.getLogger(__name__)
+from ast import literal_eval
+
+
+
+class multiple_relocation(models.TransientModel):
+    _inherit = 'stock.quant.relocate'
+
+
+    warehouseman = fields.Many2one(
+        'res.partner', 
+        string="Warehouseman", 
+        domain="[('category_id.name', '=', 'Warehouseman')]"
+    )
+    
+    def action_relocate_quants(self):
+        self.ensure_one()
+        relocation_form_series = self.env['ir.sequence'].search([('code', '=', 'relocate.form.series')], limit=1)
+        x_reloc_batch_number = relocation_form_series.next_by_id()
+        
+        quanties = self.env['stock.quant'].search([("package_id.id", "!=", False)])
+        for quant in quanties:
+            for line_quants in self.quant_ids:
+                if line_quants.x_studio_dest_relocation.id == quant.location_id.id and not quant.x_studio_dest_relocation.id and not line_quants.x_studio_dest_relocation.x_studio_is_an_aisle:
+                    # raise UserError(f"Please assign a relocation location for the pallet {quant.package_id.name} first")
+                    pass
+        
+        for quant in self.quant_ids:
+            if quant.x_studio_special_holding:
+                raise UserError('\nYou cannot relocate pallets that are on Special Holding State')
+            if quant.available_quantity != quant.quantity:
+                raise UserError(f"\nRecord with a Product of {quant.product_id.display_name} and a Pallet of {quant.package_id.name} seems to have quantites reserved on a picking record. Please release them before relocating the stock record.")
+        
+            if not quant.x_studio_dest_relocation and not quant.x_studio_dest_relocation.x_studio_is_an_aisle:
+                raise UserError(f"It seems like a record with a Pallet Series ID of {quant.x_studio_pallet_series_id} has no Relocation Location set.")
+        
+        # Group quants by package_id and location_id
+        grouped_quants = {}
+        for quant in self.quant_ids:
+            key = (quant.package_id.id, quant.location_id.id)
+            if key not in grouped_quants:
+                grouped_quants[key] = self.env['stock.quant']
+            grouped_quants[key] |= quant
+    
+        for (package_id, location_id), quants in grouped_quants.items():
+            dest_location_id = quants[0].x_studio_dest_relocation
+            if dest_location_id:
+                # Handle partial package unpacking first
+                if self.is_partial_package and not self.dest_package_id:
+                    quants_to_unpack = quants.filtered(lambda q: not all(sub_q in quants.ids for sub_q in q.package_id.quant_ids.ids))
+                    for unpack_quant in quants_to_unpack:
+                        unpack_quant.move_quants(
+                            location_dest_id=dest_location_id, 
+                            message=self.message, 
+                            unpack=True,
+                            warehouseman=self.warehouseman,
+                            x_reloc_batch_number=x_reloc_batch_number
+                        )
+                    quants -= quants_to_unpack
+                
+                # Move quants as a group - the move_quants method will handle individual field values
+                quants.move_quants(
+                    location_dest_id=dest_location_id,
+                    package_dest_id=self.dest_package_id,
+                    message=self.message,
+                    warehouseman=self.warehouseman,
+                    x_reloc_batch_number=x_reloc_batch_number,
+                    x_studio_pallet_series_id=quants[0].x_studio_pallet_series_id,
+                    bf_pallet_char=quants[0].bf_pallet_char
+                )
+            
+    
+        # Handle lot and product actions
+        lot_ids = self.quant_ids.mapped('lot_id')
+        product_ids = self.quant_ids.mapped('product_id')
+    
+        if self.env.context.get('default_lot_id', False) and len(lot_ids) == 1:
+            lot_ids.action_lot_open_quants()
+        elif self.env.context.get('single_product', False) and len(product_ids) == 1:
+            product_ids.action_update_quantity_on_hand()
+
+
+
+
+
+class OverrideStockQuant(models.Model):
+    _inherit = 'stock.quant'
+
+    x_studio_special_holding = fields.Boolean()
+    bf_pallet_char = fields.Char(string="Pallet # - Text") 
+    truck_type = fields.Selection(
+        string="Truck Type",
+        selection=[
+            ('4wheeler', '4 Wheeler'),
+            ('6wheeler', '6 Wheeler'),
+            ('10wheeler', '10 Wheeler'),
+            ('20ft_container', '20ft Container'),
+            ('40ft_container', '40ft Container'),
+            ('N/A', 'N/A')
+        ]
+    )
+
+    x_studio_building_dropped = fields.Char(string="Building")
+    original_record_reference = fields.Many2one('stock.picking')
+    
+    x_studio_aging_days = fields.Integer(
+        string='Aging Day/s',
+        compute='_compute_aging_days',
+        store=True,  # Optional: set to True if you want to store the computed value
+        help='Number of days from today to expiration date. Negative values indicate expired items.'
+    )
+
+    @api.depends('x_studio_expiration_date')
+    def _compute_aging_days(self):
+        """
+        Compute aging days based on expiration date
+        Positive values: days until expiration
+        Negative values: days since expiration (expired)
+        """
+        today = fields.Date.today()
+        
+        for record in self:
+            if record.x_studio_expiration_date:
+                # Calculate the difference in days
+                delta = record.x_studio_expiration_date - today
+                record.x_studio_aging_days = delta.days
+            else:
+                # If no expiration date is set, aging days is 0
+                record.x_studio_aging_days = 0
+
+    def recompute_aging_days(self):
+        """
+        Method to recompute aging days for all records
+        This will be called by the scheduled action
+        """
+        # Get all records that have an expiration date
+        records_with_expiration = self.search([('x_studio_expiration_date', '!=', False)])
+        
+        # Force recomputation of the aging days field
+        records_with_expiration._compute_aging_days()
+        
+        return True
+    
+    def re_sync_pallet_kilos_from_quants(self, records):
+        # Get unique owner_ids and create grouped array
+        owner_ids = list(set(records.mapped('owner_id')))
+        result = [
+            {'owner_id': records.filtered(lambda r: r.owner_id == owner_id)}
+            for owner_id in owner_ids
+        ]
+        
+        # Loop through groups
+        for group in result:
+            owner_records = group['owner_id']
+            owner_name = owner_records[0].owner_id.name if owner_records and owner_records[0].owner_id else 'No Owner'
+            print(f"Owner: {owner_name}")
+            
+            for record in owner_records:
+                # Process each record in the group
+                print(f"  Record: {record.name}")
+
+    
+    def write(self, vals):
+        """ Override to handle the "inventory mode" and create the inventory move. 
+        Removed the UserError restriction for quant editing.
+        """
+        forbidden_fields = self._get_forbidden_fields_write()
+        if self._is_inventory_mode() and any(field for field in forbidden_fields if field in vals.keys()):
+            if any(quant.location_id.usage == 'inventory' for quant in self):
+                # Do nothing when user tries to modify manually a inventory loss
+                return self
+            # Remove the UserError and just proceed with sudo
+            # We skip calling super() here to avoid the original restriction
+            from odoo import models
+            return models.Model.write(self.sudo(), vals)
+        
+        return super().write(vals)
+        
+    @api.model_create_multi
+    def create(self, vals_list):
+        """ Override to handle the "inventory mode" and create a quant as
+        superuser the conditions are met.
+        """
+        quants = self.env['stock.quant']
+        is_inventory_mode = self._is_inventory_mode()
+        allowed_fields = self._get_inventory_fields_create()
+        for vals in vals_list:
+            if is_inventory_mode and any(f in vals for f in ['inventory_quantity', 'inventory_quantity_auto_apply']):
+                # if any(field for field in vals.keys() if field not in allowed_fields):
+                #     raise UserError(_("Quant's creation is restricted, you can't do this operation."))
+                auto_apply = 'inventory_quantity_auto_apply' in vals
+                inventory_quantity = vals.pop('inventory_quantity_auto_apply', False) or vals.pop(
+                    'inventory_quantity', False) or 0
+                # Create an empty quant or write on a similar one.
+                product = self.env['product.product'].browse(vals['product_id'])
+                location = self.env['stock.location'].browse(vals['location_id'])
+                lot_id = self.env['stock.lot'].browse(vals.get('lot_id'))
+                package_id = self.env['stock.quant.package'].browse(vals.get('package_id'))
+                owner_id = self.env['res.partner'].browse(vals.get('owner_id'))
+                quant = self.env['stock.quant']
+                if not self.env.context.get('import_file'):
+                    # Merge quants later, to make sure one line = one record during batch import
+                    quant = self._gather(product, location, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=True)
+                if lot_id:
+                    if self.env.context.get('import_file') and lot_id.product_id != product:
+                        lot_name = lot_id.name
+                        lot_id = self.env['stock.lot'].search([('product_id', '=', product.id), ('name', '=', lot_name)], limit=1)
+                        if not lot_id:
+                            company_id = location.company_id or self.env.company
+                            lot_id = self.env['stock.lot'].create({'name': lot_name, 'product_id': product.id, 'company_id': company_id.id})
+                        vals['lot_id'] = lot_id.id
+                    quant = quant.filtered(lambda q: q.lot_id)
+                if quant:
+                    quant = quant[0].sudo()
+                else:
+                    quant = self.sudo().create(vals)
+                    if 'quants_cache' in self.env.context:
+                        self.env.context['quants_cache'][
+                            quant.product_id.id, quant.location_id.id, quant.lot_id.id, quant.package_id.id, quant.owner_id.id
+                        ] |= quant
+                if auto_apply:
+                    quant.write({'inventory_quantity_auto_apply': inventory_quantity})
+                else:
+                    # Set the `inventory_quantity` field to create the necessary move.
+                    quant.inventory_quantity = inventory_quantity
+                    quant.user_id = vals.get('user_id', self.env.user.id)
+                    quant.inventory_date = fields.Date.today()
+                quants |= quant
+            else:
+                quant = super().create(vals)
+                if 'quants_cache' in self.env.context:
+                    self.env.context['quants_cache'][
+                        quant.product_id.id, quant.location_id.id, quant.lot_id.id, quant.package_id.id, quant.owner_id.id
+                    ] |= quant
+                quants |= quant
+                if self._is_inventory_mode():
+                    quant._check_company()
+        return quants
+
+    @api.model
+    def _update_available_quantity(self, product_id, location_id, quantity=False, reserved_quantity=False, lot_id=None, package_id=None, owner_id=None, in_date=None):
+        """ Increase or decrease `quantity` or 'reserved quantity' of a set of quants for a given set of
+        product_id/location_id/lot_id/package_id/owner_id.
+
+        :param product_id:
+        :param location_id:
+        :param quantity:
+        :param lot_id:
+        :param package_id:
+        :param owner_id:
+        :param datetime in_date: Should only be passed when calls to this method are done in
+                                 order to move a quant. When creating a tracked quant, the
+                                 current datetime will be used.
+        :return: tuple (available_quantity, in_date as a datetime)
+        """
+        # if not (quantity or reserved_quantity):
+        #     raise ValidationError(_('Quantity or Reserved Quantity should be set.'))
+        self = self.sudo()
+        quants = self._gather(product_id, location_id, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=True)
+        if lot_id and quantity > 0:
+            quants = quants.filtered(lambda q: q.lot_id)
+
+        if location_id.should_bypass_reservation():
+            incoming_dates = []
+        else:
+            incoming_dates = [quant.in_date for quant in quants if quant.in_date and
+                              float_compare(quant.quantity, 0, precision_rounding=quant.product_uom_id.rounding) > 0]
+        if in_date:
+            incoming_dates += [in_date]
+        # If multiple incoming dates are available for a given lot_id/package_id/owner_id, we
+        # consider only the oldest one as being relevant.
+        if incoming_dates:
+            in_date = min(incoming_dates)
+        else:
+            in_date = fields.Datetime.now()
+
+        quant = None
+        if quants:
+            # see _acquire_one_job for explanations
+            self._cr.execute("SELECT id FROM stock_quant WHERE id IN %s ORDER BY lot_id LIMIT 1 FOR NO KEY UPDATE SKIP LOCKED", [tuple(quants.ids)])
+            stock_quant_result = self._cr.fetchone()
+            if stock_quant_result:
+                quant = self.browse(stock_quant_result[0])
+
+        if quant:
+            vals = {'in_date': in_date}
+            if quantity:
+                vals['quantity'] = quant.quantity + quantity
+            if reserved_quantity:
+                vals['reserved_quantity'] = quant.reserved_quantity + reserved_quantity
+            quant.write(vals)
+        else:
+            vals = {
+                'product_id': product_id.id,
+                'location_id': location_id.id,
+                'lot_id': lot_id and lot_id.id,
+                'package_id': package_id and package_id.id,
+                'owner_id': owner_id and owner_id.id,
+                'in_date': in_date,
+            }
+            if quantity:
+                vals['quantity'] = quantity
+            if reserved_quantity:
+                vals['reserved_quantity'] = reserved_quantity
+            self.create(vals)
+        return self._get_available_quantity(product_id, location_id, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=True, allow_negative=True), in_date
+        
+    def action_view_stock_moves(self):
+        self.ensure_one()
+        
+        action = self.env["ir.actions.actions"]._for_xml_id("stock.stock_move_line_action")
+    
+        # Set domain
+        domain = [
+            # ('x_studio_pallet_series_id', '=', self.x_studio_pallet_series_id),
+            ('lot_id', '=', self.lot_id.id),
+        ]
+        if self.package_id:
+            domain += [
+                '|',
+                    ('package_id', '=', self.package_id.id),
+                    ('result_package_id', '=', self.package_id.id),
+            ]
+        action['domain'] = domain
+    
+        # Set context
+        action['context'] = literal_eval(action.get('context') or '{}')
+        action['context']['search_default_product_id'] = self.product_id.id
+    
+        # Force the use of custom tree view
+        action['views'] = [(self.env.ref('multiple_relocation.view_move_line_tree_custom_history').id, 'tree')]
+    
+        return action
+        
+    def create_transfer_stock_move(self, picking_id, records):
+        picking = self.env['stock.picking'].browse(picking_id)
+        if not picking:
+            raise UserError("Picking not found.")
+    
+        StockMove = self.env['stock.move']
+        StockMoveLine = self.env['stock.move.line']
+        ctx = self.env.context
+        
+        # **1. Validate package integrity**
+        selected_packages = {}
+        for quant in records:
+            if not quant.available_quantity:
+                continue
+            package_name = quant.package_id.name
+            if package_name:
+                selected_packages.setdefault(package_name, set()).add(quant.id)
+    
+        # For each package, check for missing quants
+        all_missing_quants = self.env['stock.quant']
+        Quant = self.env['stock.quant']
+        
+        for package_name, selected_quant_ids in selected_packages.items():
+            # Get all quants for this package
+            all_package_quants = Quant.search([
+                ('package_id', '=', package_name),
+                ('x_studio_pallet_series_id', '!=', False)
+            ])
+        
+            selected_quant_ids = selected_quant_ids or set()
+            all_package_quant_ids = set(all_package_quants.ids)
+            missing_ids = all_package_quant_ids - selected_quant_ids
+        
+            if missing_ids:
+                missing_quants = all_package_quants.filtered(lambda q: q.id in missing_ids)
+                all_missing_quants |= missing_quants
+        
+        if all_missing_quants:
+            if not ctx.get('ignore_missing_quants'):
+                return {
+                    'type': 'ir.actions.act_window',
+                    'res_model': 'wizard.partial.package.notice',
+                    'view_mode': 'form',
+                    'target': 'new',
+                    'context': {
+                        'default_picking_id': picking.id,
+                        'default_quant_ids': all_missing_quants.ids,
+                        'default_selected_quant_ids': [q.id for q in records],
+                    }
+                }
+            else:
+                records |= all_missing_quants
+    
+        # **2. Get existing stock moves for this picking**
+        existing_moves = StockMove.search([('picking_id', '=', picking.id)])
+        
+        # Create a lookup dictionary for existing moves
+        existing_moves_lookup = {}
+        for move in existing_moves:
+            key = (
+                move.product_id.id,
+                move.x_studio_packaging_unit.id if move.x_studio_packaging_unit else False,
+                move.x_studio_min_unit.id if move.x_studio_min_unit else False
+            )
+            existing_moves_lookup[key] = move
+    
+        # **3. Process Stock Moves with merging logic**
+        grouped_data = {}
+        moves_to_update = {}  # Track moves that need quantity updates
+        
+        for quant in records:
+            product = quant.product_id
+            prod_id = product.id
+            if not quant.available_quantity:
+                continue
+                
+            # Create the merge key based on matching criteria
+            merge_key = (
+                prod_id,
+                quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,  # matches x_studio_packaging_unit
+                quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False  # matches x_studio_min_unit
+            )
+            
+            # Check if we can merge with existing move
+            existing_move = existing_moves_lookup.get(merge_key)
+            
+            if existing_move:
+                # Merge with existing move
+                if merge_key not in moves_to_update:
+                    moves_to_update[merge_key] = {
+                        'move': existing_move,
+                        'additional_qty': 0.0,
+                        'quant_ids': [],
+                        'move_line_vals': [],
+                    }
+                
+                moves_to_update[merge_key]['additional_qty'] += quant.available_quantity
+                moves_to_update[merge_key]['quant_ids'].append(quant.id)
+                
+                # Create move line for existing move
+                move_line_vals = {
+                    'move_id': existing_move.id,
+                    'picking_id': picking.id,
+                    'product_id': prod_id,
+                    'product_uom_id': quant.product_uom_id.id,
+                    'quantity': quant.available_quantity,
+                    'location_id': quant.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                    'lot_id': quant.lot_id.id if quant.lot_id else False,
+                    'package_id': quant.package_id.id if quant.package_id else False,
+                    'result_package_id': False,
+                    'owner_id': quant.owner_id.id if quant.owner_id else False,
+                }
+                moves_to_update[merge_key]['move_line_vals'].append(move_line_vals)
+                
+            else:
+                # Create new move (original logic)
+                if merge_key not in grouped_data:
+                    # Prepare move_vals; add 'automatically_added': True if ignore flag is set
+                    move_vals = {
+                        'picking_id': picking.id,
+                        'product_id': prod_id,
+                        'name': product.display_name,
+                        'product_uom': quant.product_uom_id.id,
+                        'location_id': quant.location_id.id,
+                        'location_dest_id': picking.location_dest_id.id,
+                        'product_uom_qty': 0.0,
+                        'x_studio_packaging_unit': quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
+                        'x_studio_min_unit': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
+                    }
+                    if ctx.get('ignore_missing_quants'):
+                        move_vals['automatically_added'] = True
+    
+                    grouped_data[merge_key] = {
+                        'move_vals': move_vals,
+                        'total_qty': 0.0,
+                        'quant_ids': [],
+                        'move_line_vals': [],
+                    }
+    
+                grouped_data[merge_key]['total_qty'] += quant.available_quantity
+                grouped_data[merge_key]['quant_ids'].append(quant.id)
+    
+                move_line_vals = {
+                    'move_id': False,  # To be updated after creation
+                    'picking_id': picking.id,
+                    'product_id': prod_id,
+                    'product_uom_id': quant.product_uom_id.id,
+                    'quantity': quant.available_quantity,
+                    'location_id': quant.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                    'lot_id': quant.lot_id.id if quant.lot_id else False,
+                    'package_id': quant.package_id.id if quant.package_id else False,
+                    'result_package_id': False,
+                    'owner_id': quant.owner_id.id if quant.owner_id else False,
+                }
+                grouped_data[merge_key]['move_line_vals'].append(move_line_vals)
+    
+        # **4. Update existing moves**
+        all_move_lines = []
+        for merge_key, update_data in moves_to_update.items():
+            move = update_data['move']
+            # Update the move quantity
+            new_qty = move.product_uom_qty + update_data['additional_qty']
+            move.write({
+                'product_uom_qty': new_qty,
+                'quant_ids_picked': [(4, q_id) for q_id in update_data['quant_ids']]
+            })
+            
+            # Add move lines for the merged quantities
+            all_move_lines.extend(update_data['move_line_vals'])
+    
+        # **5. Create new moves**
+        moves_by_product = {}
+        for merge_key, data in grouped_data.items():
+            data['move_vals']['product_uom_qty'] = data['total_qty']
+            move = StockMove.create(data['move_vals'])
+            moves_by_product[merge_key] = move
+    
+            move.write({'quant_ids_picked': [(4, q_id) for q_id in data['quant_ids']]})
+    
+            for ml_vals in data['move_line_vals']:
+                ml_vals['move_id'] = move.id
+            all_move_lines.extend(data['move_line_vals'])
+    
+        # **6. Create all move lines at once**
+        if all_move_lines:
+            StockMoveLine.create(all_move_lines)
+            
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': picking.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
+
+
+
+
+    
+    @api.onchange('x_studio_dest_relocation')
+    def _onchange_destination_relocation(self):
+        if self.x_studio_dest_relocation:
+            # Combined search to minimize database queries
+            quant_records = self.env['stock.quant'].search([
+                '|',
+                ('x_studio_dest_relocation.id', '=', self.x_studio_dest_relocation.id),
+                ('package_id.id', '=', self.package_id.id)
+            ], order='x_studio_dest_relocation')
+    
+            # Use sets to check for duplicates and inconsistencies
+            relocation_ids = set()
+            package_ids = set()
+            first_init_loc = None
+            assigned_loc={}
+    
+            for quant in quant_records:
+                if quant.x_studio_dest_relocation.id == self.x_studio_dest_relocation.id:
+                    if quant.package_id.id != self.package_id.id and not self.x_studio_dest_relocation.x_studio_is_an_aisle:
+                        raise UserError("It seems like the last location you've selected is already chosen as another relocation location. Please change the location.")
+                if quant.package_id.id == self.package_id.id:
+                    first_init_loc = quant.x_studio_dest_relocation
+                    if first_init_loc != self.x_studio_dest_relocation and first_init_loc:
+                        raise UserError(f"You cannot move the same Pallet into multiple Locations. Relocate to this Location {first_init_loc.complete_name}")
+                if self.x_studio_dest_relocation.id == quant.location_id.id:
+                    raise UserError("You selected the same location. Please relocate to another location")
+
+    def _gather(self, product_id, location_id, lot_id=None, package_id=None, owner_id=None, strict=False, qty=0, x_studio_container_number=None, quant_ids_picked=None):
+        removal_strategy = self._get_removal_strategy(product_id, location_id)
+        domain = self._get_gather_domain(product_id, location_id, lot_id, package_id, owner_id, strict)
+        domain, order = self._get_removal_strategy_domain_order(domain, removal_strategy, qty)
+        
+        quants_cache = self.env.context.get('quants_cache')
+        if quants_cache is not None and strict and removal_strategy != 'least_packages':
+            res = self.env['stock.quant']
+            if lot_id:
+                res |= quants_cache[product_id.id, location_id.id, lot_id.id, package_id.id, owner_id.id]
+            res |= quants_cache[product_id.id, location_id.id, False, package_id.id, owner_id.id]
+        else:
+            res = self.search(domain, order=order)
+            
+        # If quant_ids are provided, filter quants based on the selected quant_ids
+        if quant_ids_picked:
+            # Filter the quants by quant_ids first (top priority)
+            res = res.filtered(lambda q: q.id in quant_ids_picked)
+        
+        # Handle multiple container numbers with "like" matching (case-insensitive)
+        if x_studio_container_number:
+            # Split input into list of lowercase substrings to match
+            container_patterns = [cn.strip().lower() for cn in x_studio_container_number.split(',')]
+    
+            def get_container_priority(quant):
+                # Convert the quant's container number to lowercase and check for matches
+                quant_container = (quant.x_studio_container_number or "").lower()
+                for idx, pattern in enumerate(container_patterns):
+                    if pattern in quant_container:
+                        return idx  # Return index as priority
+                return float('inf')  # If no match, assign low priority
+    
+            # Sort by container priority, expiration date, and ID
+            res = res.sorted(key=lambda q: (
+                get_container_priority(q),  # First: prioritize based on "like" matching
+                q.x_studio_expiration_date if q.x_studio_expiration_date else date.max,  # Second: sort by expiration date
+                q.id  # Tie-breaker: quant ID
+            ))
+        else:
+            # Default sorting if no container number is provided
+            res = res.sorted(key=lambda q: (
+                q.x_studio_expiration_date if q.x_studio_expiration_date else date.max,  # Sort by expiration date
+                q.id  # Tie-breaker: quant ID
+            ))
+  
+        return res
+
+        
+
+    def _get_reserve_quantity(self, product_id, location_id, quantity, product_packaging_id=None, uom_id=None, lot_id=None, package_id=None, owner_id=None, x_studio_container_number=None, quant_ids_picked=None, strict=False ):
+        """ Get the quantity available to reserve for the set of quants
+        sharing the combination of `product_id, location_id` if `strict` is set to False or sharing
+        the *exact same characteristics* otherwise. If no quants are in self, `_gather` will do a search to fetch the quants
+        Typically, this method is called before the `stock.move.line` creation to know the reserved_qty that could be use.
+        It's also called by `_update_reserve_quantity` to find the quant to reserve.
+
+        :return: a list of tuples (quant, quantity_reserved) showing on which quant the reservation
+            could be done and how much the system is able to reserve on it
+        """
+
+        self = self.sudo()
+        rounding = product_id.uom_id.rounding
+        
+        quants = self._gather(product_id, location_id, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=strict, qty=quantity, x_studio_container_number=x_studio_container_number, quant_ids_picked=quant_ids_picked)
+            
+        # avoid quants with negative qty to not lower available_qty
+        available_quantity = quants._get_available_quantity(product_id, location_id, lot_id, package_id, owner_id, strict)
+
+        # do full packaging reservation when it's needed
+        if product_packaging_id and product_id.product_tmpl_id.categ_id.packaging_reserve_method == "full":
+            available_quantity = product_packaging_id._check_qty(available_quantity, product_id.uom_id, "DOWN")
+
+        quantity = min(quantity, available_quantity)
+
+        # `quantity` is in the quants unit of measure. There's a possibility that the move's
+        # unit of measure won't be respected if we blindly reserve this quantity, a common usecase
+        # is if the move's unit of measure's rounding does not allow fractional reservation. We chose
+        # to convert `quantity` to the move's unit of measure with a down rounding method and
+        # then get it back in the quants unit of measure with an half-up rounding_method. This
+        # way, we'll never reserve more than allowed. We do not apply this logic if
+        # `available_quantity` is brought by a chained move line. In this case, `_prepare_move_line_vals`
+        # will take care of changing the UOM to the UOM of the product.
+        if not strict and uom_id and product_id.uom_id != uom_id:
+            quantity_move_uom = product_id.uom_id._compute_quantity(quantity, uom_id, rounding_method='DOWN')
+            quantity = uom_id._compute_quantity(quantity_move_uom, product_id.uom_id, rounding_method='HALF-UP')
+
+        if quants.product_id.tracking == 'serial':
+            if float_compare(quantity, int(quantity), precision_rounding=rounding) != 0:
+                quantity = 0
+
+        reserved_quants = []
+
+        if float_compare(quantity, 0, precision_rounding=rounding) > 0:
+            # if we want to reserve
+            available_quantity = sum(quants.filtered(lambda q: float_compare(q.quantity, 0, precision_rounding=rounding) > 0).mapped('quantity')) - sum(quants.mapped('reserved_quantity'))
+        elif float_compare(quantity, 0, precision_rounding=rounding) < 0:
+            # if we want to unreserve
+            available_quantity = sum(quants.mapped('reserved_quantity'))
+            if float_compare(abs(quantity), available_quantity, precision_rounding=rounding) > 0:
+                raise UserError(_('It is not possible to unreserve more products of %s than you have in stock.', product_id.display_name))
+        else:
+            return reserved_quants
+
+        negative_reserved_quantity = defaultdict(float)
+        for quant in quants:
+            if float_compare(quant.quantity - quant.reserved_quantity, 0, precision_rounding=rounding) < 0:
+                negative_reserved_quantity[(quant.location_id, quant.lot_id, quant.package_id, quant.owner_id)] += quant.quantity - quant.reserved_quantity
+        for quant in quants:
+            if float_compare(quantity, 0, precision_rounding=rounding) > 0:
+                max_quantity_on_quant = quant.quantity - quant.reserved_quantity
+                if float_compare(max_quantity_on_quant, 0, precision_rounding=rounding) <= 0:
+                    continue
+                negative_quantity = negative_reserved_quantity[(quant.location_id, quant.lot_id, quant.package_id, quant.owner_id)]
+                if negative_quantity:
+                    negative_qty_to_remove = min(abs(negative_quantity), max_quantity_on_quant)
+                    negative_reserved_quantity[(quant.location_id, quant.lot_id, quant.package_id, quant.owner_id)] += negative_qty_to_remove
+                    max_quantity_on_quant -= negative_qty_to_remove
+                if float_compare(max_quantity_on_quant, 0, precision_rounding=rounding) <= 0:
+                    continue
+                max_quantity_on_quant = min(max_quantity_on_quant, quantity)
+                reserved_quants.append((quant, max_quantity_on_quant))
+                quantity -= max_quantity_on_quant
+                available_quantity -= max_quantity_on_quant
+            else:
+                max_quantity_on_quant = min(quant.reserved_quantity, abs(quantity))
+                reserved_quants.append((quant, -max_quantity_on_quant))
+                quantity += max_quantity_on_quant
+                available_quantity += max_quantity_on_quant
+
+            if float_is_zero(quantity, precision_rounding=rounding) or float_is_zero(available_quantity, precision_rounding=rounding):
+                break
+        return reserved_quants
+
+
+    
+    # Add Total to available_quantity and inventory_quantity_auto_apply columns on Group By
+    @api.model
+    def read_group(self, domain, fields, groupby, offset=0, limit=None, orderby=False, lazy=True):
+        # Call the parent method and get the result
+        res = super(OverrideStockQuant, self).read_group(domain, fields, groupby, offset=offset, limit=limit, orderby=orderby, lazy=lazy)
+        
+        # Check if 'available_quantity' or 'inventory_quantity_auto_apply' is in the fields list
+        if 'available_quantity' in fields or 'inventory_quantity_auto_apply' in fields:
+            for line in res:
+                if '__domain' in line:
+                    lines = self.search(line['__domain'])
+                    
+                    # Compute the total for available_quantity if it is in fields
+                    if 'available_quantity' in fields:
+                        total_available_quantity = sum(record.available_quantity for record in lines)
+                        line['available_quantity'] = total_available_quantity
+
+                    # Compute the total for inventory_quantity_auto_apply if it is in fields
+                    if 'inventory_quantity_auto_apply' in fields:
+                        total_inventory_quantity_auto_apply = sum(record.inventory_quantity_auto_apply for record in lines)
+                        line['inventory_quantity_auto_apply'] = total_inventory_quantity_auto_apply
+        
+        return res
+
+
+
+    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
+        """ Called when user manually set a new quantity (via `inventory_quantity`)
+        just before creating the corresponding stock move.
+
+        :param location_id: `stock.location`
+        :param location_dest_id: `stock.location`
+        :param package_id: `stock.quant.package`
+        :param package_dest_id: `stock.quant.package`
+        :return: dict with all values needed to create a new `stock.move` with its move line.
+        """
+        self.ensure_one()
+        if self.env.context.get('inventory_name'):
+            name = self.env.context.get('inventory_name')
+        elif fields.Float.is_zero(qty, 0, precision_rounding=self.product_uom_id.rounding):
+            name = _('Product Quantity Confirmed')
+        else:
+            name = _('Product Quantity Updated')
+        if self.user_id and self.user_id.id != SUPERUSER_ID:
+            name += f' ({self.user_id.display_name})'
+
+        return {
+            'name': name,
+            'product_id': self.product_id.id,
+            'product_uom': self.product_uom_id.id,
+            'product_uom_qty': qty,
+            'company_id': self.company_id.id or self.env.company.id,
+            'state': 'confirmed',
+            'location_id': location_id.id,
+            'location_dest_id': location_dest_id.id,
+            'restrict_partner_id':  self.owner_id.id,
+            'is_inventory': True,
+            'picked': True,
+            'move_line_ids': [(0, 0, {
+                'product_id': self.product_id.id,
+                'product_uom_id': self.product_uom_id.id,
+                'quantity': qty,
+                'location_id': location_id.id,
+                'location_dest_id': location_dest_id.id,
+                'company_id': self.company_id.id or self.env.company.id,
+                'lot_id': self.lot_id.id,
+                'package_id': package_id.id if package_id else False,
+                'result_package_id': package_dest_id.id if package_dest_id else False,
+                'owner_id': self.owner_id.id,
+                'warehouseman': warehouseman.id if warehouseman else '',
+                'x_relocate_batch': x_reloc_batch_number,
+                'x_studio_pallet_series_id': x_studio_pallet_series_id,
+                'bf_pallet_char': bf_pallet_char,
+                'is_relocation': True if x_reloc_batch_number else False,
+            })]
+        }
+
+
+    def move_quants(self, location_dest_id=False, package_dest_id=False, message=False, unpack=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
+        """ Directly move a stock.quant to another location and/or package by creating a stock.move.
+
+        :param location_dest_id: `stock.location` destination location for the quants
+        :param package_dest_id: `stock.quant.package´ destination package for the quants
+        :param message: String to fill the reference field on the generated stock.move
+        :param unpack: set to True when needing to unpack the quant
+        """
+
+        message = message or _('Quantity Relocated')
+        move_vals = []
+        for quant in self:
+            result_package_id = package_dest_id  # temp variable to kAeep package_dest_id unchanged
+            if not unpack and not package_dest_id:
+                result_package_id = quant.package_id
+            move_vals.append(quant.with_context(inventory_name=message)._get_inventory_move_values(
+                quant.quantity,
+                quant.location_id,
+                location_dest_id or quant.location_id,
+                quant.package_id,
+                result_package_id,
+                warehouseman,
+                x_reloc_batch_number,
+                quant.x_studio_pallet_series_id,
+                quant.bf_pallet_char
+            ))
+        
+        moves = self.env['stock.move'].create(move_vals)
+        moves._action_done()
