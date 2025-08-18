@@ -176,20 +176,28 @@ class ProductProduct(models.Model):
     name = fields.Char(compute='_compute_name', store=True, readonly=False)
 
     
-    @api.depends('product_tmpl_id.name', 'product_template_attribute_value_ids.name', 'product_template_attribute_value_ids.attribute_id.name')
+    @api.depends(
+        'product_tmpl_id.name',
+        'product_template_attribute_value_ids.name',
+        'product_template_attribute_value_ids.attribute_id.name'
+    )
     def _compute_name(self):
         for product in self:
-            template_name = product.product_tmpl_id.name or ''
+            template_name = (product.product_tmpl_id.name or '').strip()
             
             variants = [
-                f"{v.attribute_id.name}: {v.name}"
+                f"{v.attribute_id.name}: {v.name}".strip()
                 for v in product.product_template_attribute_value_ids
                 if v.attribute_id and v.name
             ]
+            
             if variants:
-                product.name = f"{template_name} - ({', '.join(variants)})"
+                raw_name = f"{template_name} - ({', '.join(variants)})"
             else:
-                product.name = template_name
+                raw_name = template_name
+    
+            # Normalize: remove extra spaces (double, leading, trailing)
+            product.name = " ".join(raw_name.split())
 
 
 
