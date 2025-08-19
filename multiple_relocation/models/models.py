@@ -58,7 +58,7 @@ class ResPartner(models.Model):
 
         # Remove the used pallet IDs from the original list
         self.unused_pallet_series_ids = [id for id in pallet_series_list if id not in smallest_ids]
-        
+
         return formatted_ids
 
 class ProductTemplate(models.Model):
@@ -186,13 +186,13 @@ class ProductProduct(models.Model):
             template_name = (product.product_tmpl_id.name or '').strip()
             
             variants = [
-                f"{v.attribute_id.name}: {v.name}".strip()
+                f"{v.name}".strip()
                 for v in product.product_template_attribute_value_ids
                 if v.attribute_id and v.name
             ]
             
             if variants:
-                raw_name = f"{template_name} - ({', '.join(variants)})"
+                raw_name = f"{template_name} ({', '.join(variants)})"
             else:
                 raw_name = template_name
     

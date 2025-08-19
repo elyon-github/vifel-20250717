@@ -338,22 +338,14 @@ class StockQuantCorrectionWizard(models.TransientModel):
         return f"CORRECTION ({timestamp} by {user}): " + " ".join(change_list)
     
     def _get_field_label(self, field_name):
-        """Helper method to get field label from field name"""
-        # First try to get from _fields
-        if field_name in self._fields:
-            return self._fields[field_name].string
+        """Helper method to get field label from stock.quant field"""
+        Quant = self.env['stock.quant']
+        if field_name in Quant._fields:
+            return Quant._fields[field_name].string or field_name
         
-        # If not found, try fields_get() for related or computed fields
-        try:
-            field_info = self.fields_get([field_name])
-            if field_name in field_info:
-                return field_info[field_name]['string']
-        except:
-            pass
-        
-        # Fallback: clean and title-case field name (original behavior)
+        # Fallback: prettify technical name
         return field_name.replace('x_studio_', '').replace('_', ' ').title()
-    
+        
     def _format_value_for_display(self, value):
         """Format a value for display in reference"""
         if value is False or value is None:

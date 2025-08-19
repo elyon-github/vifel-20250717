@@ -478,7 +478,7 @@
 
           
         <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True"/>
-        <button string="Generate Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset."/>
+        <button string="Generate Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset." data-hotkey="g"/>
 
           
         <button string="Create Next Operation" name="325" type="action" invisible="picking_type_id in [2, 7] or ( picking_type_id in [45, 46, 1, 6] and state != &quot;done&quot; )" class="btn-success"/>

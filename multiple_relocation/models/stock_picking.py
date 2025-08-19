@@ -917,6 +917,8 @@ class transfer_locations(models.Model):
         failed_count = 0
         
         for record in self:
+            record.action_confirm()
+
             for move in record.move_ids_without_package:
                 try:
                     if move.exists():
@@ -1060,7 +1062,7 @@ class transfer_locations(models.Model):
                 ('location_id', 'in', child_location_ids),  # Get all child locations, including self
                 ('owner_id', '=', self.partner_id.id if self.partner_id else False),
                 ('lot_id', 'not in', lot_ids),
-                ('quantity', '!=', 0),
+                ('quantity', '>', 0),
                 # ('package_id', '!=', False),
                 ('lot_id', '!=', False),
                 # ('x_studio_record_reference', '!=', False),
