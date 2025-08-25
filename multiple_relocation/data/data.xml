@@ -1,7 +1,7 @@
 <odoo noupdate="0">
     <!-- Define the server action -->
 
-    <record id="service_product" model="product.product">
+    <!-- <record id="service_product" model="product.product">
         <field name="name">Reboxing</field>
         <field name="sale_ok">1</field>
         <field name="detailed_type">service</field>
@@ -20,7 +20,7 @@
         <field name="sale_ok">1</field>
         <field name="detailed_type">service</field>
         <field name="standard_price">0.00</field>
-    </record>
+    </record> -->
 
     <!-- Groups -->
     <record id="inventory_super_admin" model="res.groups">

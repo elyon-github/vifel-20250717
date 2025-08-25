@@ -342,7 +342,10 @@ class StockQuantCorrectionWizard(models.TransientModel):
         Quant = self.env['stock.quant']
         if field_name in Quant._fields:
             return Quant._fields[field_name].string or field_name
-        
+        if field_name == 'product_uom_qty':
+            return 'Weight (KG)'
+            
+        raise UserError(field_name)
         # Fallback: prettify technical name
         return field_name.replace('x_studio_', '').replace('_', ' ').title()
         
