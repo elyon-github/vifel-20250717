@@ -204,6 +204,15 @@ class ProductProduct(models.Model):
 class StockLocation(models.Model):
     _inherit = 'stock.location'
 
+    # Override the Studio field
+    x_studio_occupied_by_1 = fields.Many2many(
+        'res.partner',
+        'stock_location_partner_link',   # <-- NEW relation table
+        'location_id',
+        'partner_id',
+        string="Occupied By"
+    )
+    
     def remove_reservation(self):
         for record in self:
             record.x_studio_is_reserved = False
