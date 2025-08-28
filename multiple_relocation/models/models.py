@@ -210,8 +210,54 @@ class StockLocation(models.Model):
         'stock_location_partner_link',   # <-- NEW relation table
         'location_id',
         'partner_id',
-        string="Occupied By"
+        string="Occupied By",
+        store=True,
+        compute="_compute_x_studio_occupied_by_1"
     )
+
+    @api.depends('quant_ids.quantity', 'quant_ids')
+    def _compute_x_studio_occupied_by_1(self):
+        for record in self:
+            
+            if not record.child_ids:
+                unique_owners = set()
+                unique_products = set()
+                unique_pallets = set()
+                total_qty = 0
+                
+                # clear the many2many first
+                record['x_studio_occupied_by_1'] = [(5, 0, 0)]
+                record['x_studio_products_1'] = [(5, 0, 0)]
+                record['x_studio_pallets'] = [(5, 0, 0)]
+                
+                # collect values
+                for quant in record.quant_ids:
+                    if quant.quantity > 0:
+                        total_qty += quant.quantity 
+                        if quant.product_id:
+                            unique_products.add(quant.product_id.id)
+                        if quant.owner_id:
+                            unique_owners.add(quant.owner_id.id)
+                        if quant.package_id:
+                            unique_pallets.add(quant.package_id.id)
+                
+                # assign many2many
+                if unique_owners:
+                    record['x_studio_occupied_by_1'] = [(6, 0, list(unique_owners))]
+                if unique_products:
+                    record['x_studio_products_1'] = [(6, 0, list(unique_products))]
+                if unique_pallets:
+                    record['x_studio_pallets'] = [(6, 0, list(unique_pallets))]
+                
+                # assign total qty
+                record['x_studio_total_quantity'] = total_qty
+            else:
+                # reset
+                record['x_studio_occupied_by_1'] = [(5, 0, 0)]
+                record['x_studio_products_1'] = [(5, 0, 0)]
+                record['x_studio_pallets'] = [(5, 0, 0)]
+                record['x_studio_total_quantity'] = 0
+
     
     def remove_reservation(self):
         for record in self:
