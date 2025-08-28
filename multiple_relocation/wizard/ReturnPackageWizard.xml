@@ -71,7 +71,7 @@
                                                                                ('x_studio_is_reserved', '=', False)
                                                                            ]"/>
                                         <field name="location_dest_id" domain="[
-                                                                                ('x_studio_occupied_by', '=', False),
+                                                                                ('x_studio_occupied_by_1', '=', False),
                                                                                 ('x_studio_is_reserved', '=', False), 
                                                                                 ('child_ids', '=', False),
                                                                                 ('id', 'child_of', location_id)
