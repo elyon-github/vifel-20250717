@@ -247,6 +247,7 @@ class ResConfigSettings(models.TransientModel):
             'stock.move.line',
             # 'stock.package_level',
             'stock.quantity.history',
+            'stock.quantity.snapshot',
             # 'stock.quant.package',
             'stock.move',
             # 'stock.pack.operation',

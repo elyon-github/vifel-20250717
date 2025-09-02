@@ -7,7 +7,7 @@ _logger = logging.getLogger(__name__)
 class PalletKilosRecordModel(models.Model):
     _name = 'pallet_kilos_record_model.pallet_kilos_record_model'
     _description = 'Pallet Kilos Record Model'
-    _order = 'start_time asc, id asc'  # Critical for running balance
+    _order = 'end_time asc, id asc'  # Critical for running balance
     
     # Basic identification fields
     report_no = fields.Char(string="Report No.", readonly=True)
@@ -42,7 +42,7 @@ class PalletKilosRecordModel(models.Model):
     units_withdrawn = fields.Float(string="Units Withdrawn", readonly=True, store=True)
 
     # Balance fields - stored, calculated via method calls
-    total_balance_in_units = fields.Float(store=True, string="Total Balance in Heads", readonly=True, group_operator=False)
+    total_balance_in_units = fields.Float(store=True, string="Total Balance in Packs", readonly=True, group_operator=False)
     total_balance_in_packaging = fields.Float(store=True, string="Total Balance in Quantity", readonly=True, group_operator=False)
     total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False)
     total_balance_in_pallets = fields.Float(store=True, string="Total Balance in Pallets", readonly=True, group_operator=False)
@@ -268,7 +268,7 @@ class PalletKilosRecordModel(models.Model):
                 running_pallets = running_kilos = 0
         else:
             running_pallets = running_kilos = 0
-    
+
         # Track per-owner balances
         owner_balances = {}
         
@@ -360,7 +360,6 @@ class PalletKilosRecordModel(models.Model):
                 owner_balances[owner_id]['total_packaging'] += record.packaging_received
                 owner_balances[owner_id]['total_units'] += record.units_received
                 owner_balances[owner_id]['total_kilos'] += record.kilos_received
-                owner_balances[owner_id]['total_pallets'] += record.pallets_received
                 owner_balances[owner_id]['total_pallets'] += record.pallets_received
                 
             # Apply adjustments to owner balances

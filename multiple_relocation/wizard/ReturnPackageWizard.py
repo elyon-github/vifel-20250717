@@ -157,7 +157,7 @@ class ReturnPackageWizard(models.TransientModel):
                         lines.append((0, 0, {
                             'select_package': False,
                             'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                            'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by else move_line.location_id.id,
+                            'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
                             'pallet_series_id': move_line.x_studio_pallet_series_id,
                             'bf_pallet_char': move_line.bf_pallet_char,
                             'product_id': move_line.product_id.id,
@@ -184,7 +184,7 @@ class ReturnPackageWizard(models.TransientModel):
                         lines.append((0, 0, {
                                 'select_package': False,
                                 'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                                'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by else move_line.location_id.id,
+                                'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
                                 'pallet_series_id': move_line.x_studio_pallet_series_id,
                                 'bf_pallet_char': move_line.bf_pallet_char,
                                 'product_id': move_line.product_id.id,
@@ -390,6 +390,21 @@ class ReturnPackageWizard(models.TransientModel):
         existing_return = self._find_existing_return()
         
         if existing_return:
+            fields_map = {
+                'truck_type': self.picking_id.truck_type,
+                'x_studio_truck_time': self.picking_id.x_studio_end_time,
+                'x_studio_driver': self.picking_id.x_studio_driver,
+                'x_studio_start_time': self.picking_id.x_studio_end_time,
+                'x_studio_trucks_plate_': self.picking_id.x_studio_trucks_plate_,
+                'x_studio_loading_dock_no': self.picking_id.x_studio_loading_dock_no,
+                'x_studio_source': 'RETURN',
+                'x_studio_checked_by': self.picking_id.x_studio_checked_by,
+                'x_studio_approved_by': self.picking_id.x_studio_approved_by,
+            }
+            
+            vals = {field: value for field, value in fields_map.items() if not getattr(existing_return, field)}
+            if vals:
+                existing_return.write(vals)
             # Append to existing return
             return self._append_to_existing_return(existing_return, selected_packages)
         else:
@@ -648,6 +663,8 @@ class ReturnPackageWizard(models.TransientModel):
             'x_studio_driver': self.picking_id.x_studio_driver,
             'x_studio_loading_dock_no': self.picking_id.x_studio_loading_dock_no,
             'x_studio_source': self.picking_id.name,
+            'x_studio_client_reference': 'N/A',
+            'x_studio_source': 'RETURN', 
         })
 
         product_data = {}

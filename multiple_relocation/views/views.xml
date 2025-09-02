@@ -197,8 +197,8 @@
             <attribute name="domain">[
                 '&amp;', 
                 '|', 
-                ('x_studio_occupied_by', '=', ''), 
-                ('x_studio_occupied_by', '=', False), 
+                ('x_studio_occupied_by_1', '=', ''), 
+                ('x_studio_occupied_by_1', '=', False), 
                 ('child_ids', '=', False), 
                 ('id', 'child_of', context.get('default_location_dest_id')), 
                 '|', 
@@ -478,7 +478,7 @@
 
           
         <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True"/>
-        <button string="Generate Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset."/>
+        <button string="Generate Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset." data-hotkey="g"/>
 
           
         <button string="Create Next Operation" name="325" type="action" invisible="picking_type_id in [2, 7] or ( picking_type_id in [45, 46, 1, 6] and state != &quot;done&quot; )" class="btn-success"/>
@@ -683,7 +683,7 @@
               <field optional="show" name="x_studio_special_holding" column_invisible="parent.picking_type_id in [45, 46, 47, 48]" readonly="picking_code == &quot;outgoing&quot;"/>
               <field optional="show" name="x_studio_sh_reason" column_invisible="parent.picking_type_id in [45, 46, 47, 48]" readonly="not x_studio_special_holding or picking_code == &quot;outgoing&quot;"/>
               <field optional="show" name="x_studio_is_reserved"/>
-              <field name="location_dest_id" column_invisible="parent.picking_code == 'outgoing'" invisible="False" domain="[&quot;&amp;&quot;, &quot;|&quot;, (&quot;x_studio_occupied_by&quot;, &quot;=&quot;, &quot;&quot;), (&quot;x_studio_occupied_by&quot;, &quot;=&quot;, False), (&quot;child_ids&quot;, &quot;=&quot;, False), (&quot;id&quot;, &quot;child_of&quot;, parent.location_dest_id)]" readonly="x_studio_is_locked_by_loc_pallets == True" options="{&quot;no_create&quot;:true}"/>
+              <field name="location_dest_id" column_invisible="parent.picking_code == 'outgoing'" invisible="False" domain="[&quot;&amp;&quot;, &quot;|&quot;, (&quot;x_studio_occupied_by_1&quot;, &quot;=&quot;, &quot;&quot;), (&quot;x_studio_occupied_by_1&quot;, &quot;=&quot;, False), (&quot;child_ids&quot;, &quot;=&quot;, False), (&quot;id&quot;, &quot;child_of&quot;, parent.location_dest_id)]" readonly="x_studio_is_locked_by_loc_pallets == True" options="{&quot;no_create&quot;:true}"/>
               <field optional="show" name="x_studio_is_locked_by_loc_pallets" column_invisible="True"/>
               <field name="package_id" column_invisible="True"/>
               <field name="result_package_id" column_invisible="True" invisible="False" required="False" string="Pallet" options="{&quot;no_create&quot;:true}"/>
@@ -1081,7 +1081,7 @@
                 <field optional="show" name="x_studio_opening_balance_record_reference"/>
               </xpath>
               <xpath expr="//field[@name='x_studio_dest_relocation']" position="attributes">
-                <attribute name="domain">["&amp;", "&amp;", ("child_ids", "=", False), ("location_id.location_id.location_id.location_id", "!=", False), ("x_studio_occupied_by", "=", False)]</attribute>
+                <attribute name="domain">["&amp;", "&amp;", ("child_ids", "=", False), ("location_id.location_id.location_id.location_id", "!=", False), ("x_studio_occupied_by_1", "=", False)]</attribute>
               </xpath>
               <xpath expr="//field[@name='x_studio_stock_code']" position="after">
                 <field name="x_studio_building_dropped" optional="show" string="Building Dropped"/>
@@ -1147,7 +1147,7 @@
             <field optional="show" name="x_studio_pallet"/>
             <field optional="show" name="x_studio_products" widget="many2many_tags" column_invisible="True"/>
             <field name="x_studio_products_1" optional="show" widget="many2many_tags"/>
-            <field name="x_studio_occupied_by" optional="show"/>
+            <field name="x_studio_occupied_by_1" optional="show"/>
             <field name="x_studio_total_quantity" optional="show"/>
           </xpath>
           <xpath expr="//field[@name='usage']" position="attributes">

@@ -111,11 +111,11 @@
                                 <field name="total_balance_in_pallets" string="Total Balance in Pallets"/>
                                 <field name="beginning_balance_in_pallets" string="Beginning Balance in Pallets"/>
                             </group>
-                            <group string="Unit Movement">
-                                <field name="units_received" string="Minimum Received"/>
-                                <field name="units_withdrawn" string="Minimum Withdrawn"/>
+                            <group string="Packs Movement">
+                                <field name="units_received" string="Packs Received"/>
+                                <field name="units_withdrawn" string="Packs Withdrawn"/>
                                 <!-- <field name="overall_units"/> -->
-                                <field name="total_balance_in_units" string="Total Balance in Minimum"/>
+                                <field name="total_balance_in_units" string="Total Balance in Packs"/>
                             </group>
                         </group>
                         <group>
@@ -126,7 +126,7 @@
                                 <field name="total_balance_in_kilos" string="Total Balance in Weight (KG)"/>
                                 <field name="beginning_balance_in_kilos" string="Beginning Balance in Weight (KG)"/>
                             </group>
-                            <group string="Packaging Movement">
+                            <group string="Quantity Movement">
                                 <field name="packaging_received" string="Quantity Received"/>
                                 <field name="packaging_withdrawn" string="Quantity Withdrawn"/>
                                 <!-- <field name="overall_packaging"/> -->
@@ -140,7 +140,7 @@
                                 <field name="return_id" string="Return RR"/>
                                 <field name="return_pallets" string="Pallets Returned"/>
                                 <field name="return_kilos" string="Weight (KG) Returned"/>
-                                <field name="return_heads" string="Minimum Returned"/>
+                                <field name="return_heads" string="Packs Returned"/>
                                 <field name="return_packaging" string="Quantity Returned"/>
 
                             </group>

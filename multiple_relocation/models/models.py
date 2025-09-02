@@ -58,7 +58,7 @@ class ResPartner(models.Model):
 
         # Remove the used pallet IDs from the original list
         self.unused_pallet_series_ids = [id for id in pallet_series_list if id not in smallest_ids]
-        
+
         return formatted_ids
 
 class ProductTemplate(models.Model):
@@ -176,26 +176,89 @@ class ProductProduct(models.Model):
     name = fields.Char(compute='_compute_name', store=True, readonly=False)
 
     
-    @api.depends('product_tmpl_id.name', 'product_template_attribute_value_ids.name', 'product_template_attribute_value_ids.attribute_id.name')
+    @api.depends(
+        'product_tmpl_id.name',
+        'product_template_attribute_value_ids.name',
+        'product_template_attribute_value_ids.attribute_id.name'
+    )
     def _compute_name(self):
         for product in self:
-            template_name = product.product_tmpl_id.name or ''
+            template_name = (product.product_tmpl_id.name or '').strip()
             
             variants = [
-                f"{v.attribute_id.name}: {v.name}"
+                f"{v.name}".strip()
                 for v in product.product_template_attribute_value_ids
                 if v.attribute_id and v.name
             ]
+            
             if variants:
-                product.name = f"{template_name} - ({', '.join(variants)})"
+                raw_name = f"{template_name} ({', '.join(variants)})"
             else:
-                product.name = template_name
+                raw_name = template_name
+    
+            # Normalize: remove extra spaces (double, leading, trailing)
+            product.name = " ".join(raw_name.split())
 
 
 
 class StockLocation(models.Model):
     _inherit = 'stock.location'
 
+    # Override the Studio field
+    x_studio_occupied_by_1 = fields.Many2many(
+        'res.partner',
+        'stock_location_partner_link',   # <-- NEW relation table
+        'location_id',
+        'partner_id',
+        string="Occupied By",
+        store=True,
+        compute="_compute_x_studio_occupied_by_1"
+    )
+
+    @api.depends('quant_ids.quantity', 'quant_ids')
+    def _compute_x_studio_occupied_by_1(self):
+        for record in self:
+            
+            if not record.child_ids:
+                unique_owners = set()
+                unique_products = set()
+                unique_pallets = set()
+                total_qty = 0
+                
+                # clear the many2many first
+                record['x_studio_occupied_by_1'] = [(5, 0, 0)]
+                record['x_studio_products_1'] = [(5, 0, 0)]
+                record['x_studio_pallets'] = [(5, 0, 0)]
+                
+                # collect values
+                for quant in record.quant_ids:
+                    if quant.quantity > 0:
+                        total_qty += quant.quantity 
+                        if quant.product_id:
+                            unique_products.add(quant.product_id.id)
+                        if quant.owner_id:
+                            unique_owners.add(quant.owner_id.id)
+                        if quant.package_id:
+                            unique_pallets.add(quant.package_id.id)
+                
+                # assign many2many
+                if unique_owners:
+                    record['x_studio_occupied_by_1'] = [(6, 0, list(unique_owners))]
+                if unique_products:
+                    record['x_studio_products_1'] = [(6, 0, list(unique_products))]
+                if unique_pallets:
+                    record['x_studio_pallets'] = [(6, 0, list(unique_pallets))]
+                
+                # assign total qty
+                record['x_studio_total_quantity'] = total_qty
+            else:
+                # reset
+                record['x_studio_occupied_by_1'] = [(5, 0, 0)]
+                record['x_studio_products_1'] = [(5, 0, 0)]
+                record['x_studio_pallets'] = [(5, 0, 0)]
+                record['x_studio_total_quantity'] = 0
+
+    
     def remove_reservation(self):
         for record in self:
             record.x_studio_is_reserved = False

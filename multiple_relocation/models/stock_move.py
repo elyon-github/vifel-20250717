@@ -716,7 +716,7 @@ class stock_move_line_Override(models.Model):
     @api.onchange('x_studio_expiration_date')
     def onchange_expiry_date(self):
         for record in self:
-            if not record.x_studio_expiration_date:
+            if not record.x_studio_expiration_date or record.picking_id.picking_type_code != 'incoming':
                 continue
     
             product = record.product_id
@@ -777,7 +777,7 @@ class stock_move_line_Override(models.Model):
 
     def expiry_date_range_checker(self):
         for record in self:
-            if not record.x_studio_expiration_date or not record.product_id:
+            if not record.x_studio_expiration_date or not record.product_id or record.picking_id.picking_type_code != 'incoming':
                 continue
     
             product = record.product_id
