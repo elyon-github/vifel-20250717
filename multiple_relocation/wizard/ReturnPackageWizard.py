@@ -157,7 +157,7 @@ class ReturnPackageWizard(models.TransientModel):
                         lines.append((0, 0, {
                             'select_package': False,
                             'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                            'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by else move_line.location_id.id,
+                            'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
                             'pallet_series_id': move_line.x_studio_pallet_series_id,
                             'bf_pallet_char': move_line.bf_pallet_char,
                             'product_id': move_line.product_id.id,

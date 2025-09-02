@@ -7,7 +7,7 @@ _logger = logging.getLogger(__name__)
 class PalletKilosRecordModel(models.Model):
     _name = 'pallet_kilos_record_model.pallet_kilos_record_model'
     _description = 'Pallet Kilos Record Model'
-    _order = 'start_time asc, id asc'  # Critical for running balance
+    _order = 'end_time asc, id asc'  # Critical for running balance
     
     # Basic identification fields
     report_no = fields.Char(string="Report No.", readonly=True)
@@ -268,7 +268,7 @@ class PalletKilosRecordModel(models.Model):
                 running_pallets = running_kilos = 0
         else:
             running_pallets = running_kilos = 0
-    
+
         # Track per-owner balances
         owner_balances = {}
         
@@ -360,7 +360,6 @@ class PalletKilosRecordModel(models.Model):
                 owner_balances[owner_id]['total_packaging'] += record.packaging_received
                 owner_balances[owner_id]['total_units'] += record.units_received
                 owner_balances[owner_id]['total_kilos'] += record.kilos_received
-                owner_balances[owner_id]['total_pallets'] += record.pallets_received
                 owner_balances[owner_id]['total_pallets'] += record.pallets_received
                 
             # Apply adjustments to owner balances

@@ -116,21 +116,22 @@ class CountSheet(models.AbstractModel):
             for idx, record in enumerate(group):
                 location_name = record.complete_name
                 
-                pallet_names = ", ".join(record.x_studio_pallets.mapped("name")) if record.x_studio_pallet else ""
+                pallet_names = ", ".join(record.x_studio_pallets.mapped("name")) if record.x_studio_pallets else ""
                 
-                if idx % 2 == 0:
-                    sheet.write(row, col, self.convert_location_string(location_name), justify_format_location)
-                    sheet.write(row, col + 1, "", justify_format)
-                    sheet.write(row, col + 2, pallet_names, justify_format)  # fixed
-                    sheet.write(row, col + 7, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
-                else:
-                    sheet.write(row, col + 9, self.convert_location_string(location_name), justify_format_location)
-                    sheet.write(row, col + 10, "", justify_format)
-                    sheet.write(row+1, col + 11, pallet_names, justify_format)  # fixed
-                    sheet.write(row+1, col + 16, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
-
-                    row += 1
+                if idx % 2 == 0:  # Left side
+                    current_row = row + (idx // 2)  # Calculate the actual row
+                    sheet.write(current_row, col, self.convert_location_string(location_name), justify_format_location)
+                    sheet.write(current_row, col + 1, "", justify_format)
+                    sheet.write(current_row, col + 2, pallet_names, justify_format)
+                    sheet.write(current_row, col + 7, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
+                else:  # Right side
+                    current_row = row + (idx // 2)  # Same row as the previous left item
+                    sheet.write(current_row, col + 9, self.convert_location_string(location_name), justify_format_location)
+                    sheet.write(current_row, col + 10, "", justify_format)
+                    sheet.write(current_row, col + 11, pallet_names, justify_format)
+                    sheet.write(current_row, col + 16, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
                 
+                # Write product details for both sides
                 product_names = []
                 pd = []
                 ed = []
@@ -151,20 +152,23 @@ class CountSheet(models.AbstractModel):
                         if container_number:
                             container_number_name.append(container_number)
                 
-                if idx % 2 == 0:
-                    sheet.write(row, col + 3, ", ".join(product_names), justify_format)
-                    sheet.write(row, col + 4, ", ".join(pd), justify_format)
-                    sheet.write(row, col + 5, ", ".join(ed), justify_format)
-                    sheet.write(row, col + 6, qty if qty else '', justify_format)
-                    sheet.write(row, col + 8, ", ".join(container_number_name), justify_format)
-                else:
-                    sheet.write(row, col + 12, ", ".join(product_names), justify_format)
-                    sheet.write(row, col + 13, ", ".join(pd), justify_format)
-                    sheet.write(row, col + 14, ", ".join(ed), justify_format)
-                    sheet.write(row, col + 15, qty if qty else '', justify_format)
-                    sheet.write(row, col + 17, ", ".join(container_number_name), justify_format)
-
-            row += 2
+                if idx % 2 == 0:  # Left side
+                    current_row = row + (idx // 2)
+                    sheet.write(current_row, col + 3, ", ".join(product_names), justify_format)
+                    sheet.write(current_row, col + 4, ", ".join(pd), justify_format)
+                    sheet.write(current_row, col + 5, ", ".join(ed), justify_format)
+                    sheet.write(current_row, col + 6, qty if qty else '', justify_format)
+                    sheet.write(current_row, col + 8, ", ".join(container_number_name), justify_format)
+                else:  # Right side
+                    current_row = row + (idx // 2)
+                    sheet.write(current_row, col + 12, ", ".join(product_names), justify_format)
+                    sheet.write(current_row, col + 13, ", ".join(pd), justify_format)
+                    sheet.write(current_row, col + 14, ", ".join(ed), justify_format)
+                    sheet.write(current_row, col + 15, qty if qty else '', justify_format)
+                    sheet.write(current_row, col + 17, ", ".join(container_number_name), justify_format)
+            
+            # Update the final row calculation
+            row += ((len(list(group)) + 1) // 2) + 2
 
     def convert_location_string(self, s):
         parts = s.split('/')

@@ -52,12 +52,12 @@ patch(ListController.prototype, {
             const palletResult = await this.orm.searchRead(
                 this.model.root.resModel,
                 this.model.root.domain,
-                ['x_studio_pallet_series_id']
+                ['package_id']
             );
             
             const uniquePallets = new Set();
             palletResult.forEach(record => {
-                const palletId = record.x_studio_pallet_series_id;
+                const palletId = record.package_id;
                 if (palletId) {
                     const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
                     if (palletValue) {
@@ -157,7 +157,7 @@ patch(ListController.prototype, {
         
         const uniquePallets = new Set();
         selection.forEach(record => {
-            const palletId = record.data.x_studio_pallet_series_id;
+            const palletId = record.data.package_id;
             if (palletId) {
                 const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
                 if (palletValue) {
@@ -231,7 +231,7 @@ patch(ListController.prototype, {
         
         const uniquePallets = new Set();
         selection.forEach(record => {
-            const palletId = record.data.x_studio_pallet_series_id;
+            const palletId = record.data.package_id;
             if (palletId) {
                 const palletValue = Array.isArray(palletId) ? palletId[0] : palletId;
                 if (palletValue) {
