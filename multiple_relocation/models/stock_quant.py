@@ -824,8 +824,9 @@ class OverrideStockQuant(models.Model):
         compute='_compute_reservation_tags',
         store=False,
         help="Tags from transfers where this quant was reserved",
-        readonly=True
+        readonly=False
     )
+    color = fields.Integer(string="Color")  # standard color field
 
     @api.depends('lot_id', 'reserved_quantity')
     def _compute_reservation_tags(self):

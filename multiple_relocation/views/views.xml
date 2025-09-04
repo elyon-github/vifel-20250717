@@ -364,6 +364,7 @@
     <field name="model">stock.picking</field>
     <field name="inherit_id" ref="stock.view_picking_form"/>
     <field name="arch" type="xml">
+
       <!-- First Part -->
       <xpath expr="//button[@name='action_assign']" position="attributes">
         <attribute name="invisible">picking_type_code != "outgoing" or state in ["done", "draft"]</attribute>
@@ -422,6 +423,15 @@
       </xpath>
       <xpath expr="//form[1]/header[1]" position="after">
         <!--Added Warning-->
+        
+        <field name="show_return_alert" invisible="1"/>
+        
+        <div class="alert alert-danger" role="alert"
+             invisible="not show_return_alert or state not in ['done']">
+            There is still a draft return transaction that needs to be validated!
+        </div>
+
+          
         <div class="alert alert-danger" role="alert" invisible="state == 'draft' or not x_studio_has_discrepancy" name="studio_div_76b5b3">
           <span>Discrepancy Detected! Please generate an NCR Report.</span>
         </div>

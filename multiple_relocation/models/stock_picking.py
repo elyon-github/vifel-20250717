@@ -90,6 +90,20 @@ class transfer_locations(models.Model):
                         already_done = True
                         break
             record.return_id_already_done = already_done
+
+    show_return_alert = fields.Boolean(
+        compute="_compute_show_return_alert",
+        store=False
+    )
+
+    @api.depends("return_ids.state")
+    def _compute_show_return_alert(self):
+        for rec in self:
+            # True if at least one return_id is in draft or assigned
+            rec.show_return_alert = any(
+                r.state in ("draft", "assigned") for r in rec.return_ids
+            )
+    
             
     
     def process_move_lines_get_total_out(self, move_lines):
