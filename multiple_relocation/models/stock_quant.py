@@ -816,3 +816,32 @@ class OverrideStockQuant(models.Model):
         
         moves = self.env['stock.move'].create(move_vals)
         moves._action_done()
+
+
+    reservation_tags = fields.Many2many(
+        'stock.picking',  # Adjust comodel_name
+        string='Reservation Tags',
+        compute='_compute_reservation_tags',
+        store=False,
+        help="Tags from transfers where this quant was reserved",
+        readonly=False
+    )
+
+    @api.depends('lot_id', 'reserved_quantity')
+    def _compute_reservation_tags(self):
+        for quant in self:
+            pickings = self.env['stock.picking']
+            
+            if quant.lot_id and quant.reserved_quantity > 0:
+                # Find move lines that have this quant reserved
+                reserved_move_lines = self.env['stock.move.line'].search([
+                    ('lot_id', '=', quant.lot_id.id),
+                    ('location_id', '=', quant.location_id.id),
+                    ('product_id', '=', quant.product_id.id),
+                    ('state', 'in', ['assigned', 'partially_available'])
+                ])
+                
+                # Get pickings from reserved move lines
+                pickings = reserved_move_lines.mapped('picking_id')
+            
+            quant.reservation_tags = pickings

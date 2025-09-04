@@ -153,7 +153,7 @@
 
             <!-- Auto-Fill Locations Button -->
             <button name="300" type="action" 
-                    string="Auto-Fill Locations" class="btn btn-info" 
+                    string="Assign Locations" class="btn btn-info" 
                     invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('state') != 'assigned' 
                     or context.get('picking_type_code') != 'incoming' or not context.get('picking_type_id') in [1, 6]" confirm="Are you sure you want to fill the locations for all the lines?" />
 
@@ -189,7 +189,7 @@
         <!-- Set Tree View Editable Mode -->
         <xpath expr="//tree" position="attributes">
             <attribute name="editable">bottom</attribute>
-            <attribute name="default_order">x_studio_pallet_series_id desc, product_id, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id</attribute>
+            <attribute name="default_order">x_studio_pallet_series_id asc, product_id, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id</attribute>
         </xpath>
 
         <!-- Define Domain for Location Destination Field -->
@@ -316,10 +316,10 @@
                    string="Unit of Measure" width="120"/>
             <field optional="show" name="x_studio_withdraw_units"
                    column_invisible="context.get('picking_code') == 'incoming'" 
-                   string="Min UOM (Withdraw) " width="120"/>
+                   string="Packs UOM (Withdraw) " width="120"/>
             <field optional="show" name="x_studio_actual_min"
                    column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" 
-                   string="Actual Min" width="120" decoration-warning="1"/>
+                   string="Actual Packs" width="120" decoration-warning="1"/>
 
 
             
@@ -331,7 +331,7 @@
                    readonly="False" invisible="picking_type_id in [2]" 
                    column_invisible="context.get('picking_code') == 'outgoing'" required="x_studio_2nd_uom" width="120"/>
             <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" 
-                   column_invisible="context.get('picking_code') == 'outgoing'" string="Min UOM" 
+                   column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" 
                    required="False" readonly="picking_code == 'outgoing'" width="120"/>
             <field name="x_studio_min_quantity_uom" optional="show" 
                    domain="[('category_id', 'ilike', 'min uom')]" 
@@ -892,15 +892,9 @@
         <field name="name">stock.quant.tree.custom_2</field>
         <field name="model">stock.quant</field>
         <field name="arch" type="xml">
-
             <tree>
                 <header>
-                    <button name="373"
-                            string="Checkout Stocks"
-                            type="action"
-                            class="btn btn-primary"
-                            invisible="context.get('state') == 'done'"/>
-
+                    <button name="373" string="Checkout Stocks" type="action" class="btn btn-primary" invisible="context.get('state') == 'done'"/>
                 </header>
                 <field name="create_date" column_invisible="True"/>
                 <field name="write_date" column_invisible="True"/>
@@ -918,28 +912,31 @@
                 <field name="package_id" groups="stock.group_tracking_lot" readonly="id" string="Pallet #"/>
                 <field name="x_studio_pallet_series_id" groups="stock.group_tracking_lot" readonly="id" string="Pallet Series ID"/>
                 <field name="x_studio_container_number" readonly="id" string="Container #" optional="show"/>
-                <field name="x_studio_production_date"  readonly="id" optional="show"/>
-                <field name="x_studio_expiration_date"  readonly="id" optional="show"/>
-                <field name="x_studio_source"  readonly="id" optional="hide"/>
-                <field name="x_studio_gate_pass"  readonly="id" optional="hide"/>
+                <field name="x_studio_production_date" readonly="id" optional="show"/>
+                <field name="x_studio_expiration_date" readonly="id" optional="show"/>
+                <field name="x_studio_source" readonly="id" optional="hide"/>
+                <field name="x_studio_gate_pass" readonly="id" optional="hide"/>
                 <!-- <field name="x_studio_truck_type"  readonly="id" optional="hide"/> -->
-                <field name="x_studio_truck_time"  readonly="id" optional="hide"/>
-                <field name="x_studio_start_time"  readonly="id" optional="hide"/>
-                <field name="x_studio_end_time"  readonly="id" optional="hide"/>
-                <field name="lot_id"  readonly="id" optional="hide"/>
+                <field name="x_studio_truck_time" readonly="id" optional="hide"/>
+                <field name="x_studio_start_time" readonly="id" optional="hide"/>
+                <field name="x_studio_end_time" readonly="id" optional="hide"/>
+                <field name="lot_id" readonly="id" optional="hide"/>
                 <field name="x_studio_2nd_uom" optional="show" sum="Total Quantity" string="Total Quantity"/>
                 <field name="x_studio_quantity_uom" optional="show" string="Quantity Unit of Measure"/>
                 <field name="x_studio_total_units" optional="show" sum="Total Min Units" string="Total Minimum"/>
-                <field name="x_studio_min_quantity_uom" optional="show" string="Minimum Unit of Measure" />
+                <field name="x_studio_min_quantity_uom" optional="show" string="Minimum Unit of Measure"/>
                 <field name="inventory_quantity_auto_apply" string="On Hand Weight(KG)" readonly="0" sum="Total On Hand"/>
-                <field name="reserved_quantity" optional="show" sum="Total Reserved" string="Reserved Weight(KG)"/>
-                <field name="available_quantity" optional="show" sum="Total Available" string="Available Weight(KG)"/>
+                <field name="reservation_tags" string="Reservation RR" widget="many2many_tags" readonly="True"/>
+                <field name="reserved_quantity" optional="show" sum="Total Reserved" string="Reserved Weight(KG)" 
+                       decoration-danger="reserved_quantity &gt; 0"/>
+                <field name="available_quantity" optional="show" sum="Total Available" string="Available Weight(KG)" 
+                       decoration-success="available_quantity &gt; 0"/>
                 <field name="product_uom_id" string="Unit" groups="uom.group_uom"/>
-
+                
                 <field name="product_categ_id" optional="hide"/>
                 <field name="company_id" groups="base.group_multi_company" optional="hidden"/>
                 <!-- <field name="lot_id" groups="stock.group_production_lot" column_invisible="context.get('hide_lot', False)" readonly="id or tracking not in ['serial', 'lot']" context="{'default_product_id': product_id, 'default_company_id': company_id}"/> -->
-
+            
                 <field name="lot_properties" optional="hide"/>
             </tree>
         </field>

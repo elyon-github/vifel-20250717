@@ -47,6 +47,7 @@ Long description of module's purpose
             'multiple_relocation/static/src/js/test.js',
             'multiple_relocation/static/src/js/test2.js',
             'multiple_relocation/static/src/views/templates.xml',
+            'multiple_relocation/static/src/js/many2many_tags_field.js',
         ],
         
     }

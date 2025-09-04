@@ -955,7 +955,33 @@ class transfer_locations(models.Model):
             }
     
             res = super(transfer_locations, record).write(vals)
-    
+
+            if vals.get('state') == 'done':
+                for picking in self:
+                    # Check if this is a return picking that references an original WR
+                    if picking.return_id and picking.return_reason == 'Partial Withdraw':
+                        _logger.info(f"Return picking {picking.id} validated, updating original WR {picking.return_id.id}")
+                        
+                        # Find the pallet kilos record for the original WR
+                        pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search([
+                            ('record_reference', '=', picking.return_id.id)
+                        ], limit=1)
+                        
+                        if pallet_record:
+                            # Re-populate the returns data to pick up the newly validated return
+                            pallet_record._populate_returns_data()
+                            
+                            # Recalculate running balances from this record onwards since returns affect the chain
+                            pallet_record._recalculate_running_balances(
+                                pallet_record.warehouse.id,
+                                pallet_record.is_blast_freezer,
+                                pallet_record.start_time
+                            )
+                            
+                            _logger.info(f"Updated return data and recalculated balances for pallet record {pallet_record.id}")
+                        else:
+                            _logger.warning(f"No pallet kilos record found for WR {picking.return_id.id}")
+                            
             if 'location_dest_id' in vals:
                 if record.picking_type_id.code == 'incoming':
                     for line in record.move_line_ids:
@@ -1002,33 +1028,43 @@ class transfer_locations(models.Model):
             if picking.picking_type_id.code == 'incoming':
                 domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False)]
             elif picking.picking_type_id.code == 'outgoing' and not is_blast_freeze:
+                # child_location_ids = self.env['stock.location'].search([
+                #     ('id', 'child_of', picking.location_id.id)
+                # ]).ids
+                # domain = [
+                #     ('location_id', 'in', child_location_ids),
+                #     ('owner_id', '=', picking.partner_id.id if picking.partner_id else False),
+                #     ('package_id', '!=', False),
+                #     ('lot_id', '!=', False),
+                #     ('lot_id', 'not in', lot_ids),
+                #     ('quantity', '!=', 0),
+                #     # ('x_studio_record_reference', '!=', False),
+                #     ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
+                # ]
                 child_location_ids = self.env['stock.location'].search([
-                    ('id', 'child_of', picking.location_id.id)
-                ]).ids
+                        ('id', 'child_of', self.location_id.id)
+                    ]).ids
                 domain = [
-                    ('location_id', 'in', child_location_ids),
-                    ('owner_id', '=', picking.partner_id.id if picking.partner_id else False),
-                    ('package_id', '!=', False),
-                    ('lot_id', '!=', False),
+                    ('location_id', 'in', child_location_ids),  # Get all child locations, including self
+                    ('owner_id', '=', self.partner_id.id if self.partner_id else False),
                     ('lot_id', 'not in', lot_ids),
                     ('quantity', '!=', 0),
+                    ('package_id', '!=', False), ('lot_id', '!=', False),
                     # ('x_studio_record_reference', '!=', False),
-                    ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
-                ]
+                    ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
             elif picking.picking_type_id.code == 'outgoing' and is_blast_freeze:
                 child_location_ids = self.env['stock.location'].search([
-                    ('id', 'child_of', picking.location_id.id)
-                ]).ids
+                                    ('id', 'child_of', self.location_id.id)
+                                ]).ids
                 domain = [
-                    ('location_id', 'in', child_location_ids),
-                    ('owner_id', '=', picking.partner_id.id if picking.partner_id else False),
+                    ('location_id', 'in', child_location_ids),  # Get all child locations, including self
+                    ('owner_id', '=', self.partner_id.id if self.partner_id else False),
+                    ('lot_id', 'not in', lot_ids),
+                    ('quantity', '>', 0),
                     # ('package_id', '!=', False),
                     ('lot_id', '!=', False),
-                    ('lot_id', 'not in', lot_ids),
-                    ('quantity', '!=', 0),
                     # ('x_studio_record_reference', '!=', False),
-                    ('id', 'not in', picking.move_line_ids.mapped('computed_quant_id.id'))
-                ]
+                    ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
             # Compute count based on filtered quants
             picking.quant_count = self.env['stock.quant'].search_count(domain)
            
