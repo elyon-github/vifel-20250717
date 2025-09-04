@@ -956,31 +956,6 @@ class transfer_locations(models.Model):
     
             res = super(transfer_locations, record).write(vals)
 
-            if vals.get('state') == 'done':
-                for picking in self:
-                    # Check if this is a return picking that references an original WR
-                    if picking.return_id and picking.return_reason == 'Partial Withdraw':
-                        _logger.info(f"Return picking {picking.id} validated, updating original WR {picking.return_id.id}")
-                        
-                        # Find the pallet kilos record for the original WR
-                        pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search([
-                            ('record_reference', '=', picking.return_id.id)
-                        ], limit=1)
-                        
-                        if pallet_record:
-                            # Re-populate the returns data to pick up the newly validated return
-                            pallet_record._populate_returns_data()
-                            
-                            # Recalculate running balances from this record onwards since returns affect the chain
-                            pallet_record._recalculate_running_balances(
-                                pallet_record.warehouse.id,
-                                pallet_record.is_blast_freezer,
-                                pallet_record.start_time
-                            )
-                            
-                            _logger.info(f"Updated return data and recalculated balances for pallet record {pallet_record.id}")
-                        else:
-                            _logger.warning(f"No pallet kilos record found for WR {picking.return_id.id}")
                             
             if 'location_dest_id' in vals:
                 if record.picking_type_id.code == 'incoming':
@@ -991,7 +966,7 @@ class transfer_locations(models.Model):
                                 'x_studio_is_reserved': False,
                                 'x_studio_receiving_report_id': False
                             })
-    
+
             return res
 
 

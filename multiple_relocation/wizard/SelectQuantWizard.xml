@@ -118,15 +118,15 @@
                                 <field name="x_studio_production_date" readonly="1" />
                                 <field name="x_studio_expiration_date" readonly="1" decoration-danger="x_studio_exp_warned"/>
                                 <field name="x_studio_max_2nd_uom" string="Original Quantity" readonly="1"/>   
-                                <field name="x_studio_affected_2nd_uom" string="Quantity" decoration-bg-info="is_package_multiple_withdraw"/>
+                                <field name="x_studio_affected_2nd_uom" string="Quantity" decoration-bg-info="is_package_multiple_withdraw" class="fw-bolder"/>
                                 <field name="x_studio_actual_packaging" decoration-warning="1"/>
                                 <field name="x_studio_quantity_uom_delivery" readonly="1"/>
                                 <field name="x_studio_max_total_units" string="Original Minimum" readonly="1"/> 
-                                <field name="x_studio_withdraw_units" string="Minimum" decoration-bg-info="is_package_multiple_withdraw"/>
+                                <field name="x_studio_withdraw_units" string="Minimum" decoration-bg-info="is_package_multiple_withdraw" class="fw-bolder"/>
                                 <field name="x_studio_actual_min" decoration-warning="1"/>
                                 <field name="x_studio_min_quantity_uom" readonly="1"/>
                                 <field name="x_studio_max_quant" string="Original Weight (KG)"/>   
-                                <field name="quantity" string="Weight (KG)" decoration-bg-info="is_package_multiple_withdraw"/>
+                                <field name="quantity" string="Weight (KG)" decoration-bg-info="is_package_multiple_withdraw" class="fw-bolder"/>
                                 <field name="x_studio_actual_kg" string="Actual Weight (KG)" decoration-warning="1"/>   
 
                                 <!-- <field name="state"/> -->

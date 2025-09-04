@@ -824,7 +824,7 @@ class OverrideStockQuant(models.Model):
         compute='_compute_reservation_tags',
         store=False,
         help="Tags from transfers where this quant was reserved",
-        readonly=False
+        readonly=True
     )
 
     @api.depends('lot_id', 'reserved_quantity')
