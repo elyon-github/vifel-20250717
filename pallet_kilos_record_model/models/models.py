@@ -144,8 +144,8 @@ class PalletKilosRecordModel(models.Model):
                             pallet_count += 1
                             pallets.add(move_line.bf_pallet_char)
                     else:
-                        if move_line.package_id and move_line.package_id.id not in pallets:               
-                            if move_line.reserved_quantity_on_validation == 0:
+                        if move_line.package_id and move_line.package_id.id not in pallets:
+                            if move_line.package_id.x_studio_total_quantity == 0:
                                 pallet_count += 1
                                 pallets.add(move_line.package_id.id)
             else:

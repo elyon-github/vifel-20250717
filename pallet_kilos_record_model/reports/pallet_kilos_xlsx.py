@@ -794,18 +794,25 @@ class PalletKilosXlsx(models.AbstractModel):
                     sheet.write(row_index, 5, line.units_received or 0, received_format)
                     sheet.write(row_index, 6, line.kilos_received or 0, received_format)
                     sheet.write(row_index, 7, line.pallets_received or 0, received_format)
-                    
+
+                    validated_return_id = False
+
+                    if line.record_reference.return_ids:
+                        for return_id in line.record_reference.return_ids:
+                            if return_id.state == 'done':
+                                validated_return_id = return_id
+                                
                     # Format WR reference field
                     sheet.write(row_index, 8, line.record_reference.name if line.record_reference and 'WR' in line.record_reference.name else '', normal_format)
-                    sheet.write(row_index, 9, line.record_reference.return_ids[0].name if line.record_reference and line.record_reference.return_ids else '', normal_format)
+                    sheet.write(row_index, 9, validated_return_id.name if validated_return_id and line.record_reference.return_ids else '', normal_format)
     
                     # Calculate return values
                     return_weight = 0
                     return_qty = 0
                     return_unit = 0
     
-                    if line.record_reference and 'WR' in line.record_reference.name and line.record_reference.return_ids and line.record_reference.return_ids[0]:
-                        return_id = line.record_reference.return_ids[0]
+                    if line.record_reference and 'WR' in line.record_reference.name and line.record_reference.return_ids and validated_return_id:
+                        return_id = validated_return_id or ''
                         return_unit = 0
                         return_qty = 0
                         return_weight = 0

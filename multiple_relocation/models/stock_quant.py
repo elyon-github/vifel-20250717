@@ -126,16 +126,17 @@ class OverrideStockQuant(models.Model):
     @api.depends('x_studio_expiration_date')
     def _compute_aging_days(self):
         """
-        Compute aging days based on expiration date
+        Compute aging days based on expiration date (adjusted to UTC+8)
         Positive values: days until expiration
         Negative values: days since expiration (expired)
         """
-        today = fields.Date.today()
-        
+        # Get today in UTC then shift to UTC+8
+        today_utc8 = (datetime.utcnow() + timedelta(hours=8)).date()
+
         for record in self:
             if record.x_studio_expiration_date:
                 # Calculate the difference in days
-                delta = record.x_studio_expiration_date - today
+                delta = record.x_studio_expiration_date - today_utc8
                 record.x_studio_aging_days = delta.days
             else:
                 # If no expiration date is set, aging days is 0
@@ -816,3 +817,33 @@ class OverrideStockQuant(models.Model):
         
         moves = self.env['stock.move'].create(move_vals)
         moves._action_done()
+
+
+    reservation_tags = fields.Many2many(
+        'stock.picking',  # Adjust comodel_name
+        string='Reservation Tags',
+        compute='_compute_reservation_tags',
+        store=False,
+        help="Tags from transfers where this quant was reserved",
+        readonly=False
+    )
+    color = fields.Integer(string="Color")  # standard color field
+
+    @api.depends('lot_id', 'reserved_quantity')
+    def _compute_reservation_tags(self):
+        for quant in self:
+            pickings = self.env['stock.picking']
+            
+            if quant.lot_id and quant.reserved_quantity > 0:
+                # Find move lines that have this quant reserved
+                reserved_move_lines = self.env['stock.move.line'].search([
+                    ('lot_id', '=', quant.lot_id.id),
+                    ('location_id', '=', quant.location_id.id),
+                    ('product_id', '=', quant.product_id.id),
+                    ('state', 'in', ['assigned', 'partially_available'])
+                ])
+                
+                # Get pickings from reserved move lines
+                pickings = reserved_move_lines.mapped('picking_id')
+            
+            quant.reservation_tags = pickings

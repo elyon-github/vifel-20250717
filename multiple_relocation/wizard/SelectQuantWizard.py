@@ -48,7 +48,7 @@ class SelectQuantWizard(models.TransientModel):
 
     stock_moves_multiple_withdraw = fields.Many2many('stock.move.line', 'rel_stock_move_lines')
 
-
+    automatically_fetched_quantity = fields.Boolean(string="Automatically Fetched using a Button")
 
     @api.model
     def default_get(self, fields_list):
@@ -312,7 +312,7 @@ class SelectQuantWizard(models.TransientModel):
         # Get the move lines from the current record and from other transfers
         current_move_lines = record.move_line_ids
         other_move_lines = record.stock_moves_multiple_withdraw
-        
+        record.automatically_fetched_quantity = True
         # Group move lines by lot_id
         lot_to_lines = {}
         updated_lines = set()  # Track which lines we've updated to avoid double-processing
@@ -377,6 +377,7 @@ class SelectQuantWizard(models.TransientModel):
                 line.x_studio_affected_2nd_uom = available_2nd_uom
                 line.x_studio_withdraw_units = available_withdraw_units
                 line.quantity = available_quantity
+
                 
                 # Update the available amounts for the next line
                 available_2nd_uom -= line.x_studio_affected_2nd_uom
@@ -389,7 +390,7 @@ class SelectQuantWizard(models.TransientModel):
                 available_quantity = max(0, available_quantity)
                 
                 updated_lines.add(line.id)
-        
+
         return True
 
 

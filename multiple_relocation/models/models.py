@@ -199,7 +199,16 @@ class ProductProduct(models.Model):
             # Normalize: remove extra spaces (double, leading, trailing)
             product.name = " ".join(raw_name.split())
 
-
+    def _compute_display_name(self):
+        super()._compute_display_name()
+        for product in self:
+            name = product.display_name
+            # If there are duplicate (...) parts, keep only the last one
+            if name.count("(") > 1:
+                base = name.split(" (")[0]  # product name before first (
+                last = name[name.rfind("("):]  # keep only last (...) part
+                product.display_name = f"{base} {last}"
+                
 
 class StockLocation(models.Model):
     _inherit = 'stock.location'
