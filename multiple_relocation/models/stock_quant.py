@@ -126,16 +126,17 @@ class OverrideStockQuant(models.Model):
     @api.depends('x_studio_expiration_date')
     def _compute_aging_days(self):
         """
-        Compute aging days based on expiration date
+        Compute aging days based on expiration date (adjusted to UTC+8)
         Positive values: days until expiration
         Negative values: days since expiration (expired)
         """
-        today = fields.Date.today()
-        
+        # Get today in UTC then shift to UTC+8
+        today_utc8 = (datetime.utcnow() + timedelta(hours=8)).date()
+
         for record in self:
             if record.x_studio_expiration_date:
                 # Calculate the difference in days
-                delta = record.x_studio_expiration_date - today
+                delta = record.x_studio_expiration_date - today_utc8
                 record.x_studio_aging_days = delta.days
             else:
                 # If no expiration date is set, aging days is 0
