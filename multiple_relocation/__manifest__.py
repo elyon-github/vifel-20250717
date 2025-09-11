@@ -22,17 +22,17 @@ Long description of module's purpose
 
     # always loaded
     'data': [
-        # 'security/ir.model.access.csv',
-        # 'views/views.xml',
-        # 'views/search_views.xml',
-        # # 'views/templates.xml',
-        # 'wizard/ReturnPackageWizard.xml',
-        # 'wizard/SelectQuantWizard.xml',
-        # 'wizard/SmallWizards.xml',
-        # 'wizard/stock_quant_correction.xml',
-        # 'reports/inventory_summary_view.xml',
-        # 'reports/count_sheet_view.xml',
-        # 'data/data.xml',
+        'security/ir.model.access.csv',
+        'views/views.xml',
+        'views/search_views.xml',
+        # 'views/templates.xml',
+        'wizard/ReturnPackageWizard.xml',
+        'wizard/SelectQuantWizard.xml',
+        'wizard/SmallWizards.xml',
+        'wizard/stock_quant_correction.xml',
+        'reports/inventory_summary_view.xml',
+        'reports/count_sheet_view.xml',
+        'data/data.xml',
         
     ],
     # only loaded in demonstration mode
