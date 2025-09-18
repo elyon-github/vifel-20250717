@@ -226,7 +226,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'product_uom_qty': 0,  # No actual quantity movement for field corrections
             'location_id': inventory_location.id,
             'location_dest_id': quant.location_id.id,
-            'origin': f'Stock Quant Correction - {self.reason_for_adjustment}',
+            'reason_for_adjustment': f'{self.reason_for_adjustment}',
             'date': fields.Datetime.now(),
             'state': 'done',
         }

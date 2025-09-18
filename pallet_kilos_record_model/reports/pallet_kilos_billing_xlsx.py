@@ -1,6 +1,10 @@
 from odoo import models
 import datetime
 from xlsxwriter.workbook import Workbook
+import pytz
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_billing_report'
@@ -68,12 +72,39 @@ class PalletKilosXlsx(models.AbstractModel):
 
         return header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format
 
-    def generate_header(self, sheet, sorted_records, formats):
+    def _convert_to_user_timezone(self, utc_datetime):
+        """Convert UTC datetime to user's timezone (UTC+8 for Philippines)"""
+        if not utc_datetime:
+            return utc_datetime
+            
+        # Get user's timezone, default to Asia/Manila (UTC+8)
+        user_tz = self.env.user.tz or 'Asia/Manila'
+        
+        try:
+            # Ensure datetime is timezone-aware (UTC)
+            if utc_datetime.tzinfo is None:
+                utc_datetime = pytz.UTC.localize(utc_datetime)
+            elif utc_datetime.tzinfo != pytz.UTC:
+                utc_datetime = utc_datetime.astimezone(pytz.UTC)
+            
+            # Convert to user timezone
+            user_timezone = pytz.timezone(user_tz)
+            local_datetime = utc_datetime.astimezone(user_timezone)
+            
+            return local_datetime
+        except Exception as e:
+            _logger.warning(f"Timezone conversion failed: {e}. Using original datetime.")
+            return utc_datetime
+
+    def generate_header(self, sheet, sorted_records, formats, end_date):
         header_format, _, normal_format, _, _, _, _ = formats
         sheet.write(0, 0, sorted_records[0].owner_id.name or '', header_format)
         sheet.write(1, 0, 'BILLING DETAILS-HOLDING', header_format)
-        start_date = sorted_records[0].start_time + datetime.timedelta(hours=8)
-        end_date = sorted_records[-1].start_time + datetime.timedelta(hours=8)
+        
+        # Convert start date to user timezone
+        start_date = self._convert_to_user_timezone(sorted_records[0].start_time)
+        
+        # Use the provided end_date (already in user timezone)
         date_range = start_date.strftime('%B %d, %Y') + ' - ' + end_date.strftime('%B %d, %Y')
         sheet.write(2, 0, date_range, normal_format)
 
@@ -103,18 +134,29 @@ class PalletKilosXlsx(models.AbstractModel):
 
             sorted_records = sorted(owner_records, key=lambda x: x.start_time)
             
-            # Convert to UTC+8 first, then get date
-            oldest_date_utc8 = (sorted_records[0].start_time + datetime.timedelta(hours=8)).date()
-            latest_date_utc8 = (sorted_records[-1].start_time + datetime.timedelta(hours=8)).date()
-            date_list = [oldest_date_utc8 + datetime.timedelta(days=x) for x in range((latest_date_utc8 - oldest_date_utc8).days + 1)]
+            # Convert dates to user timezone
+            oldest_date_local = self._convert_to_user_timezone(sorted_records[0].start_time).date()
+            
+            # Get today's date in user timezone
+            user_tz = self.env.user.tz or 'Asia/Manila'
+            user_timezone = pytz.timezone(user_tz)
+            today = datetime.datetime.now(user_timezone).date()
+            
+            # Use today as the end date instead of last transaction date
+            latest_date_local = today
+            
+            # Create date list from oldest transaction to today
+            date_list = [oldest_date_local + datetime.timedelta(days=x) for x in range((latest_date_local - oldest_date_local).days + 1)]
 
             records_by_date = {}
             for record in sorted_records:
-                # Convert to UTC+8 then get date for grouping
-                record_date_utc8 = (record.start_time + datetime.timedelta(hours=8)).date()
-                records_by_date.setdefault(record_date_utc8, []).append(record)
+                # Convert to user timezone then get date for grouping
+                record_date_local = self._convert_to_user_timezone(record.start_time).date()
+                records_by_date.setdefault(record_date_local, []).append(record)
 
-            self.generate_header(sheet, sorted_records, formats)
+            # Pass today's datetime for header generation
+            today_datetime = datetime.datetime.combine(today, datetime.time.max)
+            self.generate_header(sheet, sorted_records, formats, today_datetime)
             self.generate_table_header(sheet, row_index - 2, formats)
 
             summation = {
@@ -136,15 +178,6 @@ class PalletKilosXlsx(models.AbstractModel):
                 # Get the very first record chronologically (already sorted by start_time)
                 first_record = sorted_records[0]
                 
-                # Debug: Let's see what values we have
-                print(f"First record values:")
-                print(f"  total_balance_in_kilos: {first_record.total_balance_in_kilos}")
-                print(f"  kilos_received: {first_record.kilos_received}")
-                print(f"  kilos_withdrawn: {first_record.kilos_withdrawn}")
-                print(f"  total_balance_in_pallets: {first_record.total_balance_in_pallets}")
-                print(f"  pallets_received: {first_record.pallets_received}")
-                print(f"  pallets_withdrawn: {first_record.pallets_withdrawn}")
-                
                 # Calculate beginning balance before first transaction
                 # Formula: Beginning Balance = Current Balance - Received + Withdrawn
                 
@@ -159,9 +192,6 @@ class PalletKilosXlsx(models.AbstractModel):
                 pallets_received = first_record.pallets_received or 0
                 pallets_withdrawn = first_record.pallets_withdrawn or 0
                 beginning_pallets = current_balance_pallets - pallets_received + pallets_withdrawn
-                
-                print(f"Calculated beginning_kilos: {beginning_kilos}")
-                print(f"Calculated beginning_pallets: {beginning_pallets}")
                 
             # Set initial running balances
             current_pallet_balance = beginning_pallets
@@ -178,7 +208,7 @@ class PalletKilosXlsx(models.AbstractModel):
                     for i, line in enumerate(records_for_date):
                         is_alt = (row_index % 2 == 0)
                         base_format = alt_row_format if is_alt else normal_format
-                        # Use the current_date directly since it's already in UTC+8
+                        # Use the current_date directly since it's already in user timezone
                         sheet.write(row_index, 0, current_date, date_format)
                         rr_text = line.record_reference.name if line.record_reference and 'RR' in line.record_reference.name else ''
                         wr_text = line.record_reference.name if line.record_reference and 'WR' in line.record_reference.name else ''
@@ -202,22 +232,21 @@ class PalletKilosXlsx(models.AbstractModel):
 
                         row_index += 1
                 else:
-                    # Only create empty rows if we have established balances from previous records
-                    if current_pallet_balance > 0 or current_kilo_balance > 0:
-                        is_alt = (row_index % 2 == 0)
-                        base_format = alt_row_format if is_alt else normal_format
-                        # Use the current_date directly since it's already in UTC+8
-                        sheet.write(row_index, 0, current_date, date_format)
-                        for col in range(1, 9):
-                            if col in [3, 4, 6, 7]:  # Numeric columns for transactions
-                                sheet.write(row_index, col, 0, float_format)
-                            elif col == 5:  # Balance in Pallets
-                                sheet.write(row_index, col, current_pallet_balance, float_format)
-                            elif col == 8:  # Balance in Kilos
-                                sheet.write(row_index, col, current_kilo_balance, float_format)
-                            else:  # Text columns
-                                sheet.write(row_index, col, '-', base_format)
-                        row_index += 1
+                    # Create empty rows for missing dates with last known balances
+                    is_alt = (row_index % 2 == 0)
+                    base_format = alt_row_format if is_alt else normal_format
+                    # Use the current_date directly since it's already in user timezone
+                    sheet.write(row_index, 0, current_date, date_format)
+                    for col in range(1, 9):
+                        if col in [3, 4, 6, 7]:  # Numeric columns for transactions (0 for missing dates)
+                            sheet.write(row_index, col, 0, float_format)
+                        elif col == 5:  # Balance in Pallets (use last known balance)
+                            sheet.write(row_index, col, current_pallet_balance, float_format)
+                        elif col == 8:  # Balance in Kilos (use last known balance)
+                            sheet.write(row_index, col, current_kilo_balance, float_format)
+                        else:  # Text columns (RR/WR numbers)
+                            sheet.write(row_index, col, '-', base_format)
+                    row_index += 1
 
             # Write totals
             sheet.write(row_index, 3, summation['total_pallets_received'], float_format_bold)

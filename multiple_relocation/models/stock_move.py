@@ -18,9 +18,9 @@ from ast import literal_eval
 class ensure_ownership(models.Model):
     _inherit = 'stock.move'
     quant_ids_picked = fields.Many2many('stock.quant', string="Quant IDs", copy=False)
-
+    
     automatically_added = fields.Boolean()
-
+    reason_for_adjustment = fields.Char(string="Reason for Adjustment")
     def regenerate_move_lines(self):
         """Generate new move lines based on number of lines specified"""
         self.ensure_one()

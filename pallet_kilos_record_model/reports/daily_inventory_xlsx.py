@@ -11,67 +11,150 @@ class DailyInventoryXlsx(models.AbstractModel):
     _inherit = 'report.report_xlsx.abstract'
 
     def _define_formats(self, workbook):
-        # Company title format
-        company_fmt = workbook.add_format({
-            'bold': True, 'align': 'center', 'valign': 'vcenter',
-            'font_size': 14, 'bg_color': '#1565C0', 'font_color': 'white',
-            'border': 1, 'text_wrap': True
+        """Define and return format objects with Excel-like design."""
+        base_font = {'font_name': 'Calibri', 'font_size': 11}
+        
+        # Header format (for company title and warehouse)
+        header_format = workbook.add_format({
+            **base_font,
+            'bold': True,
+            'font_size': 14,
+            'align': 'center',
+            'valign': 'vcenter',
+            'bg_color': '#305496',
+            'font_color': 'white',
+            'border': 1,
+            'text_wrap': True
         })
+        
         # Table header format
-        table_hdr = workbook.add_format({
-            'bold': True, 'align': 'center', 'valign': 'vcenter',
-            'font_size': 12, 'bg_color': '#1565C0', 'font_color': 'white',
-            'border': 1, 'border_color': '#90CAF9', 'text_wrap': True
+        table_header_format = workbook.add_format({
+            **base_font,
+            'bold': True,
+            'align': 'center',
+            'valign': 'vcenter',
+            'font_size': 12,
+            'bg_color': '#305496',
+            'font_color': 'white',
+            'border': 1,
+            'text_wrap': True
         })
-        # Summary row format
-        summary_fmt = workbook.add_format({
-            'bold': True, 'bg_color': '#FFC107', 'font_color': 'black',
-            'align': 'center', 'valign': 'vcenter', 'border': 1, 'border_color': '#FF8F00',
-            'num_format': '#,##0.00', 'text_wrap': True
+        
+        # Summary row format (totals row)
+        summary_format = workbook.add_format({
+            **base_font,
+            'bold': True,
+            'bg_color': '#FFF2CC',
+            'font_color': 'black',
+            'align': 'center',
+            'valign': 'vcenter',
+            'border': 1,
+            'num_format': '#,##0.00',
+            'text_wrap': True
         })
-        # Normal
-        normal_fmt = workbook.add_format({ 'align': 'left', 'valign': 'vcenter', 'border': 1 })
-        date_fmt = workbook.add_format({ 'num_format': 'yyyy-mm-dd', 'border': 1, 'valign': 'vcenter' })
-        float_fmt = workbook.add_format({ 'num_format': '#,##0.00', 'border': 1, 'valign': 'vcenter' })
-        float_bold = workbook.add_format({ 'num_format': '#,##0.00', 'border': 1, 'bold': True, 'valign': 'vcenter' })
-        pct_fmt = workbook.add_format({ 'num_format': '0.00%', 'border': 1, 'valign': 'vcenter' })
-        return company_fmt, table_hdr, summary_fmt, normal_fmt, date_fmt, float_fmt, float_bold, pct_fmt
+        
+        # Normal text format
+        normal_format = workbook.add_format({
+            **base_font,
+            'align': 'left',
+            'valign': 'vcenter',
+            'border': 1
+        })
+        
+        # Date format
+        date_format = workbook.add_format({
+            **base_font,
+            'num_format': 'mm/dd/yyyy',
+            'align': 'left',
+            'valign': 'vcenter',
+            'border': 1
+        })
+        
+        # Float format
+        float_format = workbook.add_format({
+            **base_font,
+            'num_format': '#,##0.00',
+            'align': 'right',
+            'valign': 'vcenter',
+            'border': 1
+        })
+        
+        # Float format bold
+        float_format_bold = workbook.add_format({
+            **base_font,
+            'num_format': '#,##0.00',
+            'bold': True,
+            'align': 'right',
+            'valign': 'vcenter',
+            'bg_color': '#FFF2CC',
+            'border': 1
+        })
+        
+        # Percentage format
+        pct_format = workbook.add_format({
+            **base_font,
+            'num_format': '0.00%',
+            'align': 'right',
+            'valign': 'vcenter',
+            'border': 1
+        })
+        
+        # Alternating row format
+        alt_row_format = workbook.add_format({
+            **base_font,
+            'bg_color': '#F2F2F2',
+            'align': 'left',
+            'valign': 'vcenter',
+            'border': 1
+        })
+        
+        return header_format, table_header_format, summary_format, normal_format, date_format, float_format, float_format_bold, pct_format, alt_row_format
 
     def generate_header(self, sheet, warehouse, formats):
-        company_fmt = formats[0]
-        sheet.merge_range('A1:K1', 'DAILY VIFEL INVENTORY', company_fmt)
-        sheet.merge_range('A2:K2', f"WAREHOUSE: {warehouse.upper()}", company_fmt)
+        header_format = formats[0]
+        sheet.merge_range('A1:K1', 'DAILY VIFEL INVENTORY', header_format)
+        sheet.merge_range('A2:K2', f"WAREHOUSE: {warehouse.upper()}", header_format)
+        
+        # Set row heights for better appearance
+        sheet.set_row(0, 25)
+        sheet.set_row(1, 25)
 
     def generate_summary(self, sheet, filled, formats):
-        _, _, summary_fmt, _, _, _, float_bold, _ = formats
+        _, _, summary_format, _, _, _, float_format_bold, _, _ = formats
         totals = {
             'pallets_received': sum(x['pallets_received'] for x in filled),
             'pallets_withdrawn': sum(x['pallets_withdrawn'] for x in filled),
             'kilos_received': sum(x['kilos_received'] for x in filled),
             'kilos_withdrawn': sum(x['kilos_withdrawn'] for x in filled)
         }
+        
         # write on row 3 (index 2)
-        sheet.write(2, 0, 'TOTALS', summary_fmt)
-        sheet.write(2, 1, totals['pallets_received'], summary_fmt)
-        sheet.write(2, 2, totals['pallets_withdrawn'], summary_fmt)
-        sheet.write(2, 3, '', summary_fmt)
-        sheet.write(2, 4, totals['kilos_received'], summary_fmt)
-        sheet.write(2, 5, totals['kilos_withdrawn'], summary_fmt)
-        for c in range(6, 11): sheet.write(2, c, '', summary_fmt)
-        # increase height
-        sheet.set_row(2, 20)
+        sheet.write(2, 0, 'TOTALS', summary_format)
+        sheet.write(2, 1, totals['pallets_received'], summary_format)
+        sheet.write(2, 2, totals['pallets_withdrawn'], summary_format)
+        sheet.write(2, 3, '', summary_format)
+        sheet.write(2, 4, totals['kilos_received'], summary_format)
+        sheet.write(2, 5, totals['kilos_withdrawn'], summary_format)
+        for c in range(6, 11): 
+            sheet.write(2, c, '', summary_format)
+        
+        # Set row height for totals
+        sheet.set_row(2, 25)
 
     def generate_table_header(self, sheet, row, formats):
-        _, table_hdr, _, _, _, _, _, _ = formats
+        _, table_header_format, _, _, _, _, _, _, _ = formats
         headers = [
-            'DATE','PALLETS RECEIVED','PALLETS WITHDRAWN','BALANCE IN PALLETS',
-            'KILOS RECEIVED','KILOS WITHDRAWN','BALANCE IN KILOS',
-            'AVERAGE PALLETS','CAPACITY RATE (PALLETS)',
-            'AVERAGE KILOS','CAPACITY RATE (KILOS)'
+            'DATE', 'PALLETS RECEIVED', 'PALLETS WITHDRAWN', 'BALANCE IN PALLETS',
+            'KILOS RECEIVED', 'KILOS WITHDRAWN', 'BALANCE IN KILOS',
+            'AVERAGE PALLETS', 'CAPACITY RATE (PALLETS)',
+            'AVERAGE KILOS', 'CAPACITY RATE (KILOS)'
         ]
-        sheet.set_row(row, 30)
+        
+        # Set row height for header
+        sheet.set_row(row, 35)
+        
         for col, h in enumerate(headers):
-            sheet.write(row, col, h, table_hdr)
+            sheet.write(row, col, h, table_header_format)
 
     def _convert_to_user_timezone(self, utc_datetime):
         """Convert UTC datetime to user's timezone (UTC+8 for Philippines)"""
@@ -119,7 +202,15 @@ class DailyInventoryXlsx(models.AbstractModel):
             x['start_time'] = self._convert_to_user_timezone(x['start_time'])
         
         start = arr2[0]['start_time'].date()
-        end = arr2[-1]['start_time'].date()
+        
+        # Get today's date in user timezone
+        user_tz = self.env.user.tz or 'Asia/Manila'
+        user_timezone = pytz.timezone(user_tz)
+        today = datetime.datetime.now(user_timezone).date()
+        
+        # Use today as end date instead of last transaction date
+        end = today
+        
         prevp = prevk = 0
         comp = []
         d = start
@@ -141,8 +232,7 @@ class DailyInventoryXlsx(models.AbstractModel):
             
             if not found:
                 # Create entry for missing date with user timezone
-                user_tz = self.env.user.tz or 'Asia/Manila'
-                user_timezone = pytz.timezone(user_tz)
+                # Use the last known balances for missing dates
                 dtm = user_timezone.localize(datetime.datetime.combine(d, datetime.time(23, 59, 59)))
                 
                 comp.append({
@@ -160,7 +250,8 @@ class DailyInventoryXlsx(models.AbstractModel):
         return comp
 
     def generate_xlsx_report(self, workbook, data, lines):
-        company_fmt, table_hdr, summary_fmt, normal_fmt, date_fmt, float_fmt, float_bold, pct_fmt = self._define_formats(workbook)
+        formats = self._define_formats(workbook)
+        header_format, table_header_format, summary_format, normal_format, date_format, float_format, float_format_bold, pct_format, alt_row_format = formats
         
         # group by warehouse
         by_w = {}
@@ -169,23 +260,45 @@ class DailyInventoryXlsx(models.AbstractModel):
         
         for wh, recs in by_w.items():
             sheet = workbook.add_worksheet(wh[:31])
-            sheet.set_column(0, 10, 20)
+            
+            # Set column widths for better readability
+            sheet.set_column(0, 0, 15)   # Date
+            sheet.set_column(1, 2, 18)   # Pallets Received/Withdrawn
+            sheet.set_column(3, 3, 20)   # Balance in Pallets
+            sheet.set_column(4, 5, 18)   # Kilos Received/Withdrawn
+            sheet.set_column(6, 6, 18)   # Balance in Kilos
+            sheet.set_column(7, 7, 18)   # Average Pallets
+            sheet.set_column(8, 8, 22)   # Capacity Rate Pallets
+            sheet.set_column(9, 9, 18)   # Average Kilos
+            sheet.set_column(10, 10, 22) # Capacity Rate Kilos
+            
+            # Freeze panes for easier navigation
             sheet.freeze_panes(4, 1)
             
-            self.generate_header(sheet, wh, (company_fmt, table_hdr, summary_fmt, normal_fmt, date_fmt, float_fmt, float_bold, pct_fmt))
+            self.generate_header(sheet, wh, formats)
             filled = self.fill_missing_dates(recs)
-            self.generate_summary(sheet, filled, (company_fmt, table_hdr, summary_fmt, normal_fmt, date_fmt, float_fmt, float_bold, pct_fmt))
-            self.generate_table_header(sheet, 3, (company_fmt, table_hdr, summary_fmt, normal_fmt, date_fmt, float_fmt, float_bold, pct_fmt))
+            self.generate_summary(sheet, filled, formats)
+            self.generate_table_header(sheet, 3, formats)
             
             # write data
             tot_pr = tot_pw = tot_kr = tot_kw = 0
+            transaction_days_p = transaction_days_k = 0
+            
             for i, itm in enumerate(filled, 1):
                 tot_pr += itm['pallets_received']
                 tot_pw += itm['pallets_withdrawn']
                 tot_kr += itm['kilos_received'] 
                 tot_kw += itm['kilos_withdrawn']
-                avg_p = tot_pr / i
-                avg_k = tot_kr / i
+                
+                # Count days with actual transactions for averages
+                if itm['pallets_received'] > 0:
+                    transaction_days_p += 1
+                if itm['kilos_received'] > 0:
+                    transaction_days_k += 1
+                
+                # Calculate averages based on transaction days only
+                avg_p = tot_pr / transaction_days_p if transaction_days_p > 0 else 0
+                avg_k = tot_kr / transaction_days_k if transaction_days_k > 0 else 0
                 
                 vars = self.env['x_inventory_static_var'].search([
                     '&', 
@@ -199,18 +312,58 @@ class DailyInventoryXlsx(models.AbstractModel):
                 cap_p = avg_p / maxpl.x_studio_float_value if maxpl and maxpl.x_studio_float_value else 0
                 cap_k = avg_k / maxkg.x_studio_float_value if maxkg and maxkg.x_studio_float_value else 0
                 
+                # Determine if this should be an alternating row
+                is_alt_row = (i % 2 == 0)
+                
                 r = 3 + i
                 c = 0
-                sheet.write(r, c, itm['start_time'].replace(tzinfo=None), date_fmt); c += 1
-                sheet.write(r, c, itm['pallets_received'], float_fmt); c += 1
-                sheet.write(r, c, itm['pallets_withdrawn'], float_fmt); c += 1
-                sheet.write(r, c, itm['overall_pallets'], float_fmt); c += 1
-                sheet.write(r, c, itm['kilos_received'], float_fmt); c += 1
-                sheet.write(r, c, itm['kilos_withdrawn'], float_fmt); c += 1
-                sheet.write(r, c, itm['overall_kilos'], float_fmt); c += 1
-                sheet.write(r, c, avg_p, float_fmt); c += 1
-                sheet.write(r, c, cap_p, pct_fmt); c += 1
-                sheet.write(r, c, avg_k, float_fmt); c += 1
-                sheet.write(r, c, cap_k, pct_fmt)
+                
+                # Apply alternating row formatting for date
+                if is_alt_row:
+                    alt_date_format = workbook.add_format({
+                        'font_name': 'Calibri', 'font_size': 11,
+                        'num_format': 'mm/dd/yyyy',
+                        'align': 'left', 'valign': 'vcenter',
+                        'border': 1, 'bg_color': '#F2F2F2'
+                    })
+                    alt_float_format = workbook.add_format({
+                        'font_name': 'Calibri', 'font_size': 11,
+                        'num_format': '#,##0.00',
+                        'align': 'right', 'valign': 'vcenter',
+                        'border': 1, 'bg_color': '#F2F2F2'
+                    })
+                    alt_pct_format = workbook.add_format({
+                        'font_name': 'Calibri', 'font_size': 11,
+                        'num_format': '0.00%',
+                        'align': 'right', 'valign': 'vcenter',
+                        'border': 1, 'bg_color': '#F2F2F2'
+                    })
+                    
+                    sheet.write(r, c, itm['start_time'].replace(tzinfo=None), alt_date_format); c += 1
+                    sheet.write(r, c, itm['pallets_received'], alt_float_format); c += 1
+                    sheet.write(r, c, itm['pallets_withdrawn'], alt_float_format); c += 1
+                    sheet.write(r, c, itm['overall_pallets'], alt_float_format); c += 1
+                    sheet.write(r, c, itm['kilos_received'], alt_float_format); c += 1
+                    sheet.write(r, c, itm['kilos_withdrawn'], alt_float_format); c += 1
+                    sheet.write(r, c, itm['overall_kilos'], alt_float_format); c += 1
+                    sheet.write(r, c, avg_p, alt_float_format); c += 1
+                    sheet.write(r, c, cap_p, alt_pct_format); c += 1
+                    sheet.write(r, c, avg_k, alt_float_format); c += 1
+                    sheet.write(r, c, cap_k, alt_pct_format)
+                else:
+                    sheet.write(r, c, itm['start_time'].replace(tzinfo=None), date_format); c += 1
+                    sheet.write(r, c, itm['pallets_received'], float_format); c += 1
+                    sheet.write(r, c, itm['pallets_withdrawn'], float_format); c += 1
+                    sheet.write(r, c, itm['overall_pallets'], float_format); c += 1
+                    sheet.write(r, c, itm['kilos_received'], float_format); c += 1
+                    sheet.write(r, c, itm['kilos_withdrawn'], float_format); c += 1
+                    sheet.write(r, c, itm['overall_kilos'], float_format); c += 1
+                    sheet.write(r, c, avg_p, float_format); c += 1
+                    sheet.write(r, c, cap_p, pct_format); c += 1
+                    sheet.write(r, c, avg_k, float_format); c += 1
+                    sheet.write(r, c, cap_k, pct_format)
+                
+                # Set row height for better appearance
+                sheet.set_row(r, 20)
         
         return True
