@@ -67,7 +67,7 @@
             </xpath>
 
              <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom']" position="after">
-                <button name="select_quants" type="object" string="Select Stocks" class="btn-primary" invisible="parent.picking_type_code == 'incoming' or parent.state == 'done'" data-hotkey="f"/>
+                <button name="select_quants" type="object" string="Select Stocks" class="btn-primary" invisible="parent.picking_type_code == 'incoming' or parent.state == 'done' or parent.x_studio_is_a_blast_freezer" data-hotkey="f"/>
 
               </xpath>
 
