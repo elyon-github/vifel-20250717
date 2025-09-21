@@ -281,26 +281,30 @@ class transfer_locations(models.Model):
         for record in self:
             if not self.env.user.has_group('multiple_relocation.inventory_super_admin'):
                 raise UserError(_("You do not have permission to unvoid transfers."))
-            
+    
             # Check if the record is actually voided
             if not record.x_studio_voided:
                 _logger.warning("Transfer %s is not voided, cannot unvoid.", record.name)
                 continue
-                
+            
+            # Unmark as voided
             record.x_studio_voided = False
+            record.x_studio_for_revision = False
             
-            # Find the latest related pallet kilos record (including inactive ones)
-            domain = []
-            if record.x_studio_re_adjustment_for_document:
-                domain = [('effective_document', '=', record.x_studio_re_adjustment_for_document.id)]
-            else:
-                domain = [('effective_document', '=', record.id)]
+            # Find the related pallet kilos record that was deactivated during void
+            # Search for records that reference this document (either as main reference or readjustment)
+            pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].with_context(active_test=False).search([
+                '|',
+                ('record_reference', '=', record.id),
+                ('readjustment_document', '=', record.id)
+            ], order='create_date desc', limit=1)
             
-            pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].with_context(active_test=False).search(
-                domain,
-                order='create_date desc',
-                limit=1
-            )
+            if not pallet_record:
+                # If not found by direct reference, search by effective_document
+                # This handles cases where the record might have been adjusted
+                pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].with_context(active_test=False).search([
+                    ('effective_document', '=', record.id)
+                ], order='create_date desc', limit=1)
             
             if pallet_record:
                 # Store data needed for recalculation
@@ -308,30 +312,42 @@ class transfer_locations(models.Model):
                 is_blast_freezer = pallet_record.is_blast_freezer
                 start_time = pallet_record.start_time
                 
-                # Reactivate the record
-                if not pallet_record.active and not pallet_record.readjustment_document:
+                # Determine how to reactivate based on the record's original structure
+                if pallet_record.record_reference.id == record.id:
+                    # This record was the main reference - simply reactivate
                     pallet_record.active = True
-                    _logger.info("Reactivated pallet kilos record: %s", pallet_record.effective_document.name)
-                elif not pallet_record.readjustment_document:
+                    _logger.info("Reactivated pallet kilos record with main reference: %s", record.name)
+                    
+                elif pallet_record.readjustment_document and pallet_record.readjustment_document.id == record.id:
+                    # This record was a readjustment - restore the readjustment link
+                    pallet_record.active = True
+                    # readjustment_document should already be set to record.id
+                    _logger.info("Reactivated pallet kilos record with readjustment reference: %s", record.name)
+                    
+                else:
+                    # Fallback: set as readjustment document and activate
                     pallet_record.readjustment_document = record.id
-                    pallet_record.active = True  # Ensure it's active when restoring readjustment
-                    _logger.info("Restored readjustment document link for pallet kilos record: %s", pallet_record.effective_document.name)
+                    pallet_record.active = True
+                    _logger.info("Set as readjustment document and activated pallet kilos record: %s", record.name)
                 
                 # Refresh the record data after reactivation
+                # This is crucial to ensure the data reflects the unvoided document
                 pallet_record._populate_vehicle_data()
                 pallet_record._populate_operations_data()
                 pallet_record._populate_returns_data()
                 
                 # Recalculate running balances from this point forward
+                # This ensures all subsequent records have correct balances
                 pallet_record._recalculate_running_balances(
                     warehouse_id, 
                     is_blast_freezer, 
                     start_time
                 )
                 
-                _logger.info("Unvoided transfer and restored Pallet Kilos Log: %s", record.name)
+                _logger.info("Successfully unvoided transfer and restored Pallet Kilos Log: %s", record.name)
             else:
-                _logger.warning("No pallet kilos record found for transfer: %s", record.name)
+                _logger.error("No pallet kilos record found for transfer: %s. Cannot complete unvoid operation.", record.name)
+                raise UserError(_("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
     
                 

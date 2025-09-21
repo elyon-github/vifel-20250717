@@ -171,7 +171,9 @@ class PalletKilosRecordModel(models.Model):
                             building_operations[building_name]['pallets'].add(move_line.bf_pallet_char)
                     else:
                         if move_line.package_id and move_line.package_id.id not in pallets:
-                            if move_line.package_id.x_studio_total_quantity == 0:
+                            
+                            if move_line.reserved_quantity_on_validation == 0:
+
                                 pallet_count += 1
                                 pallets.add(move_line.package_id.id)
                                 building_operations[building_name]['pallets'].add(move_line.package_id.id)
@@ -444,7 +446,7 @@ class PalletKilosRecordModel(models.Model):
 
         return building_balances
 
-    def _recalculate_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None):
+    def _recalculate_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
         """
         Fixed version: Properly calculate beginning balances for both main fields and building JSON
         """
@@ -453,9 +455,15 @@ class PalletKilosRecordModel(models.Model):
             ('is_blast_freezer', '=', blast_freezer_flag),
         ]
         
-        if from_datetime:
+        if from_datetime and from_create_date:
+            domain.extend([
+                '|',
+                ('start_time', '>=', from_datetime),
+                ('create_date', '>=', from_create_date),
+            ])
+        elif from_datetime:
             domain.append(('start_time', '>=', from_datetime))
-    
+            
         # Get all affected records in chronological order
         records_to_update = self.search(domain, order='start_time asc, id asc')
         

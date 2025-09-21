@@ -299,7 +299,7 @@ class ReturnPackageWizard(models.TransientModel):
         old_min_uom = existing_move_line.x_studio_total_units
         
         # Calculate return count properly - increment from the original counter
-        return_count = package.return_counter + 1 if self.return_reason != 'Wrong Details Encoded' else package.return_counter
+        return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
         
         # Prepare update values - only update what's provided in the package
         update_values = {
@@ -588,7 +588,7 @@ class ReturnPackageWizard(models.TransientModel):
             # Update the additional fields after creation
             for package, move_line in zip(packages_to_create, created_move_lines):
                 # Calculate return count properly - increment from the original counter
-                return_count = package.return_counter + 1 if self.return_reason != 'Wrong Details Encoded' else package.return_counter
+                return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
                 
                 move_line.write({
                     'is_return': True,
@@ -738,7 +738,7 @@ class ReturnPackageWizard(models.TransientModel):
             # Update the additional fields after creation
             for package, move_line in zip(selected_packages, created_move_lines):
                 # Calculate return count properly - increment from the original counter
-                return_count = package.return_counter + 1 if self.return_reason != 'Wrong Details Encoded' else package.return_counter
+                return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
                 
                 move_line.write({
                     'is_return': True,

@@ -242,14 +242,14 @@
             <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming' or context.get('picking_type_id') in [47, 48]" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder"/>
 
             <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string="Unit of Measure" width="120"/>
-            <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs UOM (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder"/>
+            <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Units UOM (Withdraw) " width="120" readonly="1"/>
+            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" string="Actual Units" width="120" decoration-warning="1" class="fw-bolder"/>
 
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing'" width="120"/>
             <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="False" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" required="x_studio_2nd_uom" width="120"/>
-            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120"/>
+            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Units UOM" required="False" width="120"/>
             <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing'" required="x_studio_total_units" width="120"/>
 
         </xpath>
@@ -1040,10 +1040,10 @@
                 <field name="x_studio_aging_days" optional="show" decoration-warning="x_studio_aging_days &lt; 60 and x_studio_aging_days &gt;= 0" decoration-danger="x_studio_aging_days &lt; 0" decoration-success="x_studio_aging_days &gt;= 60"/>
               </xpath>
               <xpath expr="//field[@name='x_studio_total_units']" position="attributes">
-                <attribute name="string">Total Packs</attribute>
+                <attribute name="string">Total Units</attribute>
               </xpath>
               <xpath expr="//field[@name='x_studio_min_quantity_uom']" position="attributes">
-                <attribute name="string">Packs UOM</attribute>
+                <attribute name="string">Units UOM</attribute>
               </xpath>
               <xpath expr="//field[@name='inventory_quantity_auto_apply']" position="after">
                 <field name="reservation_tags" optional="show" widget="many2many_tags"/>
