@@ -174,6 +174,20 @@ class PalletKilosXlsx(models.AbstractModel):
             'bottom_color': '#00B0F0'
         })
         
+        # Net columns format (dark red text with light red background)
+        net_format = workbook.add_format({
+            **base_font,
+            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'font_color': '#B71C1C',
+            'bg_color': '#FFCDD2',
+            'align': 'right',
+            'valign': 'vcenter',
+            'top': 1,
+            'bottom': 1,
+            'top_color': '#00B0F0',
+            'bottom_color': '#00B0F0'
+        })
+        
         # Grand totals (keep vivid backgrounds)
         received_format_vivid_bold = workbook.add_format({
             **base_font,
@@ -194,6 +208,21 @@ class PalletKilosXlsx(models.AbstractModel):
             'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
             'bg_color': '#FFCDD2',
             'font_color': '#B71C1C',
+            'bold': True,
+            'align': 'right',
+            'valign': 'vcenter',
+            'top': 1,
+            'bottom': 1,
+            'top_color': '#00B0F0',
+            'bottom_color': '#00B0F0'
+        })
+        
+        # Net totals format (bold version of net format)
+        net_format_bold = workbook.add_format({
+            **base_font,
+            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'font_color': '#B71C1C',
+            'bg_color': '#FFCDD2',
             'bold': True,
             'align': 'right',
             'valign': 'vcenter',
@@ -298,7 +327,8 @@ class PalletKilosXlsx(models.AbstractModel):
                 date_format, float_format_dash, pallet_format, received_format_vivid, received_format,
                 withdrawn_format, received_format_vivid_bold, withdrawn_format_vivid_bold,
                 gray_bg_format, gray_bg_format_bold, gray_bg_format_float, gray_bg_format_float_bold, 
-                gray_bg_format_pallet, gray_bg_format_pallet_with_pp, gray_bg_format_float_bold_italic)
+                gray_bg_format_pallet, gray_bg_format_pallet_with_pp, gray_bg_format_float_bold_italic,
+                net_format, net_format_bold)
 
     def _convert_to_user_timezone(self, utc_datetime):
         """Convert UTC datetime to user's timezone (UTC+8 for Philippines)"""
@@ -329,8 +359,8 @@ class PalletKilosXlsx(models.AbstractModel):
         header_format = formats[0]
         normal_format = formats[3]
         
-        # Professional company name header
-        sheet.merge_range('A1:V1', records[0].owner_id.name or '', header_format)
+        # Professional company name header - Updated to span all columns including new ones
+        sheet.merge_range('A1:Y1', records[0].owner_id.name or '', header_format)
         sheet.set_row(0, 30)  # Increase row height
         
         # Date range with proper timezone conversion
@@ -373,6 +403,11 @@ class PalletKilosXlsx(models.AbstractModel):
             totals['total_returned_kilos'] += record.return_kilos or 0
             totals['total_returned_pallets'] += record.return_pallets or 0
 
+        # Calculate net totals
+        net_qty_out = totals['total_packaging_withdrawn'] - totals['total_returned_qty']
+        net_weight_out = totals['total_kilos_withdrawn'] - totals['total_returned_kilos']
+        total_pallet_out = totals['total_pallets_withdrawn'] - totals['total_returned_pallets']
+
         # Write totals row
         sheet.write(4, 0, 'TOTALS', summary_format)
         for col in range(1, 4):
@@ -394,8 +429,13 @@ class PalletKilosXlsx(models.AbstractModel):
         sheet.write(4, 16, totals['total_pallets_withdrawn'], summary_format)
         sheet.write(4, 17, totals['total_returned_pallets'], summary_format)
         
+        # Net columns
+        sheet.write(4, 18, net_qty_out, summary_format)
+        sheet.write(4, 19, net_weight_out, summary_format)
+        sheet.write(4, 20, total_pallet_out, summary_format)
+        
         # Empty balance columns in summary
-        for col in range(18, 22):
+        for col in range(21, 25):
             sheet.write(4, col, '', summary_format)
             
         sheet.set_row(4, 25)  # Set row height
@@ -423,6 +463,9 @@ class PalletKilosXlsx(models.AbstractModel):
             'Return WEIGHT',
             'WR PALLET OUT',
             'Return PALLET',
+            'Net Quantity Out',
+            'Net Weight Out',
+            'Total Pallet Out',
             'Remaining PALLET COUNT',
             'Remaining QUANTITY',
             'Remaining PACKS',
@@ -497,11 +540,16 @@ class PalletKilosXlsx(models.AbstractModel):
                 'font_color': '#B71C1C', 'align': 'right', 'valign': 'vcenter', 'top': 1, 'bottom': 1,
                 'top_color': '#00B0F0', 'bottom_color': '#00B0F0', 'bg_color': '#F2F2F2'
             })
+            net_fmt = workbook.add_format({
+                'font_name': 'Calibri', 'font_size': 11, 'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+                'font_color': '#B71C1C', 'bg_color': '#FFCDD2', 'align': 'right', 'valign': 'vcenter',
+                'top': 1, 'bottom': 1, 'top_color': '#00B0F0', 'bottom_color': '#00B0F0'
+            })
             
-            return date_fmt, pallet_fmt, float_fmt, normal_fmt, normal_fmt_bold, received_vivid_fmt, received_fmt, withdrawn_fmt
+            return date_fmt, pallet_fmt, float_fmt, normal_fmt, normal_fmt_bold, received_vivid_fmt, received_fmt, withdrawn_fmt, net_fmt
         else:
             return (formats[5], formats[7], formats[6], formats[3], formats[4], 
-                    formats[8], formats[9], formats[10])
+                    formats[8], formats[9], formats[10], formats[21])
 
     def generate_xlsx_report(self, workbook, data, records):
         """Generate the entire XLSX report with professional formatting."""
@@ -510,7 +558,8 @@ class PalletKilosXlsx(models.AbstractModel):
          date_format, float_format_dash, pallet_format, received_format_vivid, received_format,
          withdrawn_format, received_format_vivid_bold, withdrawn_format_vivid_bold,
          gray_bg_format, gray_bg_format_bold, gray_bg_format_float, gray_bg_format_float_bold, 
-         gray_bg_format_pallet, gray_bg_format_pallet_with_pp, gray_bg_format_float_bold_italic) = formats
+         gray_bg_format_pallet, gray_bg_format_pallet_with_pp, gray_bg_format_float_bold_italic,
+         net_format, net_format_bold) = formats
         
         # Group records by owner
         records_by_owner = {}
@@ -523,14 +572,15 @@ class PalletKilosXlsx(models.AbstractModel):
         for owner_name, owner_records in records_by_owner.items():
             sheet = workbook.add_worksheet(owner_name[:31])
 
-            # Set optimized column widths for better text visibility
+            # Set optimized column widths for better text visibility - Updated for new columns
             sheet.set_column(0, 0, 15)   # Date
             sheet.set_column(1, 2, 16)   # Beginning balances
             sheet.set_column(3, 3, 12)   # RR#
             sheet.set_column(4, 7, 14)   # RR columns
             sheet.set_column(8, 9, 12)   # WR# and RR RETURN
             sheet.set_column(10, 17, 14) # Transaction columns
-            sheet.set_column(18, 21, 16) # Balance columns
+            sheet.set_column(18, 20, 14) # Net columns
+            sheet.set_column(21, 24, 16) # Balance columns
 
             sorted_records = sorted(owner_records, key=lambda x: x.start_time)
             beginning_pallets, beginning_kilos = self.calculate_beginning_balances(sorted_records)
@@ -568,7 +618,10 @@ class PalletKilosXlsx(models.AbstractModel):
                 'total_pallets_received': 0, 
                 'total_pallets_withdrawn': 0, 
                 'total_kilos_received': 0, 
-                'total_kilos_withdrawn': 0
+                'total_kilos_withdrawn': 0,
+                'total_net_qty_out': 0,
+                'total_net_weight_out': 0,
+                'total_net_pallet_out': 0
             }
 
             # Track last known balances for gap filling
@@ -584,7 +637,7 @@ class PalletKilosXlsx(models.AbstractModel):
                 is_alt_row = (row_index % 2 == 0)
 
                 # Get formats for this row type
-                date_fmt, pallet_fmt, float_fmt, normal_fmt, normal_fmt_bold, received_vivid_fmt, received_fmt, withdrawn_fmt = self.get_formats_for_row(
+                date_fmt, pallet_fmt, float_fmt, normal_fmt, normal_fmt_bold, received_vivid_fmt, received_fmt, withdrawn_fmt, net_fmt = self.get_formats_for_row(
                     workbook, is_alt_row, formats)
 
                 if records_for_date:
@@ -635,11 +688,20 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 16, line.pallets_withdrawn or 0, withdrawn_fmt)
                         sheet.write(row_index, 17, line.return_pallets or 0, received_fmt)
 
+                        # Net columns with dark red text and light red background
+                        net_qty_out = (line.packaging_withdrawn or 0) - return_qty
+                        net_weight_out = (line.kilos_withdrawn or 0) - return_weight
+                        total_pallet_out = (line.pallets_withdrawn or 0) - (line.return_pallets or 0)
+                        
+                        sheet.write(row_index, 18, net_qty_out, net_fmt)
+                        sheet.write(row_index, 19, net_weight_out, net_fmt)
+                        sheet.write(row_index, 20, total_pallet_out, net_fmt)
+
                         # Balance columns with gray background - ALL ITALIC
-                        sheet.write(row_index, 18, line.total_balance_in_pallets or 0, gray_bg_format_pallet_with_pp)  # Gray BG with "pp" - ITALIC
-                        sheet.write(row_index, 19, line.total_balance_in_packaging or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
-                        sheet.write(row_index, 20, line.total_balance_in_units or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
-                        sheet.write(row_index, 21, line.total_balance_in_kilos or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+                        sheet.write(row_index, 21, line.total_balance_in_pallets or 0, gray_bg_format_pallet_with_pp)  # Gray BG with "pp" - ITALIC
+                        sheet.write(row_index, 22, line.total_balance_in_packaging or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+                        sheet.write(row_index, 23, line.total_balance_in_units or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+                        sheet.write(row_index, 24, line.total_balance_in_kilos or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
 
                         # Update last known balances
                         last_known_balances.update({
@@ -654,6 +716,9 @@ class PalletKilosXlsx(models.AbstractModel):
                         summation['total_pallets_withdrawn'] += line.pallets_withdrawn or 0
                         summation['total_kilos_received'] += line.kilos_received or 0
                         summation['total_kilos_withdrawn'] += line.kilos_withdrawn or 0
+                        summation['total_net_qty_out'] += net_qty_out
+                        summation['total_net_weight_out'] += net_weight_out
+                        summation['total_net_pallet_out'] += total_pallet_out
 
                         # Reduced row height for better compactness
                         sheet.set_row(row_index, 18)
@@ -672,14 +737,17 @@ class PalletKilosXlsx(models.AbstractModel):
                     sheet.write(row_index, 9, '-', gray_bg_format)  # Gray BG
                     
                     # Fill transaction columns with zeros
-                    for col in list(range(4, 8)) + list(range(10, 18)):
-                        sheet.write(row_index, col, 0, float_fmt)
+                    for col in list(range(4, 8)) + list(range(10, 21)):
+                        if col in [18, 19, 20]:  # Net columns
+                            sheet.write(row_index, col, 0, net_fmt)
+                        else:
+                            sheet.write(row_index, col, 0, float_fmt)
                     
                     # Show inherited balances with gray background - ALL ITALIC
-                    sheet.write(row_index, 18, last_known_balances['total_balance_in_pallets'], gray_bg_format_pallet_with_pp)  # Gray BG with "pp" - ITALIC
-                    sheet.write(row_index, 19, last_known_balances['total_balance_in_packaging'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
-                    sheet.write(row_index, 20, last_known_balances['total_balance_in_units'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
-                    sheet.write(row_index, 21, last_known_balances['total_balance_in_kilos'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+                    sheet.write(row_index, 21, last_known_balances['total_balance_in_pallets'], gray_bg_format_pallet_with_pp)  # Gray BG with "pp" - ITALIC
+                    sheet.write(row_index, 22, last_known_balances['total_balance_in_packaging'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+                    sheet.write(row_index, 23, last_known_balances['total_balance_in_units'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+                    sheet.write(row_index, 24, last_known_balances['total_balance_in_kilos'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
                     
                     # Reduced row height for better compactness
                     sheet.set_row(row_index, 18)
@@ -690,6 +758,11 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.write(row_index, 16, summation['total_pallets_withdrawn'], withdrawn_format_vivid_bold)
             sheet.write(row_index, 6, summation['total_kilos_received'], received_format_vivid_bold)
             sheet.write(row_index, 14, summation['total_kilos_withdrawn'], withdrawn_format_vivid_bold)
+            
+            # Net totals with bold net format
+            sheet.write(row_index, 18, summation['total_net_qty_out'], net_format_bold)
+            sheet.write(row_index, 19, summation['total_net_weight_out'], net_format_bold)
+            sheet.write(row_index, 20, summation['total_net_pallet_out'], net_format_bold)
 
             # Professional footer
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)

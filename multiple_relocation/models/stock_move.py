@@ -288,6 +288,7 @@ class stock_move_line_Override(models.Model):
                         field, values = change.split(':', 1)
                         old, new = [v.strip() for v in values.split('→', 1)]
                         result[batch_number][client][reference_id]['timestamps'][timestamp].append({
+                            'product_name': line.product_id.name,
                             'field': field.strip(),
                             'old_value': old,
                             'new_value': new,
