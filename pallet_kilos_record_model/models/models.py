@@ -78,7 +78,7 @@ class PalletKilosRecordModel(models.Model):
     )
     trucks_plate = fields.Char(string="Truck's Plate #", readonly=True, store=True)
     gate_pass = fields.Char(string="Gate Pass #", readonly=True, store=True)
-    start_time = fields.Datetime(string="Start Time", readonly=True, store=True, index=True)  # INDEX IS CRITICAL
+    start_time = fields.Datetime(string="Start Time",  store=True, index=True)  # INDEX IS CRITICAL
     end_time = fields.Datetime(string="End Time", readonly=True, store=True)
 
     # Maximum values

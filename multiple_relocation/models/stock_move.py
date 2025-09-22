@@ -194,6 +194,9 @@ class stock_move_line_Override(models.Model):
     )
     reserved_quantity_on_validation = fields.Float(string="Reserved Quantity on Validation")
 
+
+
+        
     @api.depends('quant_id')
     def _compute_container_number(self):
         for record in self:
@@ -904,9 +907,85 @@ class stock_move_line_Override(models.Model):
 
 
 
+    
+    
+    # Add these methods to your model class
+    
+    
+    def old_rr_quantity(self, doc):
+        """
+        Returns the original packaging quantity from the reference document
+        """
+        record = self.env['stock.picking'].search([('name', '=', doc)])
+        return record.total_quantity or 0
 
+    
+    def old_rr_weight(self, doc):
+        """
+        Returns the original weight from the reference document
+        """
+        record = self.env['stock.picking'].search([('name', '=', doc)])
+        return record.total_weight or 0
 
-
+    
+    def get_adjustment_totals(self, batch_number):
+        """
+        Calculate total adjustments for packaging quantity and weight for a specific batch
+        Returns a dictionary with packaging_total and weight_total
+        """
+        # Get all documents in the batch
+        batch_docs = self.search([('adjustment_batch_number', '=', batch_number)])
+        
+        packaging_total = 0
+        weight_total = 0
+        
+        # Build the adjustment change map for this batch
+        grouped_changes = self.build_adjustment_change_map(batch_docs)
+        
+        if batch_number in grouped_changes:
+            for client_name, references in grouped_changes[batch_number].items():
+                for reference_id, reference_info in references.items():
+                    for timestamp, changes in reference_info['timestamps'].items():
+                        for change in changes:
+                            if change['field'] == 'Packaging Quantity':
+                                old_val = float(change['old_value'] or 0)
+                                new_val = float(change['new_value'] or 0)
+                                packaging_total += (new_val - old_val)
+                            elif change['field'] == 'Weight (KG)':
+                                old_val = float(change['old_value'] or 0)
+                                new_val = float(change['new_value'] or 0)
+                                weight_total += (new_val - old_val)
+        
+        return {
+            'packaging_total': packaging_total,
+            'weight_total': weight_total
+        }
+    
+    def has_packaging_or_weight_adjustments(self, batch_number):
+        """
+        Check if the batch has any packaging quantity or weight adjustments
+        Returns a dictionary indicating which types of adjustments exist
+        """
+        batch_docs = self.search([('adjustment_batch_number', '=', batch_number)])
+        grouped_changes = self.build_adjustment_change_map(batch_docs)
+        
+        has_packaging = False
+        has_weight = False
+        
+        if batch_number in grouped_changes:
+            for client_name, references in grouped_changes[batch_number].items():
+                for reference_id, reference_info in references.items():
+                    for timestamp, changes in reference_info['timestamps'].items():
+                        for change in changes:
+                            if change['field'] == 'Packaging Quantity':
+                                has_packaging = True
+                            elif change['field'] == 'Weight (KG)':
+                                has_weight = True
+        
+        return {
+            'has_packaging_changes': has_packaging,
+            'has_weight_changes': has_weight
+        }
 
 
 
