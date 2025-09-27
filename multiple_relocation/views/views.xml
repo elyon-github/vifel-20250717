@@ -242,14 +242,14 @@
             <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming' or context.get('picking_type_id') in [47, 48]" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder"/>
 
             <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string="Unit of Measure" width="120"/>
-            <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Units UOM (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" string="Actual Units" width="120" decoration-warning="1" class="fw-bolder"/>
+            <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs UOM (Withdraw) " width="120" readonly="1"/>
+            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder"/>
 
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing'" width="120"/>
             <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="False" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" required="x_studio_2nd_uom" width="120"/>
-            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Units UOM" required="False" width="120"/>
+            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120"/>
             <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing'" required="x_studio_total_units" width="120"/>
 
         </xpath>
@@ -376,7 +376,7 @@
       </xpath>
       <xpath expr="//form[1]/header[1]/button[@name='button_validate']" position="after">
         <button string="Verify Transfer" name="348" type="action" invisible="x_studio_record_lines_counter == 0 or picking_type_code != &quot;incoming&quot; or state == &quot;done&quot; or picking_type_id not in [1, 6, 45, 46] or x_studio_verified == True" data-hotkey="v" class="btn-success"/>
-        <button string="Print Deviation Report" class="btn btn-warning" name="studio_customization.transfer_report_0ba136a9-6878-4528-a1d2-9a1b2b5cde8b" type="action" invisible="x_studio_has_discrepancy != True and x_studio_exp_warned != True or state == &quot;draft&quot;"/>
+        <button string="Print Deviation Report" class="btn btn-warning" name="studio_customization.transfer_report_0ba136a9-6878-4528-a1d2-9a1b2b5cde8b" type="action" invisible="x_studio_has_discrepancy != True and x_studio_exp_warned != True or state == &quot;draft&quot;" data-hotkey="shift+d"/>
         
         <!--<button string="Reserve Pallets" name="338" type="action" invisible="True or x_studio_record_lines_counter == 0 or picking_type_code != &quot;incoming&quot; or state == &quot;done&quot; or not picking_type_id in [45, 46]" class="btn-success"/>-->
         <!--<button string="Unreserve Pallets" name="338" type="action" invisible="picking_type_code != &quot;incoming&quot; or state != &quot;assigned&quot; or not picking_type_id in [45, 46]" class="btn-danger"/>-->
@@ -391,11 +391,11 @@
         <button string="Auto-Fill Details" name="341" type="action" class="btn btn-info" invisible="1"/>
 
           
-        <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True"/>
-        <button string="Generate Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset." data-hotkey="g"/>
+        <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True or state == 'done'" data-hotkey="shift+d" />
+        <button string="Generate Pallet Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset." data-hotkey="g"/>
 
           
-        <button string="Create Next Operation" name="325" type="action" invisible="picking_type_id in [2, 7] or ( picking_type_id in [45, 46, 1, 6] and state != &quot;done&quot; )" class="btn-success"/>
+        <button string="Create Next Operation" name="325" type="action" invisible="picking_type_id in [2, 7] or ( picking_type_id in [45, 46, 1, 6] and state != &quot;done&quot; )" class="btn-success" data-hotkey="shift+N"/>
         <button string="Lock" name="334" type="action" invisible="not x_studio_edit_record == True or state != &quot;done&quot;" class="btn-warning" groups="stock.group_stock_manager"/>
         <button string="Unlock" name="334" type="action" invisible="x_studio_edit_record == True or state != &quot;done&quot;" class="btn-danger" groups="stock.group_stock_manager"/>
         <field name="x_studio_voided" invisible="1"/>
@@ -430,11 +430,24 @@
              invisible="not show_return_alert or state not in ['done']">
             There is still a draft return transaction that needs to be validated!
         </div>
+              
+    <div class="alert alert-warning" role="alert"
+         invisible="not show_return_alert or state in ['done']">
+        Please remember to update the <b>Actual Values</b> under <b>Pallet Breakdown</b> before validating the <b>WR</b> if it includes a <b>return</b>. 
+        Note: The columns are highlighted in <b>gold</b>.
+    </div>
 
           
-        <div class="alert alert-danger" role="alert" invisible="state == 'draft' or not x_studio_has_discrepancy" name="studio_div_76b5b3">
-          <span>Discrepancy Detected! Please generate an NCR Report.</span>
-        </div>
+    <div class="alert alert-danger" role="alert" 
+         invisible="state == 'draft' or not x_studio_has_discrepancy or state == 'done'" 
+         name="studio_div_76b5b3">
+      <span>
+        <b>Discrepancy Detected!</b> Please generate an <b>NCR Report</b>. 
+        If the discrepancy is <b>unintentional</b> or <b>unexpected</b>, please use the 
+        <b>Fix Discrepancy</b> button to match the <b>Documented Values</b> with the <b>Actual Values</b>.
+      </span>
+    </div>
+
         <div class="alert alert-danger" role="alert" invisible="state == 'draft' or not x_studio_exp_warned" name="studio_div_438087">
           <span>It seems like a product is beyond the acceptable Product Expiration Threshold! Please generate an NCR Report.</span>
         </div>
@@ -700,19 +713,19 @@
       </xpath>
 
       <xpath expr="//button[@name='action_cancel']" position="after">
-        <button string="Tally Sheet" name="studio_customization.transfer_report_727aa140-c77b-4126-a892-b8be901802ad" type="action" invisible="picking_type_code != &quot;incoming&quot; or state == &quot;done&quot;" class="btn btn-info"/>
-        <button string="Pallet Tag Forms" name="studio_customization.transfer_report_5aa8718d-5c53-4570-a81e-37046f13be0f" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info"/>
-        <button string="Receiving R. Consolidated" name="studio_customization.bfwr_final_69f184c6-7101-4113-bf02-559f8e2f89eb" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info"/>
-        <button string="Receiving R. Per Pallet" name="studio_customization.receiving_report_fin_73786620-334b-443e-8828-5d6872e62187" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info"/>
-        <button string="Picklist" name="studio_customization.transfer_report_17e4fed6-498f-4f57-b063-790dd85fb781" type="action" invisible="picking_type_code != &quot;outgoing&quot;" class="btn btn-info"/>
-        <button string="Withdrawal R. Consolidated" name="studio_customization.bfwr_final_129e37d2-2dc6-4e1d-ac5b-fd830adb4bfc" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info"/>
-        <button string="Withdrawal R. Per Pallet" name="studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info"/>
+        <button string="Tally Sheet" name="studio_customization.transfer_report_727aa140-c77b-4126-a892-b8be901802ad" type="action" invisible="picking_type_code != &quot;incoming&quot; or state == &quot;done&quot;" class="btn btn-info" data-hotkey="shift+1"/>
+        <button string="Pallet Tag Forms" name="studio_customization.transfer_report_5aa8718d-5c53-4570-a81e-37046f13be0f" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
+        <button string="Receiving R. Summary" name="studio_customization.bfwr_final_69f184c6-7101-4113-bf02-559f8e2f89eb" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Receiving R. Per Pallet" name="studio_customization.receiving_report_fin_73786620-334b-443e-8828-5d6872e62187" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
+        <button string="Picklist" name="studio_customization.transfer_report_17e4fed6-498f-4f57-b063-790dd85fb781" type="action" invisible="picking_type_code != &quot;outgoing&quot;" class="btn btn-info" data-hotkey="shift+1"/>
+        <button string="Withdrawal R. Summary" name="studio_customization.bfwr_final_129e37d2-2dc6-4e1d-ac5b-fd830adb4bfc" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
+        <button string="Withdrawal R. Per Pallet" name="studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
 
       </xpath>
 
       <xpath expr="//button[@name='studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36']" position="after">
-        <button string="BF Receiving R." name="studio_customization.bfwr_final_d932a6cb-31c1-42fb-b4ff-fd2660fd22e3" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;"/>
-        <button string="BF Withdrawal R." name="studio_customization.transfer_report_24d5e58d-a9fe-461c-97ea-0019680f548e" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;"/>
+        <button string="BF Receiving R. Summary" name="studio_customization.bfwr_final_d932a6cb-31c1-42fb-b4ff-fd2660fd22e3" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;"  data-hotkey="shift+2"/>
+        <button string="BF Withdrawal R. Summary" name="studio_customization.transfer_report_24d5e58d-a9fe-461c-97ea-0019680f548e" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;"  data-hotkey="shift+2"/>
       </xpath>
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_id'][2]" position="after">
         <field name="x_studio_last_operation_destination_location" options="{'create_name_field': 'complete_name'}" invisible="picking_type_code != &quot;outgoing&quot; or not x_studio_last_operation_destination_location"/>
@@ -847,7 +860,7 @@
                 <field name="x_studio_2nd_uom" optional="show" sum="Total Quantity" string="Total Quantity"/>
                 <field name="x_studio_quantity_uom" optional="show" string="Quantity Unit of Measure"/>
                 <field name="x_studio_total_units" optional="show" sum="Total Min Units" string="Total Minimum"/>
-                <field name="x_studio_min_quantity_uom" optional="show" string="Minimum Unit of Measure"/>
+                <field name="x_studio_min_quantity_uom" optional="show" string="Packs Unit of Measure"/>
                 <field name="inventory_quantity_auto_apply" class="fw-bolder" string="On Hand Weight(KG)" readonly="0" sum="Total On Hand"/>
                 <field name="reservation_tags" string="Reservation RR" widget="many2many_tags" readonly="True"/>
                 <field name="reserved_quantity" class="fw-bolder" optional="show" sum="Total Reserved" string="Reserved Weight(KG)" 
@@ -910,7 +923,7 @@
                 <field name="x_studio_2nd_uom" optional="show" string="Total Quantity"/>
                 <field name="x_studio_quantity_uom" optional="show" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;Pack&quot;)]" string="QTY Unit of Measure"/>
                 <field name="x_studio_total_units" optional="show" string="Total Minimum"/>
-                <field name="x_studio_min_quantity_uom" optional="show" domain="[(&quot;category_id.name&quot;, &quot;ilike&quot;, &quot;Min UOM&quot;)]" string="Minimum Unit of Measure"/>
+                <field name="x_studio_min_quantity_uom" optional="show" domain="[(&quot;category_id.name&quot;, &quot;ilike&quot;, &quot;Min UOM&quot;)]" string="Packs Unit of Measure"/>
               </xpath>
               <xpath expr="//field[@name='inventory_quantity_auto_apply']" position="attributes">
                 <attribute name="string">On Hand KG</attribute>

@@ -16,7 +16,7 @@
                 <field name="x_studio_expiration_date"/>
                 <field name="x_studio_expiration_date"/>
                 <field name="x_studio_2nd_uom" sum="True" string="Quantity"/>
-                <field name="x_studio_total_units"  sum="True" string="Minimum"/>
+                <field name="x_studio_total_units"  sum="True" string="Packs"/>
                 <field name="quantity"  sum="True" string="Weight (KG)"/>
                 <field name="reserved_quantity" sum="True"/>
                 <field name="available_quantity" sum="True"/>
@@ -124,8 +124,8 @@
                                 <field name="x_studio_actual_packaging" decoration-warning="1" class="fw-bolder"/>
                                 <field name="x_studio_quantity_uom_delivery" readonly="1"/>
                                 <field name="x_studio_max_total_units" string="Original Units" readonly="1"/> 
-                                <field name="x_studio_withdraw_units" string="Units" decoration-bg-info="is_package_multiple_withdraw" class="fw-bolder"/>
-                                <field name="x_studio_actual_min" decoration-warning="1" class="fw-bolder"/>
+                                <field name="x_studio_withdraw_units" string="Packs" decoration-bg-info="is_package_multiple_withdraw" class="fw-bolder"/>
+                                <field name="x_studio_actual_min" decoration-warning="1" class="fw-bolder" string="Packs Heads"/>
                                 <field name="x_studio_min_quantity_uom" readonly="1"/>
                                 <field name="x_studio_max_quant" string="Original Weight (KG)"/>   
                                 <field name="quantity" string="Weight (KG)" decoration-bg-info="is_package_multiple_withdraw" class="fw-bolder"/>
@@ -180,8 +180,8 @@
                                 <field name="x_studio_max_2nd_uom" string="Original Quantity" readonly="1"/>   
                                 <field name="x_studio_affected_2nd_uom" string="Quantity" decoration-bg-info="1"/>
                                 <field name="x_studio_quantity_uom_delivery"/>
-                                <field name="x_studio_max_total_units" string="Original Units" readonly="1"/> 
-                                <field name="x_studio_withdraw_units" string="Units" decoration-bg-info="1"/>
+                                <field name="x_studio_max_total_units" string="Original Packs" readonly="1"/> 
+                                <field name="x_studio_withdraw_units" string="Packs" decoration-bg-info="1"/>
                                 <field name="x_studio_min_quantity_uom"/>
                                 <field name="x_studio_max_quant" string="Original Weight(KG)"/> 
                                 <field name="quantity" string="WEIGHT (KG)" decoration-bg-info="1"/>   

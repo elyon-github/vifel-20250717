@@ -120,7 +120,9 @@ class OverrideStockQuant(models.Model):
         string='Aging Day/s',
         compute='_compute_aging_days',
         store=True,  # Optional: set to True if you want to store the computed value
-        help='Number of days from today to expiration date. Negative values indicate expired items.'
+        help='Number of days from today to expiration date. Negative values indicate expired items.',
+        group_operator=False
+        
     )
 
     @api.depends('x_studio_expiration_date')

@@ -1030,6 +1030,10 @@ class transfer_locations(models.Model):
 
             domain = []
             is_blast_freeze, is_receiving = picking.operation_type_checker(picking.picking_type_id)
+
+            if not is_receiving and picking.state == 'done':
+                picking.quant_count = False
+                return
             if picking.picking_type_id.code == 'incoming':
                 domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False)]
             elif picking.picking_type_id.code == 'outgoing' and not is_blast_freeze:

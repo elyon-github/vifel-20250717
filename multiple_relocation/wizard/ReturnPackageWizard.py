@@ -152,12 +152,22 @@ class ReturnPackageWizard(models.TransientModel):
                 move_lines = self.picking_id.move_line_ids
                 lines = []
                 for move_line in move_lines:
-
+                    location_dest_id = False
+                    pallet_result_id = False
+                    
+                    if not move_line.location_id.x_studio_is_reserved:
+                        occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
+                        if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
+                            location_dest_id = move_line.location_id.id
+                    if move_line.package_id.location_id.id == location_dest_id or not move_line.package_id.location_id.id: 
+                        pallet_result_id = move_line.package_id.id
                     if self.return_reason != 'Partial Withdraw':
+
+                                
                         lines.append((0, 0, {
                             'select_package': False,
-                            'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                            'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
+                            'result_package_id': pallet_result_id,
+                            'location_dest_id': location_dest_id,
                             'pallet_series_id': move_line.x_studio_pallet_series_id,
                             'bf_pallet_char': move_line.bf_pallet_char,
                             'product_id': move_line.product_id.id,
@@ -183,8 +193,8 @@ class ReturnPackageWizard(models.TransientModel):
                     else:
                         lines.append((0, 0, {
                                 'select_package': False,
-                                'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                                'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
+                                'result_package_id': pallet_result_id,
+                                'location_dest_id': location_dest_id,
                                 'pallet_series_id': move_line.x_studio_pallet_series_id,
                                 'bf_pallet_char': move_line.bf_pallet_char,
                                 'product_id': move_line.product_id.id,
@@ -380,15 +390,16 @@ class ReturnPackageWizard(models.TransientModel):
 
     def action_process_return(self):
         selected_packages = self.package_line_ids.filtered(lambda line: line.select_package)
-
+        
         # Check if we should create a blank return or process with selected packages
-        if not selected_packages:
-            # Create blank return without any move lines
-            return self._create_blank_return()
+
         
         # Check for existing return
         existing_return = self._find_existing_return()
-        
+        if not selected_packages and not existing_return:
+            # Create blank return without any move lines
+            return self._create_blank_return()
+            
         if existing_return:
             fields_map = {
                 'truck_type': self.picking_id.truck_type,
@@ -403,11 +414,13 @@ class ReturnPackageWizard(models.TransientModel):
             }
             
             vals = {field: value for field, value in fields_map.items() if not getattr(existing_return, field)}
+            
             if vals:
                 existing_return.write(vals)
             # Append to existing return
             return self._append_to_existing_return(existing_return, selected_packages)
         else:
+            
             # Create new return with selected packages
             return self._create_new_return_with_packages(selected_packages)
 
@@ -420,7 +433,7 @@ class ReturnPackageWizard(models.TransientModel):
                 ('is_blast_freeze_operation', '=', self.picking_id.picking_type_id.is_blast_freeze_operation),
                 ('warehouse_id', '=', warehouse_id)
             ], limit=1)
-
+        
         # Create blank picking
         new_picking = self.picking_id.copy(default={
             'picking_type_id': self.picking_type_id.id,
