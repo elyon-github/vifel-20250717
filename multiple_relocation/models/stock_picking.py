@@ -235,7 +235,7 @@ class transfer_locations(models.Model):
             record.total_quantity = total_quantity
             record.total_weight = total_weight
             
-    
+        
     def void_transfer(self):
         """Mark transfer as voided and deactivate the latest associated pallet kilos record."""
         for record in self:
@@ -264,12 +264,24 @@ class transfer_locations(models.Model):
                 
                 _logger.info("Deactivated pallet kilos record: %s", pallet_record.effective_document.name)
                 
-                # Recalculate running balances from this point forward
-                # Use the model's efficient recalculation method
+                # Find the previous record to start recalculation from
+                previous_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search([
+                    ('warehouse', '=', warehouse_id),
+                    ('is_blast_freezer', '=', is_blast_freezer),
+                    ('start_time', '<', start_time),
+                    ('active', '=', True)
+                ], order='start_time desc', limit=1)
+    
+                if previous_record:
+                    recalc_from_time = previous_record.start_time
+                else:
+                    recalc_from_time = None  # Recalculate from beginning
+    
+                # Recalculate running balances from the previous record forward
                 pallet_record._recalculate_running_balances(
                     warehouse_id, 
                     is_blast_freezer, 
-                    start_time
+                    recalc_from_time
                 )
                 
                 _logger.info("Voided transfer and archived Pallet Kilos Log: %s", record.name)
@@ -336,12 +348,24 @@ class transfer_locations(models.Model):
                 pallet_record._populate_operations_data()
                 pallet_record._populate_returns_data()
                 
-                # Recalculate running balances from this point forward
-                # This ensures all subsequent records have correct balances
+                # Find the previous record to start recalculation from
+                previous_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search([
+                    ('warehouse', '=', warehouse_id),
+                    ('is_blast_freezer', '=', is_blast_freezer),
+                    ('start_time', '<', start_time),
+                    ('active', '=', True)
+                ], order='start_time desc', limit=1)
+    
+                if previous_record:
+                    recalc_from_time = previous_record.start_time
+                else:
+                    recalc_from_time = None  # Recalculate from beginning
+    
+                # Recalculate running balances from the previous record forward
                 pallet_record._recalculate_running_balances(
                     warehouse_id, 
                     is_blast_freezer, 
-                    start_time
+                    recalc_from_time
                 )
                 
                 _logger.info("Successfully unvoided transfer and restored Pallet Kilos Log: %s", record.name)

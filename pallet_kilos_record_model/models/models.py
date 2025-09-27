@@ -453,6 +453,7 @@ class PalletKilosRecordModel(models.Model):
         domain = [
             ('warehouse', '=', warehouse_id),
             ('is_blast_freezer', '=', blast_freezer_flag),
+            ('active', '=', True),  # CRITICAL FIX: Exclude archived records
         ]
         
         if from_datetime and from_create_date:

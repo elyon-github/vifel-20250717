@@ -69,7 +69,8 @@ class SelectQuantWizard(models.TransientModel):
         # Search for stock.moves with these lots and not done
         same_quant_stocks_picked = self.env['stock.move.line'].search([
             ('lot_id', 'in', lot_ids),
-            ('state', '!=', 'done'), ('picking_id.id', '!=', transfer_id),
+            # ('state', '!=', 'done'), Commented so we can still see even done
+            ('picking_id.id', '!=', transfer_id),
             ('picking_id.picking_type_code', '=', 'outgoing')
         ])
 
@@ -128,6 +129,11 @@ class SelectQuantWizard(models.TransientModel):
         packages_to_remove = previous_packages - selected_packages
         packages_to_add = selected_packages - previous_packages
         packages_unchanged = selected_packages & previous_packages
+
+        # Check if quant_ids_picked has changed from original
+        original_quant_ids = set(self._origin.quant_ids_picked.ids) if self._origin.quant_ids_picked else set()
+        current_quant_ids = set(self.quant_ids_picked.ids)
+        quants_changed = (original_quant_ids != current_quant_ids)
         
         # --- Step 1: Handle removals first ---
         if packages_to_remove:
@@ -202,7 +208,9 @@ class SelectQuantWizard(models.TransientModel):
                     
                     if existing_line:
                         # Update existing line
-                        existing_line.write({'quantity': quant.available_quantity})
+                        if quants_changed:
+                            # Quant selection changed, update with available quantity
+                            existing_line.write({'quantity': quant.available_quantity})
                     else:
                         # Create new move line
                         self.env['stock.move.line'].create({
@@ -311,7 +319,7 @@ class SelectQuantWizard(models.TransientModel):
         """Automatically adjust values based on availability"""
         # Get the move lines from the current record and from other transfers
         current_move_lines = record.move_line_ids
-        other_move_lines = record.stock_moves_multiple_withdraw
+        other_move_lines = record.stock_moves_multiple_withdraw.filtered(lambda l: l.state != 'done')
         record.automatically_fetched_quantity = True
         # Group move lines by lot_id
         lot_to_lines = {}

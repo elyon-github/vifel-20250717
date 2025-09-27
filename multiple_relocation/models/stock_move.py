@@ -364,7 +364,7 @@ class stock_move_line_Override(models.Model):
             else:
                 record.bf_pallet_char = ''
     
-    @api.depends('package_id', 'result_package_id')
+    # @api.depends('package_id', 'result_package_id')
     def _compute_is_package_multiple_withdraw(self):
         for line in self:
             # Skip computation if the record is not yet saved (i.e., has a temporary ID)
@@ -383,7 +383,7 @@ class stock_move_line_Override(models.Model):
                 # Count how many active move lines use this package
                 package_count = self.env['stock.move.line'].search_count([
                     ('package_id', '=', line.package_id.id),
-                    ('state', 'not in', ['done', 'cancel']),
+                    # ('state', 'not in', ['done', 'cancel']),
                     ('id', '!=', line.id),  # Exclude self
                     ('picking_id', '!=', line.picking_id.id)
                 ])
@@ -397,6 +397,7 @@ class stock_move_line_Override(models.Model):
     
                 package_count = self.env['stock.move.line'].search_count([
                     ('result_package_id', '=', line.result_package_id.id),
+                    ('lot_id', '=', line.lot_id.id),
                     ('id', '!=', line.id),  # Exclude current line
                     ('picking_id', '=', line.picking_id.id)
                 ])
