@@ -383,7 +383,7 @@ class stock_move_line_Override(models.Model):
                 # Count how many active move lines use this package
                 package_count = self.env['stock.move.line'].search_count([
                     ('package_id', '=', line.package_id.id),
-                    # ('state', 'not in', ['done', 'cancel']),
+                    ('state', 'not in', ['done', 'cancel']),
                     ('id', '!=', line.id),  # Exclude self
                     ('picking_id', '!=', line.picking_id.id)
                 ])

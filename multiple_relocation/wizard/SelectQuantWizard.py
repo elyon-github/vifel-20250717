@@ -69,7 +69,7 @@ class SelectQuantWizard(models.TransientModel):
         # Search for stock.moves with these lots and not done
         same_quant_stocks_picked = self.env['stock.move.line'].search([
             ('lot_id', 'in', lot_ids),
-            # ('state', '!=', 'done'), Commented so we can still see even done
+            ('state', '!=', 'done'),
             ('picking_id.id', '!=', transfer_id),
             ('picking_id.picking_type_code', '=', 'outgoing')
         ])

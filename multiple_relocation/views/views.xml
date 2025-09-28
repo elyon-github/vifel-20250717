@@ -168,7 +168,7 @@
         </xpath>
 
         <!-- Insert Fields Before Product ID -->
-        <xpath expr="//tree//field[@name='product_id']" position="before">
+        <xpath expr="//tree//field[@name='product_id']" position="after">
             <field optional="show" name="x_studio_use_as_template" column_invisible="picking_code == 'outgoing'"/>
         </xpath>
 
@@ -200,7 +200,8 @@
             <field name="x_studio_return_count" optional="show" readonly="True" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]"/>
             <field optional="show" name="x_studio_special_holding" string="Special Holding" invisible="False" readonly="picking_code == 'outgoing'"/>
             <field optional="show" name="x_studio_sh_reason" string="SH Reason" invisible="False" readonly="picking_code == 'outgoing'"/>
-            <field optional="show" name="x_studio_pallet_series_id" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="picking_code == 'outgoing'"/>   
+            <field optional="hide" name="x_studio_pallet_series_id" invisible="1" string="Placeholder"/>
+            <field optional="show" name="x_studio_pallet_series_display" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="1"/>   
             <field name="reserved_quantity_on_validation" string="Remaining Pallet Quantity" readonly="1" column_invisible="1"/>
             <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="1" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
             <field optional="show" name="x_studio_dest_id" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]"/>   
@@ -519,7 +520,7 @@
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_id']" position="after">
         
         <field optional="show" name="x_studio_client_ref" column_invisible="parent.picking_type_code == 'outgoing'" required="True"/>
-        <field optional="show" name="x_studio_atw_no" column_invisible="parent.picking_type_code == 'incoming' or not parent.picking_type_id in [2, 7]" required="picking_type_id in [2, 7]"/>
+        <field optional="show" name="x_studio_atw_no" column_invisible="parent.picking_type_code == 'incoming' or not parent.picking_type_id in [2, 7] or 1" required="picking_type_id in [2, 7]"/>
         <field optional="show" name="x_studio_number_of_lines" column_invisible="parent.picking_type_code == 'outgoing'" string="No. of Pallets"/>
         <field optional="show" name="x_studio_demand_packaging" string="Quantity" readonly="False"/>
         <field optional="show" name="x_studio_actual_packaging_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
