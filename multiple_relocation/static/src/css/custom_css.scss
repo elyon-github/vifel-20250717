@@ -9,3 +9,16 @@
     z-index: 9999999 !important; /* Higher than modal (usually 1050) */
 
 }
+
+/* Light blue focus for all elements */
+*:focus {
+    outline: 1px solid #87CEEB !important; /* Sky Blue */
+    outline-offset: 1px;
+}
+
+/* Specific to table rows and cells */
+.o_list_view .o_data_row:focus,
+.o_list_view .o_data_cell:focus {
+    outline: 2px solid #87CEEB !important;
+    outline-offset: 1px;
+}
