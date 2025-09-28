@@ -109,7 +109,8 @@ class SelectQuantWizard(models.TransientModel):
     #     raise UserError(self.stock_moves_multiple_withdraw)
 
     
-    def action_confirm(self):
+    def action_confirm(self, counter=0):
+
         # Browse the stock.move record and the transfer (picking)
         this_stock_move = self.env['stock.move'].browse(self.stock_move_id)
         transfer_id = self.env['stock.picking'].browse(self.transfer_id)
@@ -129,6 +130,7 @@ class SelectQuantWizard(models.TransientModel):
         packages_to_remove = previous_packages - selected_packages
         packages_to_add = selected_packages - previous_packages
         packages_unchanged = selected_packages & previous_packages
+
 
         # Check if quant_ids_picked has changed from original
         original_quant_ids = set(self._origin.quant_ids_picked.ids) if self._origin.quant_ids_picked else set()
@@ -164,16 +166,18 @@ class SelectQuantWizard(models.TransientModel):
                 ('quantity', '>', 0),
                 ('owner_id', '=', self.owner_id.id if self.owner_id else False)
             ])
-
+            
             all_package_quants = all_package_quants.filtered(lambda q: q.available_quantity > 0)
 
-            
+
             # Group quants by product for processing - critically important to separate by product
             quants_by_product = {}
             for quant in all_package_quants:
+                
                 if quant.product_id.id not in quants_by_product:
                     quants_by_product[quant.product_id.id] = []
                 quants_by_product[quant.product_id.id].append(quant)
+
             
             # Track processed combinations to avoid duplicates
             processed_combinations = set()
@@ -196,6 +200,7 @@ class SelectQuantWizard(models.TransientModel):
                         continue
                     processed_combinations.add(key)
 
+                    # _logger.info(str(processed_combinations))
                     # Add to quant_ids_picked
                     
                     this_stock_move.write({'quant_ids_picked': [(4, quant.id)]})
@@ -231,7 +236,8 @@ class SelectQuantWizard(models.TransientModel):
                 
                 # Remove the main product as it's already processed
                 del quants_by_product[main_product_id]
-            
+
+
             # Now process other products (products other than the main one)
             for product_id, product_quants in quants_by_product.items():
                 if not product_quants:
@@ -270,7 +276,7 @@ class SelectQuantWizard(models.TransientModel):
 
                     # raise UserError(target_move.product_id.name)
                 # Process all quants for this product only
-
+            
                 for quant in product_quants:
                     key = (quant.product_id.id, quant.location_id.id, quant.package_id.id, quant.lot_id.id)
                     if key in processed_combinations:
@@ -284,6 +290,7 @@ class SelectQuantWizard(models.TransientModel):
                         # if 'BELLY' in quant.product_id.name:
                         #     raise UserError(target_move.quant_ids_picked)
                         # Create new move line
+
                         self.env['stock.move.line'].create({
                             'picking_id': transfer_id.id,
                             'move_id': target_move.id,
@@ -296,7 +303,7 @@ class SelectQuantWizard(models.TransientModel):
                             'quant_id': quant.id,
                             'computed_quant_id': quant.id,
                         })
-                        _logger.info(quant.product_id.id)
+                        _logger.info('haha')
                 # Update quantity for this move
                 target_move.product_uom_qty = sum(target_move.quant_ids_picked.mapped('quantity'))
         
@@ -307,6 +314,7 @@ class SelectQuantWizard(models.TransientModel):
                 if not move.quant_ids_picked or sum(move.quant_ids_picked.mapped('quantity')) <= 0:
                     move.move_line_ids.unlink()
                     move.unlink()
+
         
         # Update destination location for all move lines
         location = self.env['stock.location'].browse(5)
@@ -314,7 +322,10 @@ class SelectQuantWizard(models.TransientModel):
             move.move_line_ids.write({'location_dest_id': location.id})
 
 
-    
+        counter += 1
+        if counter < 2:
+            self.action_confirm(counter=counter)
+            
     def auto_adjust_line_values(record):
         """Automatically adjust values based on availability"""
         # Get the move lines from the current record and from other transfers

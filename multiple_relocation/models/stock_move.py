@@ -92,7 +92,7 @@ class StockMove(models.Model):
         quants = quant_ids._get_reserve_quantity(
             self.product_id, location_id, need, product_packaging_id=self.product_packaging_id,
             uom_id=self.product_uom, lot_id=lot_id, package_id=package_id, owner_id=self.partner_id, x_studio_container_number=self.x_studio_container_number, quant_ids_picked= self.quant_ids_picked.ids, strict=strict)
-
+        
 
         # _logger.info(self)
         taken_quantity = 0

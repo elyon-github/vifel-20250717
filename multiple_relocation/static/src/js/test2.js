@@ -12,7 +12,6 @@ import { ListController } from "@web/views/list/list_controller";
  * a second argument as the patch name. We pass only the object.
  */
 
-console.log("🔥 Patch file loading!"); 
 patch(ListController.prototype, {
     // Helper function to format numbers with commas
     formatNumberWithCommas(number) {
