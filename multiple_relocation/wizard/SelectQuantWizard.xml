@@ -105,7 +105,7 @@
                     </page>
                         <page string="Move Lines">
                             <field name="move_line_ids"  domain="[('id', '=', 0)]">
-                                <tree  decoration-danger="is_package_multiple_withdraw">  
+                                <tree  decoration-danger="is_package_multiple_withdraw" editable="bottom">   
                                     <field name="x_studio_exp_warned" column_invisible="1" invisible="1" />
                                     <field name="is_package_multiple_withdraw" column_invisible="1"/>
                                     <field name="company_id" column_invisible="1"/>
@@ -170,7 +170,7 @@
             <notebook>
                      <page string="Same Pallet Picked" invisible="not stock_moves_multiple_withdraw">
                             <field name="stock_moves_multiple_withdraw"  domain="[('id', '=', 0)]">
-                                <tree decoration-danger="1">
+                                <tree decoration-danger="1" editable="bottom">
                                    <field name="company_id" column_invisible="1"/>
                                     <field name="create_uid" optional="show" widget="many2one_avatar_user" readonly="1"/>
                                     <field name="picking_id" widget="many2onebutton" readonly="1"/>

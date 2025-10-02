@@ -21,7 +21,7 @@ class ReturnPackageWizardLine(models.TransientModel):
     return_counter = fields.Integer(string="No. of Returns")
     stock_move_line = fields.Integer(string="Move Line ID")
     pack_uom_unit = fields.Float(string="Quantity Unit")
-    min_uom_unit = fields.Float(string="Minimum Unit")
+    min_uom_unit = fields.Float(string="Packs Unit")
     location_dest_id = fields.Many2one('stock.location', string="Destination Location")
     pack_uom = fields.Many2one('uom.uom', string='Unit of Measure')
     min_uom = fields.Many2one('uom.uom', string='Unit of Measure')
@@ -91,7 +91,7 @@ class ReturnPackageWizard(models.TransientModel):
     _description = 'Wizard for Returning Packages'
 
     package_line_ids = fields.One2many(
-        'return.package.wizard.line', 'wizard_id', string="Packages", readonly=False
+        'return.package.wizard.line', 'wizard_id', string="Pallets", readonly=False
     )
     picking_id = fields.Many2one('stock.picking', string="Source Document", readonly=True)
     location_id = fields.Many2one('stock.location', string="Destination Location",  readonly=False)

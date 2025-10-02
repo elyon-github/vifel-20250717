@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Line Tree View -->
+    <record id="view_fast_encode_rr_line_tree" model="ir.ui.view">
+        <field name="name">stock.move.line.fast_encode_rr.line.tree</field>
+        <field name="model">stock.move.line.fast_encode_rr.line</field>
+        <field name="arch" type="xml">
+            <tree editable="bottom">
+                <field name="product_id"/>
+                <field name="pallet_series_id"/>
+                <field name="bf_pallet_char"/>
+                <field name="quantity"/>
+                <field name="min_uom_unit"/>
+                <field name="kilogram"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Line Search View -->
+    <record id="view_fast_encode_rr_line_list" model="ir.ui.view">
+        <field name="name">stock.move.line.fast_encode_rr.line.list</field>
+        <field name="model">stock.move.line.fast_encode_rr.line</field>
+        <field name="arch" type="xml">
+            <tree editable="bottom" create="false" js_class="fast_encode_rr_list_button" multi_edit="1" class="no-footer">
+                <field name="product_id"/>
+                <field name="pallet_series_id"/>
+                <field name="bf_pallet_char"/>
+                <field name="quantity"/>
+                <field name="min_uom_unit"/>
+                <field name="kilogram"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Wizard Form View -->
+    <record id="view_fast_encode_rr_wizard_form" model="ir.ui.view">
+        <field name="name">stock.move.line.fast_encode_rr.form</field>
+        <field name="model">stock.move.line.fast_encode_rr</field>
+        <field name="arch" type="xml">
+            <form string="Fast Encode RR">
+                <sheet style="width: 100%; max-width: none; height: 800px;">
+                    <div>
+                        <field name="line_ids" nolabel="1" mode="tree,kanban">
+                            <tree editable="bottom" limit="80">
+                                <field name="product_id"/>
+                                <field name="pallet_series_id"/>
+                                <field name="bf_pallet_char"/>
+                                <field name="quantity"/>
+                                <field name="min_uom_unit"/>
+                                <field name="kilogram"/>
+                            </tree>
+                        </field>
+                    </div>
+                </sheet>
+                <footer>
+                    <button string="Confirm" type="object" name="action_confirm" class="oe_highlight"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Wizard Action -->
+    <record id="action_fast_encode_rr_wizard" model="ir.actions.act_window">
+        <field name="name">Fast Encode RR</field>
+        <field name="res_model">stock.move.line.fast_encode_rr</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_view_types">form</field>
+    </record>
+
+</odoo>

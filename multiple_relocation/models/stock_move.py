@@ -416,12 +416,13 @@ class stock_move_line_Override(models.Model):
                 record.computed_quant_id = lots[0] if lots else False
             else:
                 record.computed_quant_id = False
-    def unlink(self):
-        # Get related stock moves before deleting move lines
-        moves = self.mapped('move_id')
+                
+    # def unlink(self):
+    #     # Get related stock moves before deleting move lines
+    #     moves = self.mapped('move_id')
 
-        # Proceed with the deletion
-        res = super(stock_move_line_Override, self).unlink()
+    #     # Proceed with the deletion
+    #     res = super(stock_move_line_Override, self).unlink()
 
 
 
@@ -907,8 +908,53 @@ class stock_move_line_Override(models.Model):
 
 
 
+class stock_move_line_Override(models.Model):
+    _inherit = 'stock.move.line'
+    _order = 'product_id asc'
 
+class stock_move_line_Override(models.Model):
+    _inherit = 'stock.move.line'
+    _order = 'product_id asc'
     
+    def action_open_fast_encode_wizard(self):
+        """Open Fast Encode RR Wizard with selected move lines"""
+        
+        # Get picking_id from first record (assuming all from same picking)
+        picking_id = self[0].picking_id.id if self else False
+        
+        # Prepare line values from selected records
+        line_vals = []
+        for line in self:
+            line_vals.append((0, 0, {
+                'stock_move_line': line.id,
+                'product_id': line.product_id.id,
+                'pallet_series_id': line.x_studio_pallet_series_id or '',
+                'bf_pallet_char': line.bf_pallet_char or '',
+                'quantity': line.x_studio_2nd_uom or 0.0,
+                'min_uom_unit': line.x_studio_total_units or 0.0,
+                'kilogram': line.quantity or 0.0,
+            }))
+        
+        # Create wizard with lines
+        wizard = self.env['stock.move.line.fast_encode_rr'].create({
+            'transfer_id': picking_id,
+            'line_ids': line_vals,
+        })
+        
+        return {
+            'name': 'Fast Encode RR Lines',
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.move.line.fast_encode_rr.line',
+            'view_mode': 'list',
+            'view_id': self.env.ref('multiple_relocation.view_fast_encode_rr_line_list').id,
+            'target': 'new',
+            'domain': [('wizard_id', '=', wizard.id)],  # CRITICAL: Filter by wizard instance
+            'context': {
+                'default_wizard_id': wizard.id,  # Link new lines to this wizard
+                'default_transfer_id': picking_id,
+            }
+        }
+            
     
     # Add these methods to your model class
     

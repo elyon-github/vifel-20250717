@@ -142,13 +142,16 @@
 
             <!-- Assign Pallet Series Button -->
             <button name="347" type="action" string="Assign Pallet Series" class="btn-warning" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done' or not context.get('picking_type_id') in [1, 6]" confirm="Are you sure you want to assign Pallet Series ID? Lines with Pallet Series ID will not re-assign new Pallet Series ID unless you delete them." />
-
+            
+            
             <!-- Auto-Fill Locations Button -->
             <button name="300" type="action" string="Assign Locations" class="btn btn-info" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming' or context.get('state') == 'done' or not context.get('picking_type_id') in [1, 6]" confirm="Are you sure you want to fill the locations for all the lines?"/>
 
             <!-- Auto-Fill PD & ED Button -->
             <button name="341" type="action" string="Auto-Fill Details" class="btn btn-info" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('state') != 'assigned'                      or context.get('picking_type_code') != 'incoming' or not context.get('picking_type_id') in [1, 6, 45, 46]"/>
 
+
+            <button name="action_open_fast_encode_wizard" type="object" string="Spawn Magic Wizard" class="btn-success" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done'" />
             <button name="unlink" type="object" string="Delete" class="btn-danger" icon="fa-trash" confirm="Are you sure you want to delete a record" invisible="context.get('picking_type_code') != 'incoming'"/>
 
         </xpath>
@@ -249,9 +252,9 @@
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing'" width="120"/>
-            <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="False" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" required="x_studio_2nd_uom" width="120"/>
+            <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="False" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'"  width="120"/>
             <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120"/>
-            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing'" required="x_studio_total_units" width="120"/>
+            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing'"  width="120"/>
 
         </xpath>
 

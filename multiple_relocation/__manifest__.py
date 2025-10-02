@@ -29,6 +29,7 @@ Long description of module's purpose
         'wizard/SelectQuantWizard.xml',
         'wizard/SmallWizards.xml',
         'wizard/stock_quant_correction.xml',
+        'wizard/FastEncodeRR.xml',
         'reports/inventory_summary_view.xml',
         'reports/count_sheet_view.xml',
         'data/data.xml',
@@ -46,8 +47,12 @@ Long description of module's purpose
             'multiple_relocation/static/src/css/custom_css.scss',
             'multiple_relocation/static/src/js/test.js',
             'multiple_relocation/static/src/js/test2.js',
+            'multiple_relocation/static/src/js/list_controller_custom.js',
+            'multiple_relocation/static/src/js/list_controller_custom_2.js',
             'multiple_relocation/static/src/views/templates.xml',
             'multiple_relocation/static/src/js/many2many_tags_field.js',
+            'multiple_relocation/static/src/js/fast_encode_rr_list_controller.js',
+            'multiple_relocation/static/src/js/fast_encode_rr_list_view_template.xml',
         ],
         
     }
