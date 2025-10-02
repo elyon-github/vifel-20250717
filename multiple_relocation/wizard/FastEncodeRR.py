@@ -19,7 +19,7 @@ class FastEncodeRRWizard(models.TransientModel):
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
                 move_line.write({
-                    'result_package_id': line.result_package_id,
+                    # 'result_package_id': line.result_package_id,
                     'x_studio_pallet_series_id': line.pallet_series_id,
                     'bf_pallet_char': line.bf_pallet_char,
                     'x_studio_2nd_uom': line.quantity,
@@ -41,7 +41,7 @@ class FastEncodeRRWizardLine(models.TransientModel):
     
     product_id = fields.Many2one('product.product', string="Products", readonly="1")
     pallet_series_id = fields.Char(string='Pallet Series ID', readonly="1")
-    result_package_id = fields.Many2one('stock.quant.package', string='Pallet #')
+    # result_package_id = fields.Many2one('stock.quant.package', string='Pallet #')
     pallet_number = fields.Many2one('stock.quant.package', string='Pallet #')
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     quantity = fields.Float(string="Quantity")

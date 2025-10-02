@@ -25,10 +25,10 @@
                 <field name="transfer_id" column_invisible="1"/>
                 <field name="product_id"/>
                 <field name="pallet_series_id"/>
-                <field name="result_package_id" string="Pallet #" groups="stock.group_tracking_lot" 
+                <!-- <field name="result_package_id" string="Pallet #" groups="stock.group_tracking_lot" 
                     domain="[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'), '|', ('x_studio_receiving_report_id', '=', False),
                     ('x_studio_receiving_report_id', '=', transfer_id)]" 
-                    options="{'no_create': True}"/>
+                    options="{'no_create': True}"/> -->
                 <field name="bf_pallet_char"/>
                 <field name="quantity"/>
                 <field name="min_uom_unit"/>
