@@ -511,7 +511,7 @@
         <field name="x_studio_driver" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record" invisible="picking_type_id in [47, 48]"/>
         <field name="x_studio_truck_time" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record" />
         <field name="x_studio_set_adjustment_series" invisible="True"/>
-        <field name="x_studio_remarks" invisible="state != &quot;done&quot;" string="Record Remarks"/>
+        <!-- <field name="x_studio_remarks" invisible="state != &quot;done&quot;" string="Record Remarks"/> -->
         <field name="x_studio_ncr_remarks" invisible="x_studio_has_discrepancy != True and x_studio_exp_warned != True or state == &quot;draft&quot;"/>
         <field name="x_studio_record_lines_counter" invisible="True"/>
       </xpath>
@@ -622,7 +622,7 @@
               <field optional="show" name="x_studio_valid" invisible="picking_code == &quot;incoming&quot;" column_invisible="parent.picking_code == 'incoming'" string="Valid for Picking"/>
               <field optional="show" name="x_studio_special_holding" column_invisible="parent.picking_type_id in [45, 46, 47, 48]" readonly="picking_code == &quot;outgoing&quot;"/>
               <field optional="show" name="x_studio_sh_reason" column_invisible="parent.picking_type_id in [45, 46, 47, 48]" readonly="not x_studio_special_holding or picking_code == &quot;outgoing&quot;"/>
-              <field optional="show" name="x_studio_is_reserved"/>
+              <!-- <field optional="show" name="x_studio_is_reserved"/> -->
               <field name="location_dest_id" column_invisible="parent.picking_code == 'outgoing'" invisible="False" domain="[&quot;&amp;&quot;, &quot;|&quot;, (&quot;x_studio_occupied_by_1&quot;, &quot;=&quot;, &quot;&quot;), (&quot;x_studio_occupied_by_1&quot;, &quot;=&quot;, False), (&quot;child_ids&quot;, &quot;=&quot;, False), (&quot;id&quot;, &quot;child_of&quot;, parent.location_dest_id)]" readonly="x_studio_is_locked_by_loc_pallets == True" options="{&quot;no_create&quot;:true}"/>
               <field optional="show" name="x_studio_is_locked_by_loc_pallets" column_invisible="True"/>
               <field name="package_id" column_invisible="True"/>

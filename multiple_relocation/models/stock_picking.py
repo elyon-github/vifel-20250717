@@ -170,6 +170,28 @@ class transfer_locations(models.Model):
         else:
             # Default to 7 days if no configuration found
             return 7
+
+    def convert_location_string(self, s):
+        parts = s.split('/')
+        try:
+            if len(parts) < 7:
+                return s
+            
+            part_3 = parts[2]
+            part_4 = parts[3]
+            part_5 = parts[4]
+            part_6 = parts[5]
+            part_7 = parts[6]
+            
+            digit = ''.join(filter(str.isdigit, part_7))
+            if not digit:
+                return s
+            
+            return f"{part_3}{part_4}{part_5}{part_6}.{digit}"
+        
+        except Exception:
+            return s
+
     
     @api.constrains('x_studio_truck_time', 'x_studio_start_time', 'x_studio_end_time')
     def _check_date_not_too_old(self):
