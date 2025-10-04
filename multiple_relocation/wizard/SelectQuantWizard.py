@@ -306,7 +306,6 @@ class SelectQuantWizard(models.TransientModel):
                         _logger.info('haha')
                 # Update quantity for this move
                 target_move.product_uom_qty = sum(target_move.quant_ids_picked.mapped('quantity'))
-        
         # --- Step 3: Clean up empty moves ---
         # Delete any moves with no quants left
         for move in transfer_id.move_ids:

@@ -18,9 +18,38 @@ from ast import literal_eval
 class StockMove(models.Model):
     _inherit = 'stock.move'
     quant_ids_picked = fields.Many2many('stock.quant', string="Quant IDs", copy=False)
+    quant_ids_multiple_withdrawal = fields.Many2many('stock.move.line', string="Multiple Withdrawals Move lines", copy=False, compute="_compute_quant_ids_multiple_withdrawal", store=False)
     
     automatically_added = fields.Boolean()
     reason_for_adjustment = fields.Char(string="Reason for Adjustment")
+    
+    
+    def _compute_quant_ids_multiple_withdrawal(self):
+        for record in self:
+            if record.picking_id.picking_type_code != 'outgoing':
+                record.quant_ids_multiple_withdrawal = False
+                continue  # Add continue to skip the rest
+                
+            lot_ids = record.move_line_ids.mapped('lot_id.id')
+            
+            # Skip if no lot_ids or if picking_id is not yet saved (NewId)
+            if not lot_ids or not record.picking_id.id or isinstance(record.picking_id.id, models.NewId):
+                record.quant_ids_multiple_withdrawal = False
+                continue
+            
+            same_move_line_stocks_picked = self.env['stock.move.line'].search([
+                ('lot_id', 'in', lot_ids),
+                ('state', '!=', 'done'),
+                # ('picking_id', '!=', record.picking_id.id),  # Changed from record.id
+                ('picking_id.picking_type_code', '=', 'outgoing')
+            ])
+            
+            same_move_line_stocks_picked = same_move_line_stocks_picked.filtered(
+                lambda l: l.is_package_multiple_withdraw
+            )
+            
+            record.quant_ids_multiple_withdrawal = [(6, 0, same_move_line_stocks_picked.ids)]
+        
     def regenerate_move_lines(self):
         """Generate new move lines based on number of lines specified"""
         self.ensure_one()
@@ -449,7 +478,7 @@ class stock_move_line_Override(models.Model):
                 # Check for unmatched result packages and pallet series
                 unmatched_package = self._get_unmatched_ids(picking_id, 'result_package_id')
                 unmatched_pallet_series = self._get_unmatched_ids(picking_id, 'x_studio_pallet_series_id')
-
+                
                 
                 if unmatched_package and (not unmatched_pallet_series or False in unmatched_pallet_series):
                     reuse_recycle = record.owner_id.get_smallest_pallet_series_ids(1)
@@ -462,9 +491,10 @@ class stock_move_line_Override(models.Model):
                     else:
   
                         if not unmatched_pallet_series or (not unmatched_pallet_series or False in unmatched_pallet_series):
-                            record.x_studio_pallet_series_id = f"{record.owner_id.x_studio_client_unique_code_1}-{record.owner_id.x_studio_pallet_series_id}"
+                            record.x_studio_pallet_series_id = record.owner_id.get_smallest_pallet_series_ids(1)[0]
                             temp_series_id = int(record.owner_id.x_studio_pallet_series_id) + 1
                             record.owner_id.x_studio_pallet_series_id = temp_series_id
+
     
 
                             
@@ -933,6 +963,7 @@ class stock_move_line_Override(models.Model):
                 'quantity': line.x_studio_2nd_uom or 0.0,
                 'min_uom_unit': line.x_studio_total_units or 0.0,
                 'kilogram': line.quantity or 0.0,
+                'result_package_id': line.result_package_id.id,
             }))
         
         # Create wizard with lines

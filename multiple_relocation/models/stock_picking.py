@@ -23,13 +23,57 @@ class picking_type(models.Model):
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
-
+    next_step_status = fields.Char(compute="_compute_next_step_status")
     location_id = fields.Many2one(
         'stock.location', "Source Location",
          store=True,  readonly=False,
         check_company=True, required=True, domain="[('id', 'in', allowed_value_ids)]")
 
+    # api.depends('move_ids_without_package.x_studio_number_of_lines')
+    def _compute_next_step_status(self):
+        for record in self:
+            # Default to blank
+            record.next_step_status = ''
+    
+            if record.state == 'done':
+                continue
+    
+            is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
+    
+            if is_receiving:
+    
+                # Receiving step
+                if not record.move_ids_without_package and not record.partner_id:
+                    record.next_step_status = 'Starting'
+                elif not record.move_line_ids and not record.return_id:
+                    # Check if any line is missing number_of_lines
+                    if any(not line.x_studio_number_of_lines for line in record.move_ids_without_package) or not record.move_ids_without_package:
+                        record.next_step_status = 'Estimate Pallet Lines'
+                    else:
+                        record.next_step_status = 'Generate Pallet Lines'
 
+                elif not record.move_line_ids and record.return_id:
+                    record.next_step_status = 'Go back to wr'
+                elif record.move_line_ids and is_blast_freeze:
+                    record.next_step_status = 'BF Complete Pallet Details'
+
+                elif record.move_line_ids and record.return_id:
+                    record.next_step_status = 'Return RR Complete Pallet Details'
+                elif record.move_line_ids and not is_blast_freeze:
+                    record.next_step_status = 'RR Complete Pallet Details'
+
+            else:
+                if not record.quant_count and not record.move_line_ids:
+                    record.next_step_status = 'Set Location'
+                    
+                elif record.move_line_ids and any(r.state in ['draft', 'ready'] for r in record.return_ids):
+                    record.next_step_status = 'Already has return'
+                elif record.move_line_ids and not record.return_ids:
+                    record.next_step_status = 'To create return'
+                elif not record.move_line_ids:
+                    record.next_step_status = 'Select Stocks'
+                    
+                
     location_dest_id = fields.Many2one(
         'stock.location', "Destination Location",
        store=True,  readonly=False,
@@ -1010,7 +1054,8 @@ class transfer_locations(models.Model):
             message = f"Successfully Created {successful_count} Product Detailed Operations"
             if failed_count > 0:
                 message += f", {failed_count} Product Detailed Operations failed"
-            
+            # Fallback (if nothing was processed)
+            return {'type': 'ir.actions.client', 'tag': 'reload'}
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
@@ -1021,7 +1066,9 @@ class transfer_locations(models.Model):
                     'sticky': False,
                 }
             }
-                
+        # Fallback (if nothing was processed)
+        return {'type': 'ir.actions.client', 'tag': 'reload'}
+
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
         for record in self:

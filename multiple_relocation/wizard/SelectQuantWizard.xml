@@ -19,6 +19,7 @@
                 <field name="x_studio_total_units"  sum="True" string="Packs"/>
                 <field name="quantity"  sum="True" string="Weight (KG)"/>
                 <field name="reserved_quantity" sum="True"/>
+                <field name="reservation_tags" sum="True" widget="many2many_tags"/>
                 <field name="available_quantity" sum="True"/>
             </tree>
         </field>
@@ -140,14 +141,14 @@
     
                 </notebook>
      
-                    <div style="display: flex; justify-content: right; margin: 10px; gap: 10px;">
+                    <!-- <div style="display: flex; justify-content: right; margin: 10px; gap: 10px;">
                         <button string="Get All Remaining Values From Multiple Withdrawal Pallets" 
                                type="object" 
                                name="auto_adjust_line_values" 
                                class="btn-success" 
                                data-hotkey="a" 
                                help="Get available quantity values from selected withdrawal pallets"
-                               invisible="not stock_moves_multiple_withdraw"/>
+                               invisible="not stock_moves_multiple_withdraw"/> -->
                         <!-- <button string="Reset 3 UOM Values For Multiple Withdrawal" 
                                type="object" 
                                name="reset_values_for_multiple" 
@@ -155,7 +156,7 @@
                                data-hotkey="a" 
                                help="Reset UOM Values in order to give way for other transfers be able to select and pick the multiple withdrawal Packages"
                                invisible="not stock_moves_multiple_withdraw"/> -->
-                    </div>
+                    <!-- </div> -->
     
     
     

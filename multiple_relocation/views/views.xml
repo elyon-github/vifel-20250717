@@ -243,11 +243,11 @@
             <field optional="show" name="x_studio_production_date" string="Prod. Date" invisible="False" readonly="picking_code == 'outgoing'" options="{'max_date': 'today'}" width="120"/>
             <field optional="show" name="x_studio_expiration_date" string="Exp. Date" invisible="False" readonly="picking_code == 'outgoing'" decoration-danger="x_studio_exp_warned" options="{'min_date': 'today'}" width="120"/>
             <field optional="show" name="x_studio_affected_2nd_uom" column_invisible="context.get('picking_code') == 'incoming'" string="Quantity (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming' or context.get('picking_type_id') in [47, 48]" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder"/>
+            <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder"/>
 
             <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string="Unit of Measure" width="120"/>
             <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs UOM (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder"/>
+            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder"/>
 
 
             
@@ -259,7 +259,7 @@
         </xpath>
 
                 <xpath expr="//tree//field[@name='quantity']" position="after">
-                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'  or context.get('picking_type_id') in [47, 48]" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder"/>
+                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder"/>
                 </xpath>
 
 
@@ -429,17 +429,118 @@
         <!--Added Warning-->
         
         <field name="show_return_alert" invisible="1"/>
+            
+    <div class="alert alert-danger" role="alert"
+         invisible="not show_return_alert or state not in ['done']">
+        A <b>draft return transaction</b> is still pending validation!  
+        <br/><br/>
+        1. Click <b>Return Pallets</b>.  
+        2. Select the <b>Pallet</b> you wish to return.  
+        3. Once selected, click <b>Process Return</b>
+    </div>
+
+
+    <field name="next_step_status" invisible="1"/>
+
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Generate Pallet Lines'">
+         <b>Reminder:</b> Please make sure to <b>Generate Pallet Lines</b> first using the <b>"Generate Pallet Lines"</b> button.  
+         If the <b>Tally Sheet</b> is <b>Empty</b>, this is most likely the reason.
+    </div>
+    
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Estimate Pallet Lines'">
+          <b>Please DO NOT</b> forget to fill in the <b>No. of Pallet Lines</b> under  
+         <b>Operations → Product</b> column. Unless the Product SKU's are unpredictable just like <b>FCA Assorted.</b>
+         It is <b>highly recommended</b> to <b>OVERESTIMATE</b> the number of pallets per <b>Product SKU.</b>
+    </div>
         
-        <div class="alert alert-danger" role="alert"
-             invisible="not show_return_alert or state not in ['done']">
-            There is still a draft return transaction that needs to be validated!
-        </div>
-              
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'BF Complete Pallet Details'">
+         Please generate the <b>Tally Sheet</b> and provide it to the <b>Checker</b>.  
+         Once the <b>Tally Sheet</b> has been returned, make sure to encode it under  
+         <b>Pallet Breakdown</b>, located at the <b>top-center</b> of the screen.  
+         Ensure that all required <b>columns</b> are properly completed.
+    </div>
+    
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'RR Complete Pallet Details'">
+         Please assign the <b>Pallet Series</b> and <b>Locations</b> first inside the <b>Pallet Breakdown</b> button,  
+         located at the <b>top-center</b> of the screen.  
+         After that, generate the <b>Tally Sheet</b> and <b>Pallet Tag Form</b>, then provide them to the <b>Checker</b>.  
+         Once the <b>Tally Sheet</b> has been returned, make sure to encode it again under  
+         <b>Pallet Breakdown</b>.  
+         Ensure that all required <b>columns</b> are properly completed.
+    </div>
+
+
+    
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Set Location'">
+         <b>Reminder:</b> Please make sure to update the <b>Source Location</b> field,  
+         as it determines where the <b>Pallets</b> will be picked from.  
+         After setting the correct <b>Source Location</b>, a new button will appear at the <b>top-center</b>  
+         of the screen called <b>“Location Related Stocks”</b>.  
+         If the button does not appear, it is likely that the <b>Source Location</b> was not set properly.
+    </div>
+
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Select Stocks'">
+         To begin picking <b>Pallets</b> from the selected <b>Location</b>,  
+         click the <b>“Location Related Stocks”</b> button located at the <b>top-center</b> of the screen.  
+         From there, simply <b>check</b> the <b>Pallet Lines</b> you want to include and click <b>Checkout</b> to proceed.
+    </div>
+    
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'To create return'">
+         Once you have finished <b>Picking</b> in the <b>Location Related Stocks</b> and need to <b>create a return</b>:  
+         <br/><br/>
+         1. Generate the <b>Picklist</b>.  
+         2. Click the <b>“Return Pallets”</b> button.  
+         3. In the <b>Return Pallets</b> window, set the <b>Return Reason</b> to <b>Partial Withdraw</b>.  
+         4. Proceed to <b>process</b> the return.  
+         <br/><br/>
+         After completing the return, the system will automatically redirect you to the <b>Receiving Report (RR)</b>.  
+         From there, you can open the <b>Tally Sheet</b> — which the <b>Checker</b> will use for the return process.
+    </div>
+
+
+
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Go back to wr'">
+         Please generate the <b>Tally Sheet</b> if you have just arrived on this page.  
+         Once printed, you may return to the <b>WR</b> by pressing <b>Alt + B</b>  
+         or by clicking the <b>WR reference</b> located at the <b>top-left</b> of the screen.
+    </div>
+        
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Return RR Complete Pallet Details'">
+         ⚠️ Please <b>DOUBLE-CHECK</b> the <b>TALLY SHEET</b> carefully!  
+         Make sure the <b>PALLET #</b> and <b>LOCATION</b> of all <b>RETURNED PALLETS</b>  
+         are correctly updated in case any changes were made.
+    </div>
+
+    
+
+    <div class="alert alert-warning" role="alert"
+         invisible="next_step_status != 'Starting'">
+         Please <b>Fill</b> in all the details currently available in this window.  
+         Once completed, proceed to the <b>Products/SKUs</b> section and add each product  
+         based on the <b>Client’s Documents</b>.  
+         Note that the values in <b>Quantity</b>, <b>Weight (KG)</b>, and <b>Packs</b>  
+         are all <b>Documented Quantity References</b>.
+    </div>
+
     <div class="alert alert-warning" role="alert"
          invisible="not show_return_alert or state in ['done']">
-        Please remember to update the <b>Actual Values</b> under <b>Pallet Breakdown</b> before validating the <b>WR</b> if it includes a <b>return</b>. 
-        Note: The columns are highlighted in <b>gold</b>.
+        Before <b>validating the WR</b>, please make sure to update all  
+        <b>Actual Values</b> under <b>Pallet Breakdown</b> — especially if this transaction includes a <b>return</b>.  
+        <br/><br/>
+        🔸 <b>Tip:</b> The required columns are highlighted in <b>Gold</b>  
+        (e.g., <b>Pallet Weight (KG)</b> = <b>1000</b> → <b>Actual Weight Out</b> = <b>500</b>).  
+        Enter the actual values (e.g., <b>500</b>) in their respective <b>Gold-highlighted column</b> before proceeding.
     </div>
+
 
           
     <div class="alert alert-danger" role="alert" 
@@ -452,6 +553,8 @@
       </span>
     </div>
 
+
+        
         <div class="alert alert-danger" role="alert" invisible="state == 'draft' or not x_studio_exp_warned" name="studio_div_438087">
           <span>It seems like a product is beyond the acceptable Product Expiration Threshold! Please generate an NCR Report.</span>
         </div>
@@ -622,7 +725,7 @@
               <field optional="show" name="x_studio_valid" invisible="picking_code == &quot;incoming&quot;" column_invisible="parent.picking_code == 'incoming'" string="Valid for Picking"/>
               <field optional="show" name="x_studio_special_holding" column_invisible="parent.picking_type_id in [45, 46, 47, 48]" readonly="picking_code == &quot;outgoing&quot;"/>
               <field optional="show" name="x_studio_sh_reason" column_invisible="parent.picking_type_id in [45, 46, 47, 48]" readonly="not x_studio_special_holding or picking_code == &quot;outgoing&quot;"/>
-              <!-- <field optional="show" name="x_studio_is_reserved"/> -->
+              <field optional="hide" name="x_studio_is_reserved"/>
               <field name="location_dest_id" column_invisible="parent.picking_code == 'outgoing'" invisible="False" domain="[&quot;&amp;&quot;, &quot;|&quot;, (&quot;x_studio_occupied_by_1&quot;, &quot;=&quot;, &quot;&quot;), (&quot;x_studio_occupied_by_1&quot;, &quot;=&quot;, False), (&quot;child_ids&quot;, &quot;=&quot;, False), (&quot;id&quot;, &quot;child_of&quot;, parent.location_dest_id)]" readonly="x_studio_is_locked_by_loc_pallets == True" options="{&quot;no_create&quot;:true}"/>
               <field optional="show" name="x_studio_is_locked_by_loc_pallets" column_invisible="True"/>
               <field name="package_id" column_invisible="True"/>

@@ -359,41 +359,46 @@ patch(ListRenderer.prototype, {
                 break;
             }
             case "enter": {
-                // --- MOD: This is where we change the logic to keep the same column on the next row ---
                 console.log("Modified Enter logic");
-
-                // Current row index and column index
                 const index = list.records.indexOf(record);
                 const oldCellIndex = cell.cellIndex;
                 
-                const activeEl = document.activeElement;
-                if (activeEl) {
-                    activeEl.blur();
-                }
-                console.log("Hi")
-                // By default, Odoo wants to go to the next record
+                // Store the current active element to prevent unwanted focus changes
+                const currentFocusElement = document.activeElement;
+                
+                // Prevent default focus behavior during save
+                const preventFocusLoss = (e) => {
+                    if (e.target !== currentFocusElement) {
+                        e.preventDefault();
+                        e.stopImmediatePropagation();
+                    }
+                };
+                
+                // Add temporary focus listeners to prevent cursor jump
+                document.addEventListener('focusin', preventFocusLoss, true);
+                document.addEventListener('focus', preventFocusLoss, true);
+                
                 let futureRecord = list.records[index + 1];
-    
-                // If "topReCreate" logic is relevant
+            
                 if (topReCreate && index === 0) {
                     futureRecord = null;
                 }
-
-                // If there is no next record and creation isn't allowed, fallback to first record
                 if (!futureRecord && !this.canCreate) {
                     futureRecord = list.records[0];
                 }
-
-                // If we do have a next record:
+                
                 if (futureRecord) {
-                    // 1) Commit the current row
+                    // Commit the current row
                     list.leaveEditMode({ validate: true }).then((canProceed) => {
+                        // Remove focus prevention listeners
+                        document.removeEventListener('focusin', preventFocusLoss, true);
+                        document.removeEventListener('focus', preventFocusLoss, true);
+                        
                         if (canProceed) {
-                            // 2) Enter edit mode on the next record
+                            // Enter edit mode on the next record
                             list.enterEditMode(futureRecord).then(() => {
-                                // 3) After DOM updates, re-focus the *same column*
-                                setTimeout(() => {
-                                    // We expect the next row to be at index + 1
+                                // Use requestAnimationFrame for smoother DOM updates
+                                requestAnimationFrame(() => {
                                     const rowEls = this.tableRef.el.querySelectorAll("tr.o_data_row");
                                     const rowEl = rowEls[index + 1];
                                     if (rowEl) {
@@ -402,22 +407,39 @@ patch(ListRenderer.prototype, {
                                             const input = tds[oldCellIndex].querySelector("input, select, textarea");
                                             if (input) {
                                                 input.focus();
+                                                // Select all content for fast data entry
+                                                if (input.type === 'text' || input.tagName === 'TEXTAREA') {
+                                                    input.select();
+                                                } else if (input.type === 'number') {
+                                                    input.select();
+                                                }
                                             }
                                         }
                                     }
-                                }, 0);
+                                });
                             });
+                        } else {
+                            // If save failed, restore focus to current cell
+                            if (currentFocusElement && currentFocusElement.isConnected) {
+                                currentFocusElement.focus();
+                            }
                         }
+                    }).catch(() => {
+                        // Clean up listeners on error
+                        document.removeEventListener('focusin', preventFocusLoss, true);
+                        document.removeEventListener('focus', preventFocusLoss, true);
                     });
                 } else if (
                     this.lastIsDirty ||
                     !record.canBeAbandoned ||
                     this.displayRowCreates
                 ) {
-                    // If we have unsaved data, or must add a new row
+                    document.removeEventListener('focusin', preventFocusLoss, true);
+                    document.removeEventListener('focus', preventFocusLoss, true);
                     this.add({ group });
                 } else {
-                    // Otherwise, fallback to the first record
+                    document.removeEventListener('focusin', preventFocusLoss, true);
+                    document.removeEventListener('focus', preventFocusLoss, true);
                     futureRecord = list.records.at(0);
                     list.enterEditMode(futureRecord);
                 }
