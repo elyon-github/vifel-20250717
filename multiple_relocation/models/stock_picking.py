@@ -23,11 +23,28 @@ class picking_type(models.Model):
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
-    next_step_status = fields.Char(compute="_compute_next_step_status")
+    next_step_status = fields.Char(compute="_compute_next_step_status", default=lambda self: self._default_next_step_status())
     location_id = fields.Many2one(
         'stock.location', "Source Location",
          store=True,  readonly=False,
         check_company=True, required=True, domain="[('id', 'in', allowed_value_ids)]")
+
+    def _default_next_step_status(self):
+        # Get picking_type_id from context
+        picking_type_id = self.env.context.get('default_picking_type_id')
+        
+        if picking_type_id:
+            # Search for the record
+            picking_type = self.env['stock.picking.type'].browse(picking_type_id)
+            is_blast_freeze, is_receiving = self.operation_type_checker(picking_type)
+            
+            if is_receiving:
+                return 'Starting'
+            else:
+                return 'Set Location'
+        
+        return 'Starting'
+                
 
     # api.depends('move_ids_without_package.x_studio_number_of_lines')
     def _compute_next_step_status(self):
@@ -63,12 +80,12 @@ class transfer_locations(models.Model):
                     record.next_step_status = 'RR Complete Pallet Details'
 
             else:
+                active_returns = record.return_ids.filtered(lambda r: r.state != 'cancel')
                 if not record.quant_count and not record.move_line_ids:
                     record.next_step_status = 'Set Location'
-                    
                 elif record.move_line_ids and any(r.state in ['draft', 'ready'] for r in record.return_ids):
                     record.next_step_status = 'Already has return'
-                elif record.move_line_ids and not record.return_ids:
+                elif record.move_line_ids and not active_returns:
                     record.next_step_status = 'To create return'
                 elif not record.move_line_ids:
                     record.next_step_status = 'Select Stocks'
@@ -1312,7 +1329,7 @@ class transfer_locations(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'stock.move.line',
             'views': [(view_id, 'tree')],
-            'domain': [('id', 'in', self.move_line_ids.ids)],
+            'domain': [('picking_id', '=', self.id)],
             'context': {
                 'create': self.state != 'done' or not self.is_locked,
                 'default_picking_id': self.id,

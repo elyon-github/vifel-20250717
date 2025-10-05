@@ -56,8 +56,8 @@
             <field name="total_balance_in_packaging" optional="show"/>
             <field name="total_balance_in_pallets" optional="show"/>
             <field name="total_balance_in_kilos" optional="show"/>
-            <field name="overall_pallets" sum="Total Pallets" optional="hide"/>
-            <field name="overall_kilos" sum="Total Kilos" optional="hide"/>
+            <field name="overall_pallets" optional="hide"/>
+            <field name="overall_kilos"  optional="hide"/>
 
         </tree>
     </field>

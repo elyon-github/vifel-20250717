@@ -1,20 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Line Tree View -->
-    <record id="view_fast_encode_rr_line_tree" model="ir.ui.view">
-        <field name="name">stock.move.line.fast_encode_rr.line.tree</field>
-        <field name="model">stock.move.line.fast_encode_rr.line</field>
-        <field name="arch" type="xml">
-            <tree editable="bottom">
-                <field name="product_id"/>
-                <field name="pallet_series_id"/>
-                <field name="bf_pallet_char"/>
-                <field name="quantity"/>
-                <field name="min_uom_unit"/>
-                <field name="kilogram"/>
-            </tree>
-        </field>
-    </record>
 
     <!-- Line Search View -->
     <record id="view_fast_encode_rr_line_list" model="ir.ui.view">

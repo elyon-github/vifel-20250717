@@ -126,7 +126,7 @@
     <field name="model">stock.move.line</field>
     <field name="inherit_id" ref="stock.view_stock_move_line_detailed_operation_tree"/>
     <field name="arch" type="xml">
-        
+
 <!-- Invisible Fields: Declare fields that should not be shown in the view -->
         <xpath expr="//tree" position="inside">
             <field name="x_studio_type_of_pallet" invisible="1" column_invisible="1"/>
@@ -141,7 +141,7 @@
             <button string="Verify Transfer" name="call_server_action_verify_pallet_series" type="object" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done' or context.get('picking_type_id') not in [1, 6, 45, 46]                      or context.get('x_studio_verified') == True" class="btn-success"/>
 
             <!-- Assign Pallet Series Button -->
-            <button name="347" type="action" string="Assign Pallet Series" class="btn-warning" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done' or not context.get('picking_type_id') in [1, 6]" confirm="Are you sure you want to assign Pallet Series ID? Lines with Pallet Series ID will not re-assign new Pallet Series ID unless you delete them." />
+            <button name="347" type="action" string="Assign Pallet Series" class="btn-warning" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done' or not context.get('picking_type_id') in [1, 6]" confirm="Are you sure you want to assign Pallet Series ID? Lines with Pallet Series ID will not re-assign new Pallet Series ID unless you delete them."/>
             
             
             <!-- Auto-Fill Locations Button -->
@@ -151,8 +151,8 @@
             <button name="341" type="action" string="Auto-Fill Details" class="btn btn-info" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('state') != 'assigned'                      or context.get('picking_type_code') != 'incoming' or not context.get('picking_type_id') in [1, 6, 45, 46]"/>
 
 
-            <button name="action_open_fast_encode_wizard" type="object" string="Spawn Magic Wizard" class="btn-success" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done'" />
-            <button name="unlink" type="object" string="Delete" class="btn-danger" icon="fa-trash" confirm="Are you sure you want to delete a record" invisible="context.get('picking_type_code') != 'incoming'"/>
+            <button name="action_open_fast_encode_wizard" type="object" string="Spawn Magic Wizard" class="btn-success" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done'"/>
+            <button name="unlink" type="object" string="Delete" class="btn-danger" icon="fa-trash" confirm="Are you sure you want to delete a record" invisible="context.get('picking_type_code') != 'incoming' or context.get('state') == 'done'"/>
 
         </xpath>
 
@@ -172,7 +172,7 @@
 
         <!-- Insert Fields Before Product ID -->
         <xpath expr="//tree//field[@name='product_id']" position="after">
-            <field optional="show" name="x_studio_use_as_template" column_invisible="picking_code == 'outgoing'"/>
+            <field optional="show" name="x_studio_use_as_template" column_invisible="picking_code == 'outgoing'" readonly="state == 'done'"/>
         </xpath>
 
         <!-- Set Tree View Editable Mode -->
@@ -194,6 +194,7 @@
                 ('x_studio_receiving_report_id', '=', False),
                 ('x_studio_receiving_report_id', 'in', context.get('default_picking_id') and [context.get('default_picking_id')] or [])
             ]</attribute>
+            <attribute name="readonly">state == 'done'</attribute>
         </xpath>
 
         <!-- Insert Additional Fields Before Location Destination Field -->
@@ -201,14 +202,14 @@
             <!-- <field name="x_studio_brand" optional="show" readonly="True" widget="many2many_tags"/> -->
 
             <field name="x_studio_return_count" optional="show" readonly="True" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]"/>
-            <field optional="show" name="x_studio_special_holding" string="Special Holding" invisible="False" readonly="picking_code == 'outgoing'"/>
-            <field optional="show" name="x_studio_sh_reason" string="SH Reason" invisible="False" readonly="picking_code == 'outgoing'"/>
-            <field optional="hide" name="x_studio_pallet_series_id" invisible="1" string="Placeholder"/>
+            <field optional="show" name="x_studio_special_holding" string="Special Holding" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'"/>
+            <field optional="show" name="x_studio_sh_reason" string="SH Reason" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'"/>
+            <field optional="hide" name="x_studio_pallet_series_id" invisible="1" string="Placeholder" readonly="state == 'done'"/>
             <field optional="show" name="x_studio_pallet_series_display" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="1"/>   
             <field name="reserved_quantity_on_validation" string="Remaining Pallet Quantity" readonly="1" column_invisible="1"/>
-            <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="1" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
-            <field optional="show" name="x_studio_dest_id" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]"/>   
-            <field optional="show" name="x_studio_is_reserved" invisible="picking_type_id in [45, 46, 47, 48, 2, 7]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]"/>  
+            <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="state == 'done'" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
+            <field optional="show" name="x_studio_dest_id" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>   
+            <field optional="show" name="x_studio_is_reserved" invisible="picking_type_id in [45, 46, 47, 48, 2, 7]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>  
         </xpath>
 
         <!-- Replace the 'result_package_id' Field and Add Domain -->
@@ -229,9 +230,9 @@
                    ]" options="{'no_create': True}" string="Pallet #"/> -->
             <field name="is_blast_freeze" column_invisible="1"/>
             <field name="is_package_multiple_withdraw" column_invisible="1"/>
-            <field name="bf_pallet_char" column_invisible="not context.get('is_blast_freeze')" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" readonly="picking_code == 'outgoing'"/>
+            <field name="bf_pallet_char" column_invisible="not context.get('is_blast_freeze')" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" readonly="picking_code == 'outgoing' or state == 'done'"/>
 
-            <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="package_level_id and parent.picking_type_entire_packs or context.get('is_blast_freeze')" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
+            <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="package_level_id and parent.picking_type_entire_packs or context.get('is_blast_freeze') or state == 'done'" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
 
 
         </xpath>
@@ -239,27 +240,27 @@
         <!-- Insert New Fields After 'result_package_id' -->
         <xpath expr="//tree//field[@name='result_package_id'][2]" position="after">
             <field optional="show" name="x_studio_exp_warned" column_invisible="1" invisible="1"/>
-            <field optional="show" name="x_studio_container_number" required="False" readonly="picking_code == 'outgoing'" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" width="120"/>
-            <field optional="show" name="x_studio_production_date" string="Prod. Date" invisible="False" readonly="picking_code == 'outgoing'" options="{'max_date': 'today'}" width="120"/>
-            <field optional="show" name="x_studio_expiration_date" string="Exp. Date" invisible="False" readonly="picking_code == 'outgoing'" decoration-danger="x_studio_exp_warned" options="{'min_date': 'today'}" width="120"/>
+            <field optional="show" name="x_studio_container_number" required="False" readonly="picking_code == 'outgoing' or state == 'done'" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" width="120"/>
+            <field optional="show" name="x_studio_production_date" string="Prod. Date" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'" options="{'max_date': 'today'}" width="120"/>
+            <field optional="show" name="x_studio_expiration_date" string="Exp. Date" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'" decoration-danger="x_studio_exp_warned" options="{'min_date': 'today'}" width="120"/>
             <field optional="show" name="x_studio_affected_2nd_uom" column_invisible="context.get('picking_code') == 'incoming'" string="Quantity (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder"/>
+            <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
 
-            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string="Unit of Measure" width="120"/>
+            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string="Unit of Measure" width="120" readonly="state == 'done'"/>
             <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs UOM (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder"/>
+            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
 
 
             
-            <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing'" width="120"/>
-            <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="False" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'"  width="120"/>
-            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120"/>
-            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing'"  width="120"/>
+            <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
+            <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120"/>
+            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120" readonly="state == 'done'"/>
+            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
 
         </xpath>
 
                 <xpath expr="//tree//field[@name='quantity']" position="after">
-                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder"/>
+                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
                 </xpath>
 
 
@@ -287,12 +288,7 @@
                 <xpath expr="//tree//field[@name='quantity']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-        <!-- <xpath expr="//tree//field[@name='x_studio_expiration_date']" position="after">
-            <field optional="show" name="x_studio_affected_2nd_uom"
-                   readonly="picking_code == 'outgoing'" 
-                   column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]"/>
-            
-        </xpath> -->
+
 
     </field>
 </record>
@@ -430,7 +426,7 @@
         
         <field name="show_return_alert" invisible="1"/>
             
-    <div class="alert alert-danger" role="alert"
+    <!-- <div class="alert alert-danger" role="alert"
          invisible="not show_return_alert or state not in ['done']">
         A <b>draft return transaction</b> is still pending validation!  
         <br/><br/>
@@ -539,8 +535,160 @@
         🔸 <b>Tip:</b> The required columns are highlighted in <b>Gold</b>  
         (e.g., <b>Pallet Weight (KG)</b> = <b>1000</b> → <b>Actual Weight Out</b> = <b>500</b>).  
         Enter the actual values (e.g., <b>500</b>) in their respective <b>Gold-highlighted column</b> before proceeding.
-    </div>
+    </div> -->
 
+<div class="alert alert-danger" role="alert"
+     invisible="not show_return_alert or state not in ['done']">
+    <b>⚠️ Draft Return Transaction Pending</b>
+    <br/><br/>
+    <b>Steps to Process:</b>
+    <br/>
+    1. Click <b>Return Pallets</b>
+    <br/>
+    2. Select the <b>Pallet</b> you wish to return
+    <br/>
+    3. Click <b>Process Return</b>
+</div>
+
+<field name="next_step_status" invisible="1"/>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Generate Pallet Lines'">
+     <b>⚠️ Action Required: Generate Pallet Lines</b>
+     <br/><br/>
+     Click the <b>"Generate Pallet Lines"</b> button to create pallet line entries based on your product estimates.
+     <br/><br/>
+     <b>Tip:</b> If the <b>Tally Sheet</b> appears empty, you likely skipped this step.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Estimate Pallet Lines'">
+      <b>Steps to Complete:</b>
+      <br/>
+      1. Add products in the <b>Operations → Product</b> column
+      <br/>
+      2. Complete the <b>Documented Quantity, Packs and Weight (KG)</b> based on the <b>Client's DR/Client Reference</b>
+      <br/>
+      3. Fill in the <b>No. of Pallet Lines</b> for each product
+      <br/><br/>
+      <b>Note:</b> This step can be skipped for unpredictable Product SKUs (e.g., FCA Assorted).
+      <br/><br/>
+      <b>Best Practice:</b> Always <b>OVERESTIMATE</b> the number of pallets per Product SKU.
+</div>
+    
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'BF Complete Pallet Details'">
+     <b>Next Steps:</b>
+     <br/>
+     1. Generate the <b>Tally Sheet</b> and provide it to the <b>Checker</b>.
+     <br/>
+     2. Once returned, encode the data under <b>Pallet Breakdown</b> (located at top-center of screen).
+     <br/>
+     3. Ensure all required <b>columns</b> are properly completed.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'RR Complete Pallet Details'">
+     <b>Steps to Complete:</b>
+     <br/>
+     1. Assign <b>Pallet Series</b> and <b>Locations</b> inside <b>Pallet Breakdown</b> (top-center of screen).
+     <br/>
+     2. Generate the <b>Tally Sheet</b> and <b>Pallet Tag Form</b>.
+     <br/>
+     3. Provide both documents to the <b>Checker</b>.
+     <br/>
+     4. Once returned, encode the data again under <b>Pallet Breakdown</b>.
+     <br/>
+     5. Ensure all required <b>columns</b> are properly completed.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Set Location'">
+     <b>Steps to Begin:</b>
+     <br/>
+     1. Complete all available fields in this window form based on your client's documents.
+     <br/>
+     2. Ensure the <b>Customer</b> and <b>Source Location</b> are set correctly — these are the two most important fields.
+     <br/><br/>
+     After setting the correct <b>Source Location</b>, a <b>"Location Related Stocks"</b> button will appear at the top-center of the screen. That's all you have to do right now. Remember to save the record in order for the next instruction to appear.
+     <br/><br/>
+     <b>Tip:</b> The shortcut key to save is <b>Alt + S</b>
+     <br/><br/>
+     <b>Note:</b> If the button does not appear, the Source Location was not set properly. You may skip other fields where information is not yet available.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Select Stocks'">
+     <b>Steps to Pick Pallets:</b>
+     <br/>
+     1. Click <b>"Location Related Stocks"</b> button (top-center of screen).
+     <br/>
+     2. Check the <b>Pallet Lines</b> you want to include
+     <br/>
+     3. Click <b>Checkout</b> to proceed.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'To create return'">
+     <b>Steps to Create a Return:</b>
+     <br/>
+     1. Generate the <b>Picklist</b>.
+     <br/>
+     2. Click the <b>"Return Pallets"</b> button.
+     <br/>
+     3. Set the <b>Return Reason</b> to <b>Partial Withdraw</b>.
+     <br/>
+     4. Process the return.
+     <br/><br/>
+     The system will automatically redirect you to the <b>Receiving Report (RR)</b>, where you can generate the <b>Tally Sheet</b> for the Checker.
+     <br/><br/>
+     <b>Note:</b> If no return is needed, simply generate the <b>Picklist</b> and give it to the <b>Checker</b>. Wait for the picklist to return, then complete the window form details and <b>Verify</b> the transfer.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Go back to wr'">
+     <b>Next Steps:</b>
+     <br/>
+     1. Generate the <b>Tally Sheet</b> (if just arrived on this page).
+     <br/>
+     2. Return to the <b>WR</b> by pressing <b>Alt + B</b> or clicking the <b>WR reference</b> (top-left of screen) it looks like <b>"M/WR/000000"</b> or just click the value inside <b>"Return of"</b> Field inside the window form.
+</div>
+    
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Return RR Complete Pallet Details'">
+     <b>⚠️ Double-Check Required:</b>
+     <br/><br/>
+     Verify the <b>Tally Sheet</b> carefully. Ensure the <b>Pallet #</b> and <b>Location</b> of all returned pallets are correctly updated if any changes were made.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="next_step_status != 'Starting'">
+     <b>Steps to Begin:</b>
+     <br/>
+     1. Complete all available fields in this window form based on your client's documents.
+     <br/>
+     2. Ensure the <b>Destination Location</b> is set correctly.
+     <br/>
+     3. Make sure to save the your changes! 
+    <br/>
+    <b>Tip:</b> The shortcut key to save is <b>"Alt + S"</b>
+    <br/><br/>
+     <b>Note:</b> You may skip fields where information is not yet available.
+</div>
+
+<div class="alert alert-warning" role="alert"
+     invisible="not show_return_alert or state in ['done'] or not x_studio_record_lines_counter">
+    <b>⚠️ Before Validating the Withdrawal Record:</b>
+    <br/><br/>
+    Wait for the <b>Picklist</b> to return and make sure to <b>double-check</b> all details.
+    <br/><br/>
+    Update all <b>Actual Values</b> under <b>Pallet Breakdown</b> — especially if this transaction includes a <b>return</b>.
+    <br/><br/>
+    <b>🔸 Tip:</b> Required columns are highlighted in <b>Gold</b>
+     (e.g., <b>Pallet Weight (KG)</b> = <b>1000</b> → <b>Actual Weight Out</b> = <b>500</b>).
+    <br/><br/>
+    Enter the actual values (e.g., <b>500</b>) in their respective <b>Gold-highlighted column</b> before proceeding. Once <b>done</b>, simply complete the window form view and <b>Verify</b> the transfer.
+</div>
 
           
     <div class="alert alert-danger" role="alert" 

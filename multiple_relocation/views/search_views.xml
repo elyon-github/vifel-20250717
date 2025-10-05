@@ -45,9 +45,17 @@
               <xpath expr="//filter[@name='package']" position="attributes">
                 <attribute name="string">Pallet #</attribute>
               </xpath>
-              <xpath expr="//filter[@name='studio_group_by_84q_1itv61a9a']" position="after">
-                <filter name="studio_group_by_8nj_1itv6ldos" string="Pallet Series ID" context="{'group_by': 'x_studio_pallet_series_id'}"/>
+
+              <xpath expr="//filter[@name='productgroup']" position="before">
+                    <filter name="studio_group_by_1qe_1j2emk7oc" string="Owner" context="{'group_by': 'owner_id'}"/>
+                    <filter name="group_by_record_reference" string="Receiving Record" context="{'group_by': 'x_studio_record_reference'}"/>
               </xpath>
+              <xpath expr="//filter[@name='studio_group_by_1qe_1j2emk7oc']" position="after">
+                <filter name="studio_group_by_8nj_1itv6ldos" string="Pallet Series ID" context="{'group_by': 'x_studio_pallet_series_id'}"/>
+                
+              </xpath>
+
+
         </field>
       </record>
     

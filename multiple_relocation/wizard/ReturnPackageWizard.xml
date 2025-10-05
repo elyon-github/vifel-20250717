@@ -16,7 +16,7 @@
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form[1]/header[1]/button[@name='button_validate']" position="after">
-                <button name="action_return_packages" string="Return Pallets" type="object" class="oe_highlight" data-hotkey="r"/>
+                <button name="action_return_packages" string="Return Pallets" type="object" class="oe_highlight" data-hotkey="shift+r"/>
             </xpath>
         </field>
     </record>
@@ -104,7 +104,7 @@
                 </sheet>
                 
                 <footer>
-                    <button name="action_process_return" string="Process Return" type="object" class="btn-primary"/>
+                    <button name="action_process_return" string="Process Return" type="object" class="btn-primary" data-hotkey="c"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
