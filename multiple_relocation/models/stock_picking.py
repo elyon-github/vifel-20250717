@@ -1052,14 +1052,14 @@ class transfer_locations(models.Model):
         """Generate lines for all moves in the picking"""
         successful_count = 0
         failed_count = 0
-        
+        counter = 1
         for record in self:
             record.action_confirm()
 
             for move in record.move_ids_without_package:
                 try:
                     if move.exists():
-                        move.regenerate_move_lines()
+                        counter = move.regenerate_move_lines(counter)
                         successful_count += 1
                 except Exception as e:
                     failed_count += 1

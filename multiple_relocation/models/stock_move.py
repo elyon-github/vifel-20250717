@@ -50,7 +50,7 @@ class StockMove(models.Model):
             
             record.quant_ids_multiple_withdrawal = [(6, 0, same_move_line_stocks_picked.ids)]
         
-    def regenerate_move_lines(self):
+    def regenerate_move_lines(self, counter):
         """Generate new move lines based on number of lines specified"""
         self.ensure_one()
         
@@ -68,7 +68,8 @@ class StockMove(models.Model):
             if lines.result_package_id:
                 # Unreserve the move.lines for the package assigned
                 lines.result_package_id.remove_reservation()
-        
+            
+
         if existing_move_lines:
             existing_move_lines.unlink()
         
@@ -91,14 +92,17 @@ class StockMove(models.Model):
                 # 'result_package_id': generic_blast_freeze_package_id.id if is_blast_freeze else False,
                 'x_studio_quantity_uom': self.x_studio_packaging_unit.id if self.x_studio_packaging_unit else False,
                 'x_studio_min_quantity_uom': self.x_studio_min_unit.id if self.x_studio_min_unit else False,
+                'x_studio_': counter
             })
+            counter = counter + 1
         
         # Create the move lines
         created_lines = []
         for line_data in move_lines_data:
             created_lines.append(self.env['stock.move.line'].create(line_data))
+
         
-        return created_lines
+        return counter
     def _update_reserved_quantity(self, need, location_id, quant_ids=None, lot_id=None, package_id=None, owner_id=None, strict=True):
         """ Create or update move lines and reserves quantity from quants
             Expects the need (qty to reserve) and location_id to reserve from.
@@ -194,6 +198,7 @@ class stock_move_line_Override(models.Model):
 
     adjustment_batch_number = fields.Char(string="Adjustment Batch #")
 
+    x_studio_ = fields.Integer(string="#", group_operator=False)
     x_studio_reason_for_adjustment = fields.Char(string="Reason for Adjustment")
     x_studio_loading_dock_no = fields.Char(string="Loading Dock No.")
     x_studio_source = fields.Char(string="Source")

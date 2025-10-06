@@ -197,6 +197,9 @@
             <attribute name="readonly">state == 'done'</attribute>
         </xpath>
 
+        <xpath expr="//tree//field[@name='product_id']" position="before">
+        <field name="x_studio_" optional="show" readonly="True"/>
+            </xpath>
         <!-- Insert Additional Fields Before Location Destination Field -->
         <xpath expr="//tree//field[@name='location_dest_id'][1]" position="before">
             <!-- <field name="x_studio_brand" optional="show" readonly="True" widget="many2many_tags"/> -->
