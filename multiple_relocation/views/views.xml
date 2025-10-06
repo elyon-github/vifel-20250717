@@ -1274,9 +1274,7 @@
               <xpath expr="//field[@name='x_studio_dest_relocation']" position="attributes">
                 <attribute name="domain">["&amp;", "&amp;", ("child_ids", "=", False), ("location_id.location_id.location_id.location_id", "!=", False), ("x_studio_occupied_by_1", "=", False)]</attribute>
               </xpath>
-              <xpath expr="//field[@name='x_studio_stock_code']" position="after">
-                <field name="x_studio_building_dropped" optional="show" string="Building Dropped"/>
-              </xpath>
+
               <xpath expr="//field[@name='package_id']" position="after">
                 <field name="bf_pallet_char" optional="show" string="BF Pallet # - Text"/>
               </xpath>
@@ -1296,9 +1294,6 @@
                 <attribute name="optional">hide</attribute>
               </xpath>
               <xpath expr="//field[@name='x_studio_stock_code']" position="attributes">
-                <attribute name="optional">hide</attribute>
-              </xpath>
-              <xpath expr="//field[@name='x_studio_building_dropped']" position="attributes">
                 <attribute name="optional">hide</attribute>
               </xpath>
               <xpath expr="//field[@name='bf_pallet_char']" position="attributes">
@@ -1505,7 +1500,7 @@
                 <xpath expr="//field[@name='location_id']" position="after">
                     <field name="owner_id"/>
                     <field optional="show" name="x_studio_opening_balance_record_reference"/>
-                    <field optional="show" name="x_studio_building_dropped"/>
+                    <field optional="show" name="x_studio_building"/>
                 </xpath>
                 <xpath expr="//field[@name='product_id']" position="after">
                     <field name="x_studio_return_count"/>

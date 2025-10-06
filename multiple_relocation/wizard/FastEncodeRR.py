@@ -12,7 +12,6 @@ class FastEncodeRRWizard(models.TransientModel):
     line_ids = fields.One2many(
         'stock.move.line.fast_encode_rr.line', 'wizard_id', string="Pallet Lines", readonly=False
     )
-    
     def action_confirm(self):
         """Apply wizard changes back to stock.move.line"""
         for line in self.line_ids:
@@ -20,18 +19,31 @@ class FastEncodeRRWizard(models.TransientModel):
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
                 move_line.write({
                     'result_package_id': line.result_package_id,
-                    # 'x_studio_pallet_series_id': line.pallet_series_id,
                     'bf_pallet_char': line.bf_pallet_char,
                     'x_studio_2nd_uom': line.quantity,
                     'x_studio_total_units': line.min_uom_unit,
                     'quantity': line.kilogram,
                 })
-
-                for line in move_line:
-                    line.assign_pallet_series_on_already_used_pallets()
-                    line.unreserve_onchange_pallet()
+                
+                for ml in move_line:
+                    # Only assign pallet series if this pallet is already used by another line
+                    if ml.result_package_id and self._is_pallet_already_used(ml):
+                        ml.assign_pallet_series_on_already_used_pallets()
+                    
+                    ml.unreserve_onchange_pallet()
         
         return {'type': 'ir.actions.act_window_close'}
+    
+    def _is_pallet_already_used(self, move_line):
+        """Check if this pallet is already used by another line in the same transfer"""
+        existing_usage = self.env['stock.move.line'].search([
+            ('picking_id', '=', move_line.picking_id.id),
+            ('result_package_id', '=', move_line.result_package_id.id),
+            ('x_studio_pallet_series_id', '!=', False),  # Has a pallet series already
+            ('id', '!=', move_line.id)  # Exclude current line
+        ], limit=1)
+        
+        return bool(existing_usage)
 
 class FastEncodeRRWizardLine(models.TransientModel):
     _name = 'stock.move.line.fast_encode_rr.line'
@@ -44,12 +56,13 @@ class FastEncodeRRWizardLine(models.TransientModel):
     
     product_id = fields.Many2one('product.product', string="Products", readonly="1")
     pallet_series_id = fields.Char(string='Pallet Series ID', readonly="1")
-    result_package_id = fields.Many2one('stock.quant.package', string='Pallet #')
-    pallet_number = fields.Many2one('stock.quant.package', string='Pallet #')
+    result_package_id = fields.Many2one('stock.quant.package', string='RR Pallet #')
+    pallet_number = fields.Many2one('stock.quant.package', string='BFRR Pallet #')
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     quantity = fields.Float(string="Quantity")
     min_uom_unit = fields.Float(string="Packs")
     kilogram = fields.Float(string="Weight (KG)")
+    
 
     def write(self, vals):
         """Override write to handle pallet changes"""

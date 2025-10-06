@@ -61,6 +61,46 @@ class ResPartner(models.Model):
 
         return formatted_ids
 
+    def get_pallet_series_by_id(self, pallet_series_id):
+        """
+        Search for a specific pallet series ID in unused pallets.
+        If found, return and remove it from unused list.
+        If not found, fall back to get_smallest_pallet_series_ids(1).
+        
+        Args:
+            pallet_series_id (str): Full pallet ID like 'AHA-000001'
+        
+        Returns:
+            list: Single-item list with the pallet series ID
+        """
+        # Extract the integer part after the hyphen
+        try:
+            series_number = int(pallet_series_id.split('-')[-1])
+        except (ValueError, IndexError):
+            # Invalid format, fall back to smallest
+            return self.get_smallest_pallet_series_ids(1)
+        
+        # Get the current list of IDs
+        pallet_series_list = self.unused_pallet_series_ids or []
+        
+        # Check if the series number exists in unused pallets
+        if series_number in pallet_series_list:
+            # Remove it from the unused list
+            pallet_series_list.remove(series_number)
+            self.unused_pallet_series_ids = pallet_series_list
+            
+            # Format and return the found ID
+            if not self.x_studio_client_unique_code_1:
+                raise UserError(f"\nIt seems like Client: {self.name} does NOT have a client unique code set. \n\nPlease set it first before we can generate Pallet Series ID.")
+            
+            formatted_id = f"{self.x_studio_client_unique_code_1}-{str(series_number).zfill(6)}"
+            return [formatted_id]
+        else:
+            # Not found in unused pallets, get the smallest available
+            return self.get_smallest_pallet_series_ids(1)
+        
+        
+
 class ProductTemplate(models.Model):
     _inherit = 'product.template'
 

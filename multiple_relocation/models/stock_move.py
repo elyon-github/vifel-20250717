@@ -199,6 +199,7 @@ class stock_move_line_Override(models.Model):
     adjustment_batch_number = fields.Char(string="Adjustment Batch #")
 
     x_studio_ = fields.Integer(string="#", group_operator=False)
+    
     x_studio_reason_for_adjustment = fields.Char(string="Reason for Adjustment")
     x_studio_loading_dock_no = fields.Char(string="Loading Dock No.")
     x_studio_source = fields.Char(string="Source")
@@ -227,7 +228,7 @@ class stock_move_line_Override(models.Model):
         store=False,
     )
     reserved_quantity_on_validation = fields.Float(string="Reserved Quantity on Validation")
-
+    original_pallet_series_id = fields.Char(string="Original Pallet Series")
 
 
         
@@ -486,7 +487,7 @@ class stock_move_line_Override(models.Model):
                 
                 
                 if unmatched_package and (not unmatched_pallet_series or False in unmatched_pallet_series):
-                    reuse_recycle = record.owner_id.get_smallest_pallet_series_ids(1)
+                    reuse_recycle = record.owner_id.get_pallet_series_by_id(record.original_pallet_series_id)
                     if reuse_recycle and not unmatched_pallet_series:
                         for pallet_id in reuse_recycle:
                             
@@ -976,7 +977,7 @@ class stock_move_line_Override(models.Model):
             'transfer_id': picking_id,
             'line_ids': line_vals,
         })
-        
+        is_blast_freeze, is_receiving = self.picking_id.operation_type_checker(self.picking_id.picking_type_id)
         return {
             'name': 'Fast Encode RR Lines',
             'type': 'ir.actions.act_window',
@@ -988,6 +989,7 @@ class stock_move_line_Override(models.Model):
             'context': {
                 'default_wizard_id': wizard.id,  # Link new lines to this wizard
                 'default_transfer_id': picking_id,
+                'is_blast_freeze': is_blast_freeze
             }
         }
             

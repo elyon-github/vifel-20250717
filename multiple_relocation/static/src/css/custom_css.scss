@@ -12,10 +12,10 @@
 
 /* Light blue focus for all elements */
 *:focus {
-    outline: 1px solid #87CEEB !important; /* Sky Blue */
-    outline-offset: 1px;
+    outline: none !important;
+    box-shadow: 0 0 0 2px #87CEEB !important;
+    border-radius: 4px !important;
 }
-
 /* Specific to table rows and cells */
 .o_list_view .o_data_row:focus,
 .o_list_view .o_data_cell:focus {

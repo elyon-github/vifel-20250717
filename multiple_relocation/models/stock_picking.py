@@ -1450,6 +1450,8 @@ class transfer_locations(models.Model):
                     # If there are preferred locations, add the filter for preferred locations
                     if record.x_studio_preferred_locations:
                         domain += [
+                            '|',  # Main OR: either the location itself OR its children
+                            ('id', 'in', record.x_studio_preferred_locations.ids),  # Include preferred locations themselves
                             '|',
                             ('location_id', 'in', record.x_studio_preferred_locations.ids),
                             '|',
