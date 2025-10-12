@@ -249,19 +249,23 @@
             <field optional="show" name="x_studio_affected_2nd_uom" column_invisible="context.get('picking_code') == 'incoming'" string="Quantity (Withdraw) " width="120" readonly="1"/>
             <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
 
-            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string="Unit of Measure" width="120" readonly="state == 'done'"/>
-            <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs UOM (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
+            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string=" Quantity UOM" width="120" readonly="state == 'done'"/>
+
 
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
-            <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120"/>
-            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120" readonly="state == 'done'"/>
-            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Unit of Measure" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
+            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120"/>
+
 
         </xpath>
 
+        <xpath expr="//tree//field[@name='quantity']" position="after">
+                        <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs" width="120" readonly="1"/>
+            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
+            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120" readonly="state == 'done'"/>
+            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
+        </xpath>
                 <xpath expr="//tree//field[@name='quantity']" position="after">
                     <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
                 </xpath>
@@ -633,6 +637,7 @@
 
 <div class="alert alert-warning" role="alert"
      invisible="next_step_status != 'To create return'">
+    <b>Note:</b> If no return is needed, simply generate the <b>Picklist</b> and give it to the <b>Checker</b>. Wait for the picklist to return, then complete the window form details and <b>Verify</b> the transfer.     <br/><br/>
      <b>Steps to Create a Return:</b>
      <br/>
      1. Generate the <b>Picklist</b>.
@@ -644,8 +649,8 @@
      4. Process the return.
      <br/><br/>
      The system will automatically redirect you to the <b>Receiving Report (RR)</b>, where you can generate the <b>Tally Sheet</b> for the Checker.
-     <br/><br/>
-     <b>Note:</b> If no return is needed, simply generate the <b>Picklist</b> and give it to the <b>Checker</b>. Wait for the picklist to return, then complete the window form details and <b>Verify</b> the transfer.
+
+     
 </div>
 
 <div class="alert alert-warning" role="alert"

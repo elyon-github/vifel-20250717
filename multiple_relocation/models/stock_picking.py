@@ -736,6 +736,9 @@ class transfer_locations(models.Model):
                 'weight_actual': 0,
                 'packaging_qty': 0,
                 'uom_name': '',
+                'heads_demand': 0,
+                'heads_actual': 0,
+                'heads_uom': 0,
                 'packaging_unit_name': '',
                 'pallet_count': 0,
                 'package_ids': set(),
@@ -796,6 +799,7 @@ class transfer_locations(models.Model):
                         # grouped_moves[key]['qty_actual'] += move.x_studio_actual_packaging_demand if hasattr(move, 'x_studio_actual_packaging_demand') else 0
                         grouped_moves[key]['qty_demand'] += move.x_studio_demand_packaging if hasattr(move, 'x_studio_demand_packaging') else 0
                         grouped_moves[key]['weight_demand'] += move.product_uom_qty if hasattr(move, 'product_uom_qty') else 0
+                        grouped_moves[key]['heads_demand'] += move.x_studio_min_uom if hasattr(move, 'x_studio_min_uom') else 0
                         globally_processed_moves.add(move.id)
                     
                     # Add move line specific quantities (actual quantities)
@@ -803,7 +807,8 @@ class transfer_locations(models.Model):
                     grouped_moves[key]['qty_actual'] += move_line.quantity if hasattr(move_line, 'quantity') else 0
                     grouped_moves[key]['weight_actual'] += move_line.quantity if hasattr(move_line, 'quantity') else 0
                     grouped_moves[key]['packaging_qty'] += move_line.x_studio_2nd_uom if move_line.x_studio_2nd_uom else move_line.x_studio_affected_2nd_uom
-
+                    grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if hasattr(move_line, 'x_studio_withdaw_units') else move_line.x_studio_withdraw_units
+                    
                     # Track unique packages for pallet count
                     if move_line.package_id and not move_line.picking_id.x_studio_is_a_blast_freezer:
                         grouped_moves[key]['package_ids'].add(move_line.package_id.id)
@@ -845,120 +850,137 @@ class transfer_locations(models.Model):
             return processed_moves
     
     def group_quantities_by_uom(self, moves):
-        """
-        Group quantities by UOM and return separate qty and uom strings
-        """
-        uom_totals = defaultdict(float)
-        uom_totals_demand = defaultdict(float)
-        uom_totals_actual = defaultdict(float)
-        uom_total_actual_kg = defaultdict(float)
-        uom_total_demand_kg = defaultdict(float)
-        for move in moves:
-            uom = move['uom_name'] or 'Units'
-            uom_totals[uom] += move['qty_actual']
-            uom_totals_demand[uom] += move['qty_demand']
-            uom_totals_actual[uom] += move['packaging_qty']
-            uom_demand = move['uom_name'] or 'Units'
-            uom_total_actual_kg[uom] += move['qty_actual']
-            uom_total_demand_kg[uom] += move['weight_demand']
+            """
+            Group quantities by UOM and return separate qty and uom strings
+            """
+            uom_totals = defaultdict(float)
+            uom_totals_demand = defaultdict(float)
+            uom_totals_actual = defaultdict(float)
+            uom_total_actual_kg = defaultdict(float)
+            uom_total_demand_kg = defaultdict(float)
+            uom_total_actual_heads = defaultdict(float)
+            uom_total_demand_heads = defaultdict(float)
             
-        
-        # Format the grouped quantities and UOMs separately
-        qty_parts = []
-        uom_parts = []
-        qty_demand_parts = []
-        qty_actual_parts = []
-
-        kg_demand_parts = []
-        kg_actual_parts = []
-        
-        for uom, qty in uom_totals.items():
-            qty_parts.append(f"{qty:,.2f}")
-            uom_parts.append(uom)
+            for move in moves:
+                uom = move['uom_name'] or 'Units'
+                uom_totals[uom] += move['qty_actual']
+                uom_totals_demand[uom] += move['qty_demand']
+                uom_totals_actual[uom] += move['packaging_qty']
+                uom_demand = move['uom_name'] or 'Units'
+                uom_total_actual_kg[uom] += move['qty_actual']
+                uom_total_demand_kg[uom] += move['weight_demand']
+                uom_total_actual_heads[uom] += move['heads_actual']
+                uom_total_demand_heads[uom] += move['heads_demand']
+                
+                
             
-        for uom, qty in uom_totals_demand.items():
-            qty_demand_parts.append(f"{qty:,.2f}")
-
-        for uom, qty in uom_totals_actual.items():
-            qty_actual_parts.append(f"{qty:,.2f}")
-
-        for uom, kg in uom_total_actual_kg.items():
-            kg_actual_parts.append(f"{kg:,.2f}")
-
-        for uom, kg in uom_total_demand_kg.items():
-            kg_demand_parts.append(f"{kg:,.2f}")
-
-        
-        return {
-            'qty_formatted': "<br/>".join(qty_parts) if qty_parts else "0",
-            'uom_formatted': "<br/>".join(uom_parts) if uom_parts else "",
-            'qty_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in qty_demand_parts]) if qty_demand_parts else "0.00",
-            'qty_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in qty_actual_parts]) if qty_actual_parts else "0.00",
-            'kg_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_actual_parts]) if kg_actual_parts else "0.00",
-            'kg_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_demand_parts]) if kg_demand_parts else "0.00"
-        }
+            # Format the grouped quantities and UOMs separately
+            qty_parts = []
+            uom_parts = []
+            qty_demand_parts = []
+            qty_actual_parts = []
             
-    def calculate_page_data(self, processed_moves, page_size=9):
-        """
-        Calculate pagination data for the processed moves
-        """
-        total_items = len(processed_moves)
-        pages_count = (total_items + page_size - 1) // page_size if total_items > 0 else 1
-        
-        page_data = []
-        for page_num in range(pages_count):
-            start_idx = page_num * page_size
-            end_idx = min(start_idx + page_size, total_items)
+            kg_demand_parts = []
+            kg_actual_parts = []
+            heads_demand_parts = []
+            heads_actual_parts = []
             
-            page_moves = processed_moves[start_idx:end_idx]
+            for uom, qty in uom_totals.items():
+                qty_parts.append(f"{qty:,.2f}")
+                uom_parts.append(uom)
+                
+            for uom, qty in uom_totals_demand.items():
+                qty_demand_parts.append(f"{qty:,.2f}")
+            for uom, qty in uom_totals_actual.items():
+                qty_actual_parts.append(f"{qty:,.2f}")
+            for uom, kg in uom_total_actual_kg.items():
+                kg_actual_parts.append(f"{kg:,.2f}")
+            for uom, kg in uom_total_demand_kg.items():
+                kg_demand_parts.append(f"{kg:,.2f}")
+            for uom, heads in uom_total_actual_heads.items():
+                heads_actual_parts.append(f"{heads:,.2f}")
+            for uom, heads in uom_total_demand_heads.items():
+                heads_demand_parts.append(f"{heads:,.2f}")
             
-            # Calculate page totals
-            uom_data = self.group_quantities_by_uom(page_moves)
-            page_totals = {
-                'qty_demand': sum(move['qty_demand'] for move in page_moves),
-                'qty_demand_formatted': uom_data['qty_demand_formatted'],
-                'weight_demand': sum(move['weight_demand'] for move in page_moves),
-                'qty_actual': sum(move['qty_actual'] for move in page_moves),
-                'weight_actual': sum(move['weight_actual'] for move in page_moves),
-                'packaging_qty': sum(move['packaging_qty'] for move in page_moves),
-                'pallet_count': sum(move['pallet_count'] for move in page_moves),
-                'qty_formatted': uom_data['qty_formatted'],
-                'qty_actual_formatted': uom_data['qty_actual_formatted'],
-                # 'pallet_count': sum(move['pallet_count'] for move in page_moves),
-                'uom_formatted': uom_data['uom_formatted'],
-                'kg_actual_formatted': uom_data['kg_actual_formatted'],
-                'kg_demand_formatted': uom_data['kg_demand_formatted'],
+            return {
+                'qty_formatted': "<br/>".join(qty_parts) if qty_parts else "0",
+                'uom_formatted': "<br/>".join(uom_parts) if uom_parts else "",
+                'qty_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in qty_demand_parts]) if qty_demand_parts else "0.00",
+                'qty_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in qty_actual_parts]) if qty_actual_parts else "0.00",
+                'kg_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_actual_parts]) if kg_actual_parts else "0.00",
+                'kg_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_demand_parts]) if kg_demand_parts else "0.00",
+                'heads_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in heads_actual_parts]) if heads_actual_parts else "0.00",
+                'heads_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in heads_demand_parts]) if heads_demand_parts else "0.00"
             }
             
-            page_data.append({
-                'page_num': page_num,
-                'moves': page_moves,
-                'totals': page_totals,
-                'blank_rows': page_size - len(page_moves)
-            })
-        
-        # Calculate grand totals
-        grand_uom_data = self.group_quantities_by_uom(processed_moves)
-        grand_totals = {
-            'qty_demand': sum(move['qty_demand'] for move in processed_moves),
-            'weight_demand': sum(move['weight_demand'] for move in processed_moves),
-            'qty_actual': sum(move['qty_actual'] for move in processed_moves),
-            'weight_actual': sum(move['weight_actual'] for move in processed_moves),
-            'packaging_qty': sum(move['packaging_qty'] for move in processed_moves),
-            'pallet_count': sum(move['pallet_count'] for move in processed_moves),
-            'qty_formatted': grand_uom_data['qty_formatted'],
-            'qty_demand_formatted':  grand_uom_data['qty_demand_formatted'],
-            'qty_actual_formatted': grand_uom_data['qty_actual_formatted'],
-            'uom_formatted': grand_uom_data['uom_formatted'],
-            'kg_actual_formatted': grand_uom_data['kg_actual_formatted'],
-            'kg_demand_formatted': grand_uom_data['kg_demand_formatted'],
-        }
-
-        return {
-            'pages': page_data,
-            'pages_count': pages_count,
-            'grand_totals': grand_totals
-        }
+    def calculate_page_data(self, processed_moves, page_size=9):
+            """
+            Calculate pagination data for the processed moves
+            """
+            total_items = len(processed_moves)
+            pages_count = (total_items + page_size - 1) // page_size if total_items > 0 else 1
+            
+            page_data = []
+            for page_num in range(pages_count):
+                start_idx = page_num * page_size
+                end_idx = min(start_idx + page_size, total_items)
+                
+                page_moves = processed_moves[start_idx:end_idx]
+                
+                # Calculate page totals
+                uom_data = self.group_quantities_by_uom(page_moves)
+                page_totals = {
+                    'qty_demand': sum(move['qty_demand'] for move in page_moves),
+                    'qty_demand_formatted': uom_data['qty_demand_formatted'],
+                    'weight_demand': sum(move['weight_demand'] for move in page_moves),
+                    'qty_actual': sum(move['qty_actual'] for move in page_moves),
+                    'weight_actual': sum(move['weight_actual'] for move in page_moves),
+                    'packaging_qty': sum(move['packaging_qty'] for move in page_moves),
+                    'pallet_count': sum(move['pallet_count'] for move in page_moves),
+                    'qty_formatted': uom_data['qty_formatted'],
+                    'qty_actual_formatted': uom_data['qty_actual_formatted'],
+                    # 'pallet_count': sum(move['pallet_count'] for move in page_moves),
+                    'uom_formatted': uom_data['uom_formatted'],
+                    'kg_actual_formatted': uom_data['kg_actual_formatted'],
+                    'kg_demand_formatted': uom_data['kg_demand_formatted'],
+                    'heads_actual': sum(move['heads_actual'] for move in page_moves),
+                    'heads_demand': sum(move['heads_demand'] for move in page_moves),
+                    'heads_actual_formatted': uom_data['heads_actual_formatted'],
+                    'heads_demand_formatted': uom_data['heads_demand_formatted'],
+                }
+                
+                page_data.append({
+                    'page_num': page_num,
+                    'moves': page_moves,
+                    'totals': page_totals,
+                    'blank_rows': page_size - len(page_moves)
+                })
+            
+            # Calculate grand totals
+            grand_uom_data = self.group_quantities_by_uom(processed_moves)
+            grand_totals = {
+                'qty_demand': sum(move['qty_demand'] for move in processed_moves),
+                'weight_demand': sum(move['weight_demand'] for move in processed_moves),
+                'qty_actual': sum(move['qty_actual'] for move in processed_moves),
+                'weight_actual': sum(move['weight_actual'] for move in processed_moves),
+                'packaging_qty': sum(move['packaging_qty'] for move in processed_moves),
+                'pallet_count': sum(move['pallet_count'] for move in processed_moves),
+                'qty_formatted': grand_uom_data['qty_formatted'],
+                'qty_demand_formatted':  grand_uom_data['qty_demand_formatted'],
+                'qty_actual_formatted': grand_uom_data['qty_actual_formatted'],
+                'uom_formatted': grand_uom_data['uom_formatted'],
+                'kg_actual_formatted': grand_uom_data['kg_actual_formatted'],
+                'kg_demand_formatted': grand_uom_data['kg_demand_formatted'],
+                'heads_actual': sum(move['heads_actual'] for move in processed_moves),
+                'heads_demand': sum(move['heads_demand'] for move in processed_moves),
+                'heads_actual_formatted': grand_uom_data['heads_actual_formatted'],
+                'heads_demand_formatted': grand_uom_data['heads_demand_formatted'],
+            }
+            return {
+                'pages': page_data,
+                'pages_count': pages_count,
+                'grand_totals': grand_totals
+            }
     
     # Example usage in Odoo controller or model method:
     def prepare_report_data(self):

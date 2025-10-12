@@ -553,8 +553,12 @@ class PalletKilosRecordModel(models.Model):
                 ('warehouse', '=', warehouse_id),
                 ('is_blast_freezer', '=', blast_freezer_flag),
                 ('owner_id', '=', owner_id),
-                ('start_time', '<', record.start_time)  # FIXED: Use record.start_time, not from_datetime
-            ], order='start_time desc, id desc', limit=1)
+                '|',
+                ('start_time', '<', record.start_time),  # Earlier timestamp
+                '&',
+                ('start_time', '=', record.start_time),  # Same timestamp
+                ('id', '<', record.id)  # But lower ID (created earlier)
+            ], order='start_time desc, create_date desc, id desc', limit=1)
             
             if prev_owner_record:
                 # Beginning balance is the total balance from the previous record

@@ -738,7 +738,7 @@ class OverrideStockQuant(models.Model):
 
 
 
-    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
+    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False, x_studio_2nd_uom=False, x_studio_quantity_uom=False):
         """ Called when user manually set a new quantity (via `inventory_quantity`)
         just before creating the corresponding stock move.
 
@@ -748,6 +748,7 @@ class OverrideStockQuant(models.Model):
         :param package_dest_id: `stock.quant.package`
         :return: dict with all values needed to create a new `stock.move` with its move line.
         """
+        # raise UserError(qty)
         self.ensure_one()
         if self.env.context.get('inventory_name'):
             name = self.env.context.get('inventory_name')
@@ -757,7 +758,6 @@ class OverrideStockQuant(models.Model):
             name = _('Product Quantity Updated')
         if self.user_id and self.user_id.id != SUPERUSER_ID:
             name += f' ({self.user_id.display_name})'
-
         return {
             'name': name,
             'product_id': self.product_id.id,
@@ -774,12 +774,15 @@ class OverrideStockQuant(models.Model):
                 'product_id': self.product_id.id,
                 'product_uom_id': self.product_uom_id.id,
                 'quantity': qty,
+                'adjusted_quantity': qty,
                 'location_id': location_id.id,
                 'location_dest_id': location_dest_id.id,
                 'company_id': self.company_id.id or self.env.company.id,
                 'lot_id': self.lot_id.id,
                 'package_id': package_id.id if package_id else False,
                 'result_package_id': package_dest_id.id if package_dest_id else False,
+                'x_studio_2nd_uom': x_studio_2nd_uom if x_studio_2nd_uom else False,
+                'x_studio_quantity_uom': x_studio_quantity_uom if x_studio_quantity_uom else False,
                 'owner_id': self.owner_id.id,
                 'warehouseman': warehouseman.id if warehouseman else '',
                 'x_relocate_batch': x_reloc_batch_number,
@@ -814,7 +817,9 @@ class OverrideStockQuant(models.Model):
                 warehouseman,
                 x_reloc_batch_number,
                 quant.x_studio_pallet_series_id,
-                quant.bf_pallet_char
+                quant.bf_pallet_char,
+                quant.x_studio_2nd_uom,
+                quant.x_studio_quantity_uom.id,
             ))
         
         moves = self.env['stock.move'].create(move_vals)
