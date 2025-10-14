@@ -24,10 +24,21 @@ class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
     next_step_status = fields.Char(compute="_compute_next_step_status", default=lambda self: self._default_next_step_status())
+
+
     location_id = fields.Many2one(
         'stock.location', "Source Location",
          store=True,  readonly=False,
         check_company=True, required=True, domain="[('id', 'in', allowed_value_ids)]")
+
+    next_operation_source_document = fields.Many2one('stock.picking', compute="_compute_next_operation_source_document")
+
+    def _compute_next_operation_source_document(self):
+        for record in self:
+            next_picking = self.env['stock.picking'].search([
+                ('x_studio_last_operation_source_document', '=', record.id)
+            ], limit=1)
+            record.next_operation_source_document = next_picking.id if next_picking else False
 
     def _default_next_step_status(self):
         # Get picking_type_id from context
@@ -322,7 +333,7 @@ class transfer_locations(models.Model):
     def void_transfer(self):
         """Mark transfer as voided and deactivate the latest associated pallet kilos record."""
         for record in self:
-            if not self.env.user.has_group('multiple_relocation.inventory_super_admin'):
+            if not self.env.user.has_group('__custom__.inventory_supervisor'):
                 raise UserError(_("You do not have permission to void transfers."))
     
             record.x_studio_voided = True

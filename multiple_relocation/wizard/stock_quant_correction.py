@@ -181,22 +181,22 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'reference': self._format_quantity_change_reference(old_quantity, new_quantity),
             # Copy ALL custom fields from quant - COMPLETE SET
             'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
-            # 'x_studio_production_date': quant.x_studio_production_date,
-            # 'x_studio_expiration_date': quant.x_studio_expiration_date,
-            # 'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
-            # 'x_studio_source': quant.x_studio_source,
-            # 'x_studio_gate_pass': quant.x_studio_gate_pass,
-            # 'x_studio_truck_time': quant.x_studio_truck_time,
-            # 'x_studio_start_time': quant.x_studio_start_time,
-            # 'x_studio_end_time': quant.x_studio_end_time,
-            # 'x_studio_truck_number': quant.x_studio_truck_number,
+            'x_studio_production_date': quant.x_studio_production_date,
+            'x_studio_expiration_date': quant.x_studio_expiration_date,
+            'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
+            'x_studio_source': quant.x_studio_source,
+            'x_studio_gate_pass': quant.x_studio_gate_pass,
+            'x_studio_truck_time': quant.x_studio_truck_time,
+            'x_studio_start_time': quant.x_studio_start_time,
+            'x_studio_end_time': quant.x_studio_end_time,
+            'x_studio_truck_number': quant.x_studio_truck_number,
             'x_studio_2nd_uom': quant.x_studio_2nd_uom,
             'x_studio_quantity_uom': quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
             'x_studio_total_units': quant.x_studio_total_units,
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'x_studio_return_count': quant.x_studio_return_count,
-            # 'x_studio_container_number': quant.x_studio_container_number,
-            'x_studio_building_dropped': quant.x_studio_building_dropped,
+            'x_studio_container_number': quant.x_studio_container_number,
+            # 'x_studio_building_dropped': quant.x_studio_building_dropped,
         }
         
         self.env['stock.move.line'].create(move_line_vals)
@@ -254,22 +254,22 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'adjustment_reference_id': quant.x_studio_record_reference.id if quant.x_studio_record_reference else False,
             # Copy ALL custom fields from quant - COMPLETE SET
             'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
-            # 'x_studio_production_date': quant.x_studio_production_date,
-            # 'x_studio_expiration_date': quant.x_studio_expiration_date,
-            # 'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
-            # 'x_studio_source': quant.x_studio_source,
-            # 'x_studio_gate_pass': quant.x_studio_gate_pass,
-            # 'x_studio_truck_time': quant.x_studio_truck_time,
-            # 'x_studio_start_time': quant.x_studio_start_time,
-            # 'x_studio_end_time': quant.x_studio_end_time,
-            # 'x_studio_truck_number': quant.x_studio_truck_number,
+            'x_studio_production_date': quant.x_studio_production_date,
+            'x_studio_expiration_date': quant.x_studio_expiration_date,
+            'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
+            'x_studio_source': quant.x_studio_source,
+            'x_studio_gate_pass': quant.x_studio_gate_pass,
+            'x_studio_truck_time': quant.x_studio_truck_time,
+            'x_studio_start_time': quant.x_studio_start_time,
+            'x_studio_end_time': quant.x_studio_end_time,
+            'x_studio_truck_number': quant.x_studio_truck_number,
             'x_studio_2nd_uom': quant.x_studio_2nd_uom,
             'x_studio_quantity_uom': quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
             'x_studio_total_units': quant.x_studio_total_units,
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'x_studio_return_count': quant.x_studio_return_count if quant.x_studio_return_count else 0,
-            # 'x_studio_container_number': quant.x_studio_container_number,
-            'x_studio_building_dropped': quant.x_studio_building_dropped,
+            'x_studio_container_number': quant.x_studio_container_number,
+            # 'x_studio_building_dropped': quant.x_studio_building_dropped,
         }
         
         # Override with current values after correction for fields that changed
@@ -461,7 +461,7 @@ class StockQuantCorrectionLine(models.TransientModel):
     
     # All editable fields from stock.quant
     package_id = fields.Many2one('stock.quant.package', string='Package')
-    x_studio_pallet_series_id = fields.Char(string='Pallet Series')
+    x_studio_pallet_series_id = fields.Char(string='Placeholder')
     product_id = fields.Many2one('product.product', string='Product', required=True)
     x_studio_production_date = fields.Date(string='Production Date')
     x_studio_expiration_date = fields.Date(string='Expiration Date')
@@ -482,6 +482,12 @@ class StockQuantCorrectionLine(models.TransientModel):
     x_studio_return_count = fields.Integer(string="Return Count")
     x_studio_container_number = fields.Char(string="Container #")
     x_studio_building_dropped = fields.Char(string="Building RR")
+    display_pallet_series_id = fields.Char(string='Pallet Series ID', compute="_compute_display_payllet_series_id")
+
+
+    def _compute_display_payllet_series_id(self):
+        for record in self:
+            record['display_pallet_series_id'] = record.x_studio_pallet_series_id
     
     @api.onchange('select_all')
     def _onchange_select_all(self):
@@ -539,7 +545,7 @@ class StockQuantCorrectionLine(models.TransientModel):
             'quantity': ('quantity', float),
             'x_studio_return_count': ('x_studio_return_count', int),
             # 'x_studio_container_number': ('x_studio_container_number', str),
-            'x_studio_building_dropped': ('x_studio_building_dropped', str)
+            # 'x_studio_building_dropped': ('x_studio_building_dropped', str)
         }
         
         for wizard_field, (quant_field, converter) in field_mapping.items():

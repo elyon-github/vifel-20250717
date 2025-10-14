@@ -85,16 +85,17 @@
                                              />
                                           <!-- decoration-warning="pack_uom_unit != actual_pack_uom_unit" --> 
                                         <field name="pack_uom"/>
+                                        <field name="actual_quantity" readonly="1" force_save="1"/>
+                                        <field name="quantity" 
+                                            decoration-bg-info="select_package"
+                                             />
                                         <field name="actual_min_uom_unit" readonly="1" force_save="1"/>
                                         <field name="min_uom_unit" 
                                                decoration-bg-info="select_package and min_uom_unit"
                                                 />
                                         <!-- decoration-warning="min_uom_unit != actual_min_uom_unit" -->
                                         <field name="min_uom"/>
-                                        <field name="actual_quantity" readonly="1" force_save="1"/>
-                                        <field name="quantity" 
-                                            decoration-bg-info="select_package" 
-                                             />
+
                                         <!-- decoration-warning="actual_quantity != quantity" -->
                                     </tree>
                                 </field>

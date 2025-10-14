@@ -210,7 +210,7 @@
             <field optional="hide" name="x_studio_pallet_series_id" invisible="1" string="Placeholder" readonly="state == 'done'"/>
             <field optional="show" name="x_studio_pallet_series_display" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="1"/>   
             <field name="reserved_quantity_on_validation" string="Remaining Pallet Quantity" readonly="1" column_invisible="1"/>
-            <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="state == 'done'" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
+            <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="state == 'done'" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
             <field optional="show" name="x_studio_dest_id" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>   
             <field optional="show" name="x_studio_is_reserved" invisible="picking_type_id in [45, 46, 47, 48, 2, 7]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>  
         </xpath>
@@ -235,7 +235,7 @@
             <field name="is_package_multiple_withdraw" column_invisible="1"/>
             <field name="bf_pallet_char" column_invisible="not context.get('is_blast_freeze')" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" readonly="picking_code == 'outgoing' or state == 'done'"/>
 
-            <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="package_level_id and parent.picking_type_entire_packs or context.get('is_blast_freeze') or state == 'done'" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True}"/>
+            <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="package_level_id and parent.picking_type_entire_packs or context.get('is_blast_freeze') or state == 'done'" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
 
 
         </xpath>
@@ -249,13 +249,13 @@
             <field optional="show" name="x_studio_affected_2nd_uom" column_invisible="context.get('picking_code') == 'incoming'" string="Quantity (Withdraw) " width="120" readonly="1"/>
             <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
 
-            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string=" Quantity UOM" width="120" readonly="state == 'done'"/>
+            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string=" Quantity UOM" width="120" readonly="state == 'done'" options="{'no_create': True, 'no_open':True}"/>
 
 
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
-            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120"/>
+            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120" options="{'no_create': True, 'no_open':True}"/>
 
 
         </xpath>
@@ -264,7 +264,7 @@
                         <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs" width="120" readonly="1"/>
             <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
             <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120" readonly="state == 'done'"/>
-            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
+            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120" options="{'no_create': True, 'no_open':True}"/>
         </xpath>
                 <xpath expr="//tree//field[@name='quantity']" position="after">
                     <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
@@ -577,10 +577,11 @@
       2. Complete the <b>Documented Quantity, Packs and Weight (KG)</b> based on the <b>Client's DR/Client Reference</b>
       <br/>
       3. Fill in the <b>No. of Pallet Lines</b> for each product
+<br/>
+      <b>Best Practice:</b> Always <b>OVERESTIMATE</b> the number of pallets per Product SKU. 
       <br/><br/>
       <b>Note:</b> This step can be skipped for unpredictable Product SKUs (e.g., FCA Assorted).
-      <br/><br/>
-      <b>Best Practice:</b> Always <b>OVERESTIMATE</b> the number of pallets per Product SKU.
+
 </div>
     
 <div class="alert alert-warning" role="alert"
