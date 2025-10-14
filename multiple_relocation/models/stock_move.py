@@ -468,7 +468,7 @@ class stock_move_line_Override(models.Model):
     def assign_pallet_series_on_already_used_pallets(self):
         picking_id = self.picking_id.id
         owner = self.owner_id.name
-    
+        
         for record in self:
             if record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and record.result_package_id and record.product_id:
                 # Exclude the current record ID to avoid self-inclusion in search results
