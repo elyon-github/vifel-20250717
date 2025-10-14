@@ -591,7 +591,7 @@ class PalletKilosRecordModel(models.Model):
     
             # Handle opening balance records
             if not record.effective_document and record.remarks == 'imported via opening balance':
-                building_name = "MAIN"
+                building_name = "EXPANSION"
                 if building_name not in record_building_balances:
                     record_building_balances[building_name] = {
                         'total_balance_in_units': 0,

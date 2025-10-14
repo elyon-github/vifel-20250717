@@ -80,6 +80,44 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 record._handle_pallet_change(previous_pallets.get(record.id))
         
         return result
+
+
+    def extract_id_from_newid(self, newid):
+        # Already an integer
+        if isinstance(newid, int):
+            return newid
+        
+        # None or False
+        if not newid:
+            return False
+            
+        # Ensure that newid is a string before processing below
+        newid = str(newid)
+        
+        # Check if the string starts with "NewId_"
+        if newid.startswith("NewId_"):
+            # Return false because its a memory address
+            if len(newid[6:]) > 13:
+                return False
+            # Extract the numeric part after "NewId_"
+            return int(newid[6:])
+        else:
+            raise ValueError(f"Invalid NewId format: {newid}")
+            
+    @api.onchange('result_package_id')
+    def _onchange_result_package_id(self):
+        """Handle pallet reservation when changed in UI"""
+        if not self._origin.id:
+            # New record, skip
+            return
+        
+        # Get the previous pallet from the origin (database state)
+        previous_pallet = self._origin.result_package_id
+        
+        # Handle the change if pallet was changed or cleared
+        if previous_pallet:
+            self._handle_pallet_change(previous_pallet)
+
     
     def _handle_pallet_change(self, previous_pallet):
         """Separate method to handle pallet reservation logic"""
@@ -89,7 +127,7 @@ class FastEncodeRRWizardLine(models.TransientModel):
         
         report_id = self.transfer_id
         picking = self.env['stock.picking'].browse(report_id)
-        
+        id = self.extract_id_from_newid(self.id)
         if not picking:
             return
         
@@ -98,7 +136,7 @@ class FastEncodeRRWizardLine(models.TransientModel):
             wizard_lines_using_previous = self.env['stock.move.line.fast_encode_rr.line'].search([
                 ('transfer_id', '=', report_id),
                 ('result_package_id', '=', previous_pallet.id),
-                ('id', '!=', self.id)
+                ('id', '!=', id)
             ])
             
             move_lines_using_previous = self.env['stock.move.line'].search([
