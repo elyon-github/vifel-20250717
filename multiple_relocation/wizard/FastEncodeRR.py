@@ -30,7 +30,7 @@ class FastEncodeRRWizard(models.TransientModel):
                     if ml.result_package_id and self._is_pallet_already_used(ml):
                         ml.assign_pallet_series_on_already_used_pallets()
                     
-                    ml.unreserve_onchange_pallet()
+                    # ml.unreserve_onchange_pallet()
         
         return {'type': 'ir.actions.act_window_close'}
     
@@ -62,24 +62,30 @@ class FastEncodeRRWizardLine(models.TransientModel):
     quantity = fields.Float(string="Quantity")
     min_uom_unit = fields.Float(string="Packs")
     kilogram = fields.Float(string="Weight (KG)")
-    
+    previous_result_package_id = fields.Many2one('stock.quant.package', string='Previous RR Pallet #', copy=False)
 
     def write(self, vals):
         """Override write to handle pallet changes"""
-        # Store previous values before write
-        previous_pallets = {}
-        for record in self:
-            previous_pallets[record.id] = record.result_package_id
-        
-        # Perform the write
-        result = super(FastEncodeRRWizardLine, self).write(vals)
-        
-        # Handle pallet logic after write
+        # Handle pallet logic before write if result_package_id is changing
         if 'result_package_id' in vals:
+            # Store each record's previous value individually before the batch write
+            previous_values = {}
             for record in self:
-                record._handle_pallet_change(previous_pallets.get(record.id))
-        
-        return result
+                previous_values[record.id] = record.result_package_id.id if record.result_package_id else False
+            
+            # Perform the write
+            result = super(FastEncodeRRWizardLine, self).write(vals)
+            
+            # Handle pallet logic after write for each record
+            for record in self:
+                # Set the previous value for this specific record
+                record.previous_result_package_id = previous_values.get(record.id, False)
+                record._handle_pallet_change()
+            
+            return result
+        else:
+            # No pallet change, just do normal write
+            return super(FastEncodeRRWizardLine, self).write(vals)
 
 
     def extract_id_from_newid(self, newid):
@@ -103,23 +109,9 @@ class FastEncodeRRWizardLine(models.TransientModel):
             return int(newid[6:])
         else:
             raise ValueError(f"Invalid NewId format: {newid}")
-            
-    @api.onchange('result_package_id')
-    def _onchange_result_package_id(self):
-        """Handle pallet reservation when changed in UI"""
-        if not self._origin.id:
-            # New record, skip
-            return
-        
-        # Get the previous pallet from the origin (database state)
-        previous_pallet = self._origin.result_package_id
-        
-        # Handle the change if pallet was changed or cleared
-        if previous_pallet:
-            self._handle_pallet_change(previous_pallet)
 
     
-    def _handle_pallet_change(self, previous_pallet):
+    def _handle_pallet_change(self):
         """Separate method to handle pallet reservation logic"""
         
         if not self.product_id or not self.transfer_id:
@@ -132,28 +124,57 @@ class FastEncodeRRWizardLine(models.TransientModel):
             return
         
         # Check if others are using the previous pallet
-        if previous_pallet:
+        if self.previous_result_package_id:
             wizard_lines_using_previous = self.env['stock.move.line.fast_encode_rr.line'].search([
                 ('transfer_id', '=', report_id),
-                ('result_package_id', '=', previous_pallet.id),
+                ('result_package_id', '=', self.previous_result_package_id.id),
                 ('id', '!=', id)
             ])
             
             move_lines_using_previous = self.env['stock.move.line'].search([
                 ('picking_id', '=', report_id),
-                ('result_package_id', '=', previous_pallet.id)
+                ('result_package_id', '=', self.previous_result_package_id.id)
             ])
             
             # Unreserve if no one else is using it
             if not wizard_lines_using_previous and not move_lines_using_previous:
-                previous_pallet.write({
+                self.previous_result_package_id.write({
                     'x_studio_is_reserved': False,
                     'x_studio_receiving_report_id': False,
                 })
         
         # Reserve the new pallet
         if self.result_package_id and picking.picking_type_code == 'incoming':
+            # Check if the new pallet is already being used by other wizard lines OR move lines
+            wizard_lines_using_new = self.env['stock.move.line.fast_encode_rr.line'].search([
+                ('transfer_id', '=', report_id),
+                ('result_package_id', '=', self.result_package_id.id),
+                ('id', '!=', id)
+            ])
             
+            move_lines_using_new = self.env['stock.move.line'].search([
+                ('picking_id', '=', report_id),
+                ('result_package_id', '=', self.result_package_id.id)
+            ])
+            
+            # If other wizard lines or move lines are using this pallet in the SAME transfer
+            if wizard_lines_using_new or move_lines_using_new:
+                # Just make sure it's reserved for THIS transfer (or not reserved yet)
+                if self.result_package_id.x_studio_receiving_report_id and \
+                   self.result_package_id.x_studio_receiving_report_id.id != report_id:
+                    # It's reserved for a DIFFERENT transfer - this is an error
+                    raise UserError("Oops, it seems like someone already reserved the pallet for another transfer. Please select another pallet.")
+                
+                # It's either not reserved yet, or reserved for this transfer - reserve it
+                if not self.result_package_id.x_studio_is_reserved or \
+                   not self.result_package_id.x_studio_receiving_report_id:
+                    self.result_package_id.write({
+                        'x_studio_is_reserved': True,
+                        'x_studio_receiving_report_id': report_id,
+                    })
+                return
+            
+            # No one else is using it, so we need to reserve it
             if not self.result_package_id.x_studio_receiving_report_id or \
                self.result_package_id.x_studio_receiving_report_id.id == report_id:
                 self.result_package_id.write({
