@@ -86,9 +86,12 @@ class StockQuantHistorySnapshot(models.Model):
             snapshot._generate_stock_quant_history()
 
     def _prepare_stock_move_line_filter(self, previous_quant_snapshot):
+        user_tz = "Asia/Manila"
+        user_timezone = timezone(user_tz)
+        inventory_date_manila = self.inventory_date.astimezone(user_timezone).replace(tzinfo=None)
         domain = [
             ("state", "=", "done"),
-            ("date", "<=", self.inventory_date),
+            ("date", "<=", inventory_date_manila),
             ("product_id.type", "=", "product"),
         ]
         if previous_quant_snapshot.exists():
@@ -110,7 +113,9 @@ class StockQuantHistorySnapshot(models.Model):
 
     def _generate_stock_quant_history(self):
         self.ensure_one()
-        self.generated_date = fields.Datetime.now()
+        user_tz = "Asia/Manila"
+        user_timezone = timezone(user_tz)
+        self.generated_date = fields.Datetime.now().astimezone(user_timezone).replace(tzinfo=None)
         previous_quant_snapshot = self.search(
             [
                 ("state", "=", "generated"),

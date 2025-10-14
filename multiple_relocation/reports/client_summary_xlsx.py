@@ -133,8 +133,8 @@ class InventorySummary(models.AbstractModel):
                 grouped_data[key]['pcs'] += move.x_studio_total_units
                 grouped_data[key]['weight'] += move.available_quantity
 
-            # Sort by product name then by expiration date
-            sorted_keys = sorted(grouped_data.keys(), key=lambda k: (k[0], k[3] or date.max))
+            # Sort by product name alphabetically
+            sorted_keys = sorted(grouped_data.keys(), key=lambda k: k[0].lower())
             
             # Add data rows
             for key in sorted_keys:

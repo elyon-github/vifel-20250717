@@ -1,7 +1,7 @@
 <odoo>
     <!-- Action for the Return Package Wizard -->
     <record id="act_return_package_wizard" model="ir.actions.act_window">
-        <field name="name">Return Packages</field>
+        <field name="name">Return Pallets</field>
         <field name="res_model">return.package.wizard</field>
         <field name="view_mode">form</field>
         <field name="view_id" ref="view_return_package_wizard_form"/>
@@ -16,7 +16,7 @@
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form[1]/header[1]/button[@name='button_validate']" position="after">
-                <button name="action_return_packages" string="Return Pallets" type="object" class="oe_highlight"/>
+                <button name="action_return_packages" string="Return Pallets" type="object" class="oe_highlight" data-hotkey="shift+r"/>
             </xpath>
         </field>
     </record>
@@ -45,10 +45,10 @@
                     </div>
                     
                     <!-- Notebook with full width -->
-                    <div style="width: 100%; height: 450px; margin-top: 10px;">
+                    <div style="width: 100%; margin-top: 10px;">
                         <notebook class="o_notebook">
-                            <page string="Package Lines" class="o_notebook_page">
-                                <field name="package_line_ids" nolabel="1" widget="one2many" style="width: 100%; height: 100%;" readonly="not return_reason">
+                            <page string="Pallet Lines" class="o_notebook_page" invisible="not return_reason">
+                                <field name="package_line_ids" nolabel="1" widget="one2many" style="width: 100%; height: 100%;">
                                     <tree editable="bottom" multi_edit="1" limit="80">
                                         <field name="location_id" column_invisible="1" invisible="1"/>
                                         <field name="pallet_type" column_invisible="1" invisible="1"/>
@@ -85,16 +85,17 @@
                                              />
                                           <!-- decoration-warning="pack_uom_unit != actual_pack_uom_unit" --> 
                                         <field name="pack_uom"/>
+                                        <field name="actual_quantity" readonly="1" force_save="1"/>
+                                        <field name="quantity" 
+                                            decoration-bg-info="select_package"
+                                             />
                                         <field name="actual_min_uom_unit" readonly="1" force_save="1"/>
                                         <field name="min_uom_unit" 
                                                decoration-bg-info="select_package and min_uom_unit"
                                                 />
                                         <!-- decoration-warning="min_uom_unit != actual_min_uom_unit" -->
                                         <field name="min_uom"/>
-                                        <field name="actual_quantity" readonly="1" force_save="1"/>
-                                        <field name="quantity" 
-                                            decoration-bg-info="select_package" 
-                                             />
+
                                         <!-- decoration-warning="actual_quantity != quantity" -->
                                     </tree>
                                 </field>
@@ -104,7 +105,7 @@
                 </sheet>
                 
                 <footer>
-                    <button name="action_process_return" string="Process Return" type="object" class="btn-primary"/>
+                    <button name="action_process_return" string="Process Return" type="object" class="btn-primary" data-hotkey="c"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

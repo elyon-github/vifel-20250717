@@ -14,20 +14,20 @@ class ReturnPackageWizardLine(models.TransientModel):
     pallet_series_id = fields.Char(string='Pallet Series ID')
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     product_id = fields.Many2one('product.product', string="Products")
-    quantity = fields.Float(string="Quantity")
+    quantity = fields.Float(string="Actual Weight (KG)")
     production_date=fields.Date(string="Production Date")
     expiration_date=fields.Date(string="Expiration Date")
     container_number = fields.Char(string="Container #")
     return_counter = fields.Integer(string="No. of Returns")
     stock_move_line = fields.Integer(string="Move Line ID")
-    pack_uom_unit = fields.Float(string="Quantity Unit")
-    min_uom_unit = fields.Float(string="Minimum Unit")
+    pack_uom_unit = fields.Float(string="Actual Quantity")
+    min_uom_unit = fields.Float(string="Actual Packs")
     location_dest_id = fields.Many2one('stock.location', string="Destination Location")
     pack_uom = fields.Many2one('uom.uom', string='Unit of Measure')
     min_uom = fields.Many2one('uom.uom', string='Unit of Measure')
     actual_quantity = fields.Float(string="Original Weight (KG)")
     actual_pack_uom_unit = fields.Float(string="Original Quantity Unit")
-    actual_min_uom_unit = fields.Float(string="Original Minimum Unit")
+    actual_min_uom_unit = fields.Float(string="Original Packs Unit")
     is_a_blast_freeze = fields.Boolean(related="wizard_id.is_a_blast_freeze")
     has_pack_sync_issue = fields.Boolean(string="Pack UOM Sync Issue", compute="_compute_sync_issues")
     has_min_sync_issue = fields.Boolean(string="Min UOM Sync Issue", compute="_compute_sync_issues")
@@ -91,7 +91,7 @@ class ReturnPackageWizard(models.TransientModel):
     _description = 'Wizard for Returning Packages'
 
     package_line_ids = fields.One2many(
-        'return.package.wizard.line', 'wizard_id', string="Packages", readonly=False
+        'return.package.wizard.line', 'wizard_id', string="Pallets", readonly=False
     )
     picking_id = fields.Many2one('stock.picking', string="Source Document", readonly=True)
     location_id = fields.Many2one('stock.location', string="Destination Location",  readonly=False)
@@ -152,12 +152,22 @@ class ReturnPackageWizard(models.TransientModel):
                 move_lines = self.picking_id.move_line_ids
                 lines = []
                 for move_line in move_lines:
-
+                    location_dest_id = False
+                    pallet_result_id = False
+                    
+                    if not move_line.location_id.x_studio_is_reserved:
+                        occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
+                        if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
+                            location_dest_id = move_line.location_id.id
+                    if move_line.package_id.location_id.id == location_dest_id or not move_line.package_id.location_id.id: 
+                        pallet_result_id = move_line.package_id.id
                     if self.return_reason != 'Partial Withdraw':
+
+                                
                         lines.append((0, 0, {
                             'select_package': False,
-                            'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                            'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
+                            'result_package_id': pallet_result_id,
+                            'location_dest_id': location_dest_id,
                             'pallet_series_id': move_line.x_studio_pallet_series_id,
                             'bf_pallet_char': move_line.bf_pallet_char,
                             'product_id': move_line.product_id.id,
@@ -183,8 +193,8 @@ class ReturnPackageWizard(models.TransientModel):
                     else:
                         lines.append((0, 0, {
                                 'select_package': False,
-                                'result_package_id': False if move_line.package_id.x_studio_is_reserved or move_line.package_id.location_id else move_line.package_id.id,
-                                'location_dest_id': False if move_line.location_id.x_studio_is_reserved or move_line.location_id.x_studio_occupied_by_1 else move_line.location_id.id,
+                                'result_package_id': pallet_result_id,
+                                'location_dest_id': location_dest_id,
                                 'pallet_series_id': move_line.x_studio_pallet_series_id,
                                 'bf_pallet_char': move_line.bf_pallet_char,
                                 'product_id': move_line.product_id.id,
@@ -299,7 +309,7 @@ class ReturnPackageWizard(models.TransientModel):
         old_min_uom = existing_move_line.x_studio_total_units
         
         # Calculate return count properly - increment from the original counter
-        return_count = package.return_counter + 1 if self.return_reason != 'Wrong Details Encoded' else package.return_counter
+        return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
         
         # Prepare update values - only update what's provided in the package
         update_values = {
@@ -380,21 +390,22 @@ class ReturnPackageWizard(models.TransientModel):
 
     def action_process_return(self):
         selected_packages = self.package_line_ids.filtered(lambda line: line.select_package)
-
+        
         # Check if we should create a blank return or process with selected packages
-        if not selected_packages:
-            # Create blank return without any move lines
-            return self._create_blank_return()
+
         
         # Check for existing return
         existing_return = self._find_existing_return()
-        
+        if not selected_packages and not existing_return:
+            # Create blank return without any move lines
+            return self._create_blank_return()
+            
         if existing_return:
             fields_map = {
                 'truck_type': self.picking_id.truck_type,
                 'x_studio_truck_time': self.picking_id.x_studio_end_time,
                 'x_studio_driver': self.picking_id.x_studio_driver,
-                'x_studio_start_time': self.picking_id.x_studio_end_time,
+                'x_studio_start_time': self.picking_id.x_studio_start_time,
                 'x_studio_trucks_plate_': self.picking_id.x_studio_trucks_plate_,
                 'x_studio_loading_dock_no': self.picking_id.x_studio_loading_dock_no,
                 'x_studio_source': 'RETURN',
@@ -403,11 +414,13 @@ class ReturnPackageWizard(models.TransientModel):
             }
             
             vals = {field: value for field, value in fields_map.items() if not getattr(existing_return, field)}
+            
             if vals:
                 existing_return.write(vals)
             # Append to existing return
             return self._append_to_existing_return(existing_return, selected_packages)
         else:
+            
             # Create new return with selected packages
             return self._create_new_return_with_packages(selected_packages)
 
@@ -420,11 +433,12 @@ class ReturnPackageWizard(models.TransientModel):
                 ('is_blast_freeze_operation', '=', self.picking_id.picking_type_id.is_blast_freeze_operation),
                 ('warehouse_id', '=', warehouse_id)
             ], limit=1)
-
+        
         # Create blank picking
         new_picking = self.picking_id.copy(default={
             'picking_type_id': self.picking_type_id.id,
             'location_dest_id': self.location_id.id,
+            'location_id': 4,
             'return_id': self.picking_id.id,
             'return_reason': self.return_reason,
             'x_studio_for_revision': True if self.return_reason == 'Wrong Details Encoded' else False,
@@ -588,7 +602,7 @@ class ReturnPackageWizard(models.TransientModel):
             # Update the additional fields after creation
             for package, move_line in zip(packages_to_create, created_move_lines):
                 # Calculate return count properly - increment from the original counter
-                return_count = package.return_counter + 1 if self.return_reason != 'Wrong Details Encoded' else package.return_counter
+                return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
                 
                 move_line.write({
                     'is_return': True,
@@ -656,7 +670,7 @@ class ReturnPackageWizard(models.TransientModel):
             'return_reason': self.return_reason,
             'x_studio_for_revision': True if self.return_reason == 'Wrong Details Encoded' else False,
             'other_reasons': self.other_reasons,
-            'x_studio_start_time': self.picking_id.x_studio_end_time,
+            'x_studio_start_time': self.picking_id.x_studio_start_time,
             'x_studio_truck_time': self.picking_id.x_studio_truck_time,
             'truck_type': self.picking_id.truck_type,
             'x_studio_trucks_plate_': self.picking_id.x_studio_trucks_plate_,
@@ -738,7 +752,7 @@ class ReturnPackageWizard(models.TransientModel):
             # Update the additional fields after creation
             for package, move_line in zip(selected_packages, created_move_lines):
                 # Calculate return count properly - increment from the original counter
-                return_count = package.return_counter + 1 if self.return_reason != 'Wrong Details Encoded' else package.return_counter
+                return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
                 
                 move_line.write({
                     'is_return': True,

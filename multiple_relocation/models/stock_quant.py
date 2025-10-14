@@ -30,12 +30,14 @@ class multiple_relocation(models.TransientModel):
         self.ensure_one()
         relocation_form_series = self.env['ir.sequence'].search([('code', '=', 'relocate.form.series')], limit=1)
         x_reloc_batch_number = relocation_form_series.next_by_id()
+
         
         quanties = self.env['stock.quant'].search([("package_id.id", "!=", False)])
+        
         for quant in quanties:
             for line_quants in self.quant_ids:
                 if line_quants.x_studio_dest_relocation.id == quant.location_id.id and not quant.x_studio_dest_relocation.id and not line_quants.x_studio_dest_relocation.x_studio_is_an_aisle:
-                    # raise UserError(f"Please assign a relocation location for the pallet {quant.package_id.name} first")
+                    
                     pass
         
         for quant in self.quant_ids:
@@ -46,7 +48,30 @@ class multiple_relocation(models.TransientModel):
         
             if not quant.x_studio_dest_relocation and not quant.x_studio_dest_relocation.x_studio_is_an_aisle:
                 raise UserError(f"It seems like a record with a Pallet Series ID of {quant.x_studio_pallet_series_id} has no Relocation Location set.")
-        
+
+            # Check if there are other quants with the same package that don't have relocation location set
+            if quant.package_id:
+                other_quants = self.env['stock.quant'].search([
+                    ('package_id', '=', quant.package_id.id),
+                    ('quantity', '!=', 0),
+                    ('id', '!=', quant.id),
+                    ('x_studio_dest_relocation', '=', False)
+                ])
+                
+                quants_without_dest = other_quants.filtered(
+                    lambda q: not q.x_studio_dest_relocation or not q.x_studio_dest_relocation.x_studio_is_an_aisle
+                )
+                
+                if quants_without_dest:
+                    error_msg = f"\nPallet '{quant.package_id.name}' has other quants without a relocation destination set:\n\n"
+                    for q in quants_without_dest:
+                        error_msg += f"  • Product: {q.product_id.display_name}\n"
+                        error_msg += f"    Location: {q.location_id.complete_name}\n"
+                        error_msg += f"    Quantity: {q.quantity}\n"
+                        error_msg += f"    Pallet Series ID: {q.x_studio_pallet_series_id}\n\n"
+                    error_msg += "Please set relocation destinations for all quants in this pallet before proceeding."
+                    raise UserError(error_msg)
+                    
         # Group quants by package_id and location_id
         grouped_quants = {}
         for quant in self.quant_ids:
@@ -54,9 +79,10 @@ class multiple_relocation(models.TransientModel):
             if key not in grouped_quants:
                 grouped_quants[key] = self.env['stock.quant']
             grouped_quants[key] |= quant
-    
+        
         for (package_id, location_id), quants in grouped_quants.items():
             dest_location_id = quants[0].x_studio_dest_relocation
+            
             if dest_location_id:
                 # Handle partial package unpacking first
                 if self.is_partial_package and not self.dest_package_id:
@@ -120,9 +146,56 @@ class OverrideStockQuant(models.Model):
         string='Aging Day/s',
         compute='_compute_aging_days',
         store=True,  # Optional: set to True if you want to store the computed value
-        help='Number of days from today to expiration date. Negative values indicate expired items.'
+        help='Number of days from today to expiration date. Negative values indicate expired items.',
+        group_operator=False
+        
     )
 
+    @api.onchange('x_studio_dest_relocation')
+    def reserve_unreserve_location_onchange(self):
+        for record in self:
+            previous_location = record._origin.x_studio_dest_relocation
+
+            # Make sure we check the field properly — parentheses in the domain were misplaced
+            same_location_relocation = self.env['stock.quant'].search([
+                ('x_studio_dest_relocation', '=', previous_location.id), ('id', '!=', record.extract_id_from_newid(record.id))
+            ])
+        
+
+            # Only attempt to remove reservation if the previous location exists
+            # and no other quant record uses the same relocation
+            if previous_location and not same_location_relocation:
+                previous_location.remove_reservation()
+        
+            # Mark the new relocation as reserved
+            if record.x_studio_dest_relocation:
+                record.x_studio_dest_relocation.write({
+                    'x_studio_is_reserved': True,
+                })
+
+
+
+    def extract_id_from_newid(self, newid):
+
+        
+        # Already an integer
+        if isinstance(newid, int):
+            return newid
+            
+        # Ensure that newid is a string before processing below
+        newid = str(newid)
+        # Check if the string starts with "NewId_"
+        if newid[:6] == "NewId_":
+            # Return false because its an memory address
+            if len(newid[6:]) > 13:
+                return False
+
+            # Extract the numeric part after "NewId_"
+            # Start from index 6 to skip "NewId_"
+            return int(newid[6:])
+        else:
+            raise ValueError(f"Invalid NewId format: {newid}")
+            
     @api.depends('x_studio_expiration_date')
     def _compute_aging_days(self):
         """
@@ -736,7 +809,7 @@ class OverrideStockQuant(models.Model):
 
 
 
-    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
+    def _get_inventory_move_values(self, qty, location_id, location_dest_id, package_id=False, package_dest_id=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False, x_studio_2nd_uom=False, x_studio_quantity_uom=False):
         """ Called when user manually set a new quantity (via `inventory_quantity`)
         just before creating the corresponding stock move.
 
@@ -746,6 +819,7 @@ class OverrideStockQuant(models.Model):
         :param package_dest_id: `stock.quant.package`
         :return: dict with all values needed to create a new `stock.move` with its move line.
         """
+        # raise UserError(qty)
         self.ensure_one()
         if self.env.context.get('inventory_name'):
             name = self.env.context.get('inventory_name')
@@ -755,7 +829,6 @@ class OverrideStockQuant(models.Model):
             name = _('Product Quantity Updated')
         if self.user_id and self.user_id.id != SUPERUSER_ID:
             name += f' ({self.user_id.display_name})'
-
         return {
             'name': name,
             'product_id': self.product_id.id,
@@ -772,12 +845,15 @@ class OverrideStockQuant(models.Model):
                 'product_id': self.product_id.id,
                 'product_uom_id': self.product_uom_id.id,
                 'quantity': qty,
+                'adjusted_quantity': qty,
                 'location_id': location_id.id,
                 'location_dest_id': location_dest_id.id,
                 'company_id': self.company_id.id or self.env.company.id,
                 'lot_id': self.lot_id.id,
                 'package_id': package_id.id if package_id else False,
                 'result_package_id': package_dest_id.id if package_dest_id else False,
+                'x_studio_2nd_uom': x_studio_2nd_uom if x_studio_2nd_uom else False,
+                'x_studio_quantity_uom': x_studio_quantity_uom if x_studio_quantity_uom else False,
                 'owner_id': self.owner_id.id,
                 'warehouseman': warehouseman.id if warehouseman else '',
                 'x_relocate_batch': x_reloc_batch_number,
@@ -812,7 +888,9 @@ class OverrideStockQuant(models.Model):
                 warehouseman,
                 x_reloc_batch_number,
                 quant.x_studio_pallet_series_id,
-                quant.bf_pallet_char
+                quant.bf_pallet_char,
+                quant.x_studio_2nd_uom,
+                quant.x_studio_quantity_uom.id,
             ))
         
         moves = self.env['stock.move'].create(move_vals)

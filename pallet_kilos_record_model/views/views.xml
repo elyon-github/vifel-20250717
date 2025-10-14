@@ -29,7 +29,7 @@
     <field name="name">pallet.kilos.record.tree</field>
     <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
     <field name="arch" type="xml">
-        <tree string="Pallet and Kilos Records"  default_order="start_time desc">
+        <tree string="Pallet and Kilos Records"  default_order="start_time desc" create="0">
             <field name="active" optional="hide" string="Active"/>
             <field name="create_date" optional="hide"/>
             <field name="owner_id"/>
@@ -56,8 +56,8 @@
             <field name="total_balance_in_packaging" optional="show"/>
             <field name="total_balance_in_pallets" optional="show"/>
             <field name="total_balance_in_kilos" optional="show"/>
-            <field name="overall_pallets" sum="Total Pallets" optional="hide"/>
-            <field name="overall_kilos" sum="Total Kilos" optional="hide"/>
+            <field name="overall_pallets" optional="hide"/>
+            <field name="overall_kilos"  optional="hide"/>
 
         </tree>
     </field>
@@ -67,7 +67,7 @@
     <field name="name">pallet.kilos.record.form</field>
     <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
     <field name="arch" type="xml">
-        <form string="Pallet and Kilos Record">
+        <form string="Pallet and Kilos Record" create="0">
             <sheet>
                 <group>
                     <group string="Basic Information">

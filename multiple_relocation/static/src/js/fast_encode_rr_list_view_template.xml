@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="stock.move.line.fast_encode_rr.ListView.Buttons" t-inherit="web.ListView">
+        <xpath expr="//Layout/t[@t-set-slot='control-panel-create-button']" position="inside">
+            <button type="button" 
+                    data-hotkey="c"
+                    class="btn btn-primary" 
+                    style="margin-right: 10px;" 
+                    t-on-click="onConfirmClick">
+                <i class="fa fa-check"/> Confirm
+            </button>
+        </xpath>
+    </t>
+</templates>

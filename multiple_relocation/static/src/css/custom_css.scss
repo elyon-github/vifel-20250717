@@ -9,3 +9,16 @@
     z-index: 9999999 !important; /* Higher than modal (usually 1050) */
 
 }
+
+/* Light blue focus for all elements */
+*:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 2px #87CEEB !important;
+    border-radius: 4px !important;
+}
+/* Specific to table rows and cells */
+.o_list_view .o_data_row:focus,
+.o_list_view .o_data_cell:focus {
+    outline: 2px solid #87CEEB !important;
+    outline-offset: 1px;
+}

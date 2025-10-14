@@ -167,6 +167,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'product_id': quant.product_id.id,
             'product_uom_id': quant.product_id.uom_id.id,
             'quantity': move_quantity,
+            'adjusted_quantity': new_quantity,
             'location_id': source_location.id,
             'location_dest_id': dest_location.id,
             'lot_id': quant.lot_id.id if quant.lot_id else False,
@@ -195,7 +196,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'x_studio_return_count': quant.x_studio_return_count,
             'x_studio_container_number': quant.x_studio_container_number,
-            'x_studio_building_dropped': quant.x_studio_building_dropped,
+            # 'x_studio_building_dropped': quant.x_studio_building_dropped,
         }
         
         self.env['stock.move.line'].create(move_line_vals)
@@ -226,7 +227,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'product_uom_qty': 0,  # No actual quantity movement for field corrections
             'location_id': inventory_location.id,
             'location_dest_id': quant.location_id.id,
-            'origin': f'Stock Quant Correction - {self.reason_for_adjustment}',
+            'reason_for_adjustment': f'{self.reason_for_adjustment}',
             'date': fields.Datetime.now(),
             'state': 'done',
         }
@@ -268,7 +269,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'x_studio_return_count': quant.x_studio_return_count if quant.x_studio_return_count else 0,
             'x_studio_container_number': quant.x_studio_container_number,
-            'x_studio_building_dropped': quant.x_studio_building_dropped,
+            # 'x_studio_building_dropped': quant.x_studio_building_dropped,
         }
         
         # Override with current values after correction for fields that changed
@@ -460,7 +461,7 @@ class StockQuantCorrectionLine(models.TransientModel):
     
     # All editable fields from stock.quant
     package_id = fields.Many2one('stock.quant.package', string='Package')
-    x_studio_pallet_series_id = fields.Char(string='Pallet Series')
+    x_studio_pallet_series_id = fields.Char(string='Placeholder')
     product_id = fields.Many2one('product.product', string='Product', required=True)
     x_studio_production_date = fields.Date(string='Production Date')
     x_studio_expiration_date = fields.Date(string='Expiration Date')
@@ -481,6 +482,12 @@ class StockQuantCorrectionLine(models.TransientModel):
     x_studio_return_count = fields.Integer(string="Return Count")
     x_studio_container_number = fields.Char(string="Container #")
     x_studio_building_dropped = fields.Char(string="Building RR")
+    display_pallet_series_id = fields.Char(string='Pallet Series ID', compute="_compute_display_payllet_series_id")
+
+
+    def _compute_display_payllet_series_id(self):
+        for record in self:
+            record['display_pallet_series_id'] = record.x_studio_pallet_series_id
     
     @api.onchange('select_all')
     def _onchange_select_all(self):
@@ -521,15 +528,15 @@ class StockQuantCorrectionLine(models.TransientModel):
             'package_id': ('package_id', lambda x: x.id if x else False),
             'x_studio_pallet_series_id': ('x_studio_pallet_series_id', str),
             'product_id': ('product_id', lambda x: x.id),
-            'x_studio_production_date': ('x_studio_production_date', str),
-            'x_studio_expiration_date': ('x_studio_expiration_date', str),
-            'x_studio_loading_dock_no': ('x_studio_loading_dock_no', str),
-            'x_studio_source': ('x_studio_source', str),
-            'x_studio_gate_pass': ('x_studio_gate_pass', str),
-            'x_studio_truck_time': ('x_studio_truck_time', str),
-            'x_studio_start_time': ('x_studio_start_time', str),
-            'x_studio_end_time': ('x_studio_end_time', str),
-            'x_studio_truck_number': ('x_studio_truck_number', str),
+            # 'x_studio_production_date': ('x_studio_production_date', str),
+            # 'x_studio_expiration_date': ('x_studio_expiration_date', str),
+            # 'x_studio_loading_dock_no': ('x_studio_loading_dock_no', str),
+            # 'x_studio_source': ('x_studio_source', str),
+            # 'x_studio_gate_pass': ('x_studio_gate_pass', str),
+            # 'x_studio_truck_time': ('x_studio_truck_time', str),
+            # 'x_studio_start_time': ('x_studio_start_time', str),
+            # 'x_studio_end_time': ('x_studio_end_time', str),
+            # 'x_studio_truck_number': ('x_studio_truck_number', str),
             'x_studio_2nd_uom': ('x_studio_2nd_uom', float),
             'x_studio_quantity_uom': ('x_studio_quantity_uom', lambda x: x.id if x else False),
             'x_studio_total_units': ('x_studio_total_units', float),
@@ -537,8 +544,8 @@ class StockQuantCorrectionLine(models.TransientModel):
             'owner_id': ('owner_id', lambda x: x.id if x else False),
             'quantity': ('quantity', float),
             'x_studio_return_count': ('x_studio_return_count', int),
-            'x_studio_container_number': ('x_studio_container_number', str),
-            'x_studio_building_dropped': ('x_studio_building_dropped', str)
+            # 'x_studio_container_number': ('x_studio_container_number', str),
+            # 'x_studio_building_dropped': ('x_studio_building_dropped', str)
         }
         
         for wizard_field, (quant_field, converter) in field_mapping.items():
