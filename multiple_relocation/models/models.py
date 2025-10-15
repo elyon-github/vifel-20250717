@@ -243,11 +243,14 @@ class ProductProduct(models.Model):
         super()._compute_display_name()
         for product in self:
             name = product.display_name
-            # If there are duplicate (...) parts, keep only the last one
             if name.count("(") > 1:
-                base = name.split(" (")[0]  # product name before first (
-                last = name[name.rfind("("):]  # keep only last (...) part
+                # Split by '(' and recombine all but the last (...) as the base
+                parts = name.split(" (")
+                # Join all parts except the last (...) back together
+                base = " (".join(parts[:-1]).strip()
+                last = "(" + parts[-1]  # restore last (...) part
                 product.display_name = f"{base} {last}"
+
                 
 
 class StockLocation(models.Model):
