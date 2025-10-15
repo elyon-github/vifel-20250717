@@ -83,16 +83,23 @@
             <field name="arch" type="xml">
                 <xpath expr="//tree" position="inside">
                     <header>
-                        <button name="action_stock_quant_relocate" string="Relocate" type="object" groups="stock.group_stock_manager" invisible="context.get('hide_location', False)" context="{'action_ref': 'stock.action_view_quants'}" class="btn-primary"/>
+                        <button name="action_stock_quant_relocate" 
+                                string="Relocate Pallets" 
+                                type="object" 
+                                groups="__custom__.inventory_analyst,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin" 
+                                invisible="context.get('hide_location', False)" 
+                                context="{'action_ref': 'stock.action_view_quants'}" 
+                                class="btn-primary"/>
                         <button name="%(action_stock_quant_correction_wizard)d" 
                                 string="Adjust Pallet Details" 
                                 type="action" 
+                                groups="__custom__.inventory_analyst,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"
                                 class="btn-primary"/>
                     </header>
                 </xpath>
             </field>
         </record>
-        
+                
         <!-- Add action to stock.quant list view (alternative method) -->
         <record id="action_stock_quant_correction" model="ir.actions.server">
             <field name="name">Correct Quants</field>
