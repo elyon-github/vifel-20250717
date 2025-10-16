@@ -3,7 +3,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html).
 import logging
 from collections import defaultdict
-
+from odoo.exceptions import ValidationError, UserError
 from pytz import timezone
 
 from odoo import _, api, fields, models, tools
@@ -91,9 +91,10 @@ class StockQuantHistorySnapshot(models.Model):
         inventory_date_manila = self.inventory_date.astimezone(user_timezone).replace(tzinfo=None)
         domain = [
             ("state", "=", "done"),
-            ("date", "<=", inventory_date_manila),
+            ("date", "<=", self.inventory_date),
             ("product_id.type", "=", "product"),
         ]
+        # raise UserError(inventory_date_manila)
         if previous_quant_snapshot.exists():
             domain = AND(
                 [domain, [("date", ">", previous_quant_snapshot.inventory_date)]]
@@ -116,10 +117,11 @@ class StockQuantHistorySnapshot(models.Model):
         user_tz = "Asia/Manila"
         user_timezone = timezone(user_tz)
         self.generated_date = fields.Datetime.now().astimezone(user_timezone).replace(tzinfo=None)
+        inventory_date_manila = self.inventory_date.astimezone(user_timezone).replace(tzinfo=None)
         previous_quant_snapshot = self.search(
             [
                 ("state", "=", "generated"),
-                ("inventory_date", "<=", self.inventory_date),
+                ("inventory_date", "<=", inventory_date_manila),
             ],
             order="inventory_date desc",
             limit=1,
@@ -223,6 +225,7 @@ class StockQuantHistorySnapshot(models.Model):
                 self._prepare_stock_move_line_filter(previous_quant_snapshot),
             )
         )
+        # raise UserError(len(stock_move_lines))
         _logger.info(
             "Apply %s stock.move.line since previous snapshot", len(stock_move_lines)
         )
@@ -261,12 +264,12 @@ class StockQuantHistorySnapshot(models.Model):
                 # Try to get additional fields from related quant if this is a new record
                 if move_line.lot_id and move_line.location_dest_id:
                     related_quant = self.env["stock.quant"].sudo().search([
-                        ("product_id", "=", move_line.product_id.id),
+                        # ("product_id", "=", move_line.product_id.id),
                         ("lot_id", "=", move_line.lot_id.id),
-                        ("location_id", "=", move_line.location_dest_id.id)
+                        # ("location_id", "=", move_line.location_dest_id.id)
                     ], limit=1)
                     
-                    if related_quant:
+                    if related_quant and related_quant.x_studio_pallet_series_id:
                         # Update the fields from the related quant
                         quant_history[
                             (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
@@ -293,6 +296,38 @@ class StockQuantHistorySnapshot(models.Model):
                             "x_studio_min_quantity_uom": related_quant.x_studio_min_quantity_uom.id if related_quant.x_studio_min_quantity_uom else False,
                             "x_studio_special_holding": related_quant.x_studio_special_holding if related_quant.x_studio_special_holding else False,
                             "x_studio_sh_reason": related_quant.x_studio_sh_reason if related_quant.x_studio_sh_reason else ''
+                        })
+                    else:
+                        related_quants = self.env["stock.move.line"].search([
+                            ("x_studio_pallet_series_id", "!=", False),
+                            ("lot_id", "=", move_line.lot_id.id),
+                        ], order="date asc")
+                        
+                        related_quant = False
+                        for rq in related_quants:
+                            if rq.date and rq.date <= self.inventory_date and rq.x_studio_pallet_series_id:
+                                related_quant = rq
+                            else:
+                                # We've reached beyond the target date — stop before it
+                                break
+                        
+                        # Ensure we always have at least one (fallback to first record if none matched)
+                        if not related_quant and related_quants:
+                            related_quant = related_quants[0]
+                        quant_history[
+                            (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
+                        ].write({
+
+                            "owner_id": related_quant.owner_id or False,
+                           "x_studio_container_number": related_quant.x_studio_container_number,
+                            "x_studio_production_date": related_quant.x_studio_production_date or False,
+                            "x_studio_expiration_date": related_quant.x_studio_expiration_date or False,
+                            "x_studio_loading_dock_no": related_quant.picking_id.x_studio_loading_dock_no or False,
+                            "x_studio_2nd_uom": related_quant.x_studio_2nd_uom or related_quant.x_studio_affected_2nd_uom or 0.0,
+                            "x_studio_quantity_uom": related_quant.x_studio_quantity_uom or related_quant.x_studio_quantity_uom_delivery or 0.0,
+                            "x_studio_pallet_series_id": related_quant.id or False,
+                            "package_id": related_quant.result_package_id.id if related_quant.result_package_id.id else related_quant.package_id.id,
+
                         })
         
         # remove line with zero to save same disk space
