@@ -626,7 +626,7 @@ class stock_move_line_Override(models.Model):
                     ])
 
                     # Reserve the new pallet
-                    if not record.result_package_id.x_studio_receiving_report_id or record.picking_id.id == record.result_package_id.x_studio_receiving_report_id.id and record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and not record.location_dest_id.x_studio_is_an_aisle:
+                    if not record.result_package_id.x_studio_receiving_report_id or record.picking_id.id == record.result_package_id.x_studio_receiving_report_id.id and record.picking_type_id and record.picking_id.picking_type_code == 'incoming':
                         if record.result_package_id:
                             record.result_package_id.write({
                                 'x_studio_is_reserved': True,
