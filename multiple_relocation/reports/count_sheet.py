@@ -91,7 +91,7 @@ class CountSheet(models.AbstractModel):
 
             sheet.write(1, 0, f"Room {room_number} - {side}", header_format)
             sheet.write(1, 1, "True", header_format)
-            sheet.write(1, 2, "Pallet #", header_format)
+            sheet.write(1, 2, "Pallet # / Series", header_format)
             sheet.write(1, 3, "Desc.", header_format)
             sheet.write(1, 4, "PD", header_format)
             sheet.write(1, 5, "ED", header_format)
@@ -117,18 +117,23 @@ class CountSheet(models.AbstractModel):
                 location_name = record.complete_name
                 
                 pallet_names = ", ".join(record.x_studio_pallets.mapped("name")) if record.x_studio_pallets else ""
+                pallet_series_names = ", ".join(
+    record.quant_ids.filtered(lambda q: q.quantity != 0).mapped("x_studio_pallet_series_id")
+) if record.quant_ids else ""
+                pallet_names = f"{pallet_names} | {pallet_series_names}"
+
                 
                 if idx % 2 == 0:  # Left side
                     current_row = row + (idx // 2)  # Calculate the actual row
                     sheet.write(current_row, col, self.convert_location_string(location_name), justify_format_location)
                     sheet.write(current_row, col + 1, "", justify_format)
-                    sheet.write(current_row, col + 2, pallet_names, justify_format)
+                    sheet.write(current_row, col + 2, pallet_names if pallet_series_names else '', justify_format)
                     sheet.write(current_row, col + 7, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
                 else:  # Right side
                     current_row = row + (idx // 2)  # Same row as the previous left item
                     sheet.write(current_row, col + 9, self.convert_location_string(location_name), justify_format_location)
                     sheet.write(current_row, col + 10, "", justify_format)
-                    sheet.write(current_row, col + 11, pallet_names, justify_format)
+                    sheet.write(current_row, col + 11, pallet_names if pallet_series_names else '', justify_format)
                     sheet.write(current_row, col + 16, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
                 
                 # Write product details for both sides
