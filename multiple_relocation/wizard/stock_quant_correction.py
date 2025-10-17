@@ -197,6 +197,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_return_count': quant.x_studio_return_count,
             'x_studio_container_number': quant.x_studio_container_number,
             # 'x_studio_building_dropped': quant.x_studio_building_dropped,
+            'x_studio_reason_for_adjustment': f'{self.reason_for_adjustment}',
         }
         
         self.env['stock.move.line'].create(move_line_vals)
