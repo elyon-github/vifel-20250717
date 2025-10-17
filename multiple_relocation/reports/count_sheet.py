@@ -10,14 +10,14 @@ class CountSheet(models.AbstractModel):
     _description = "Count Sheet"
 
     def generate_xlsx_report(self, workbook, data, records):
-        bold = workbook.add_format({"bold": True})
-        header_format = workbook.add_format({"bold": True, "bg_color": "#08248c", "font_color": "white", "align": "center", "valign": "vcenter", "font_size": 11})
-        cx_name_format = workbook.add_format({"font_size": 11, "align": "center", "font_size": 11})
-        right_text_format = workbook.add_format({"align": "right", "bold": True, "font_size": 11})
-        number_format = workbook.add_format({"num_format": "#,##0.00", "font_size": 11})
-        text_wrap_format = workbook.add_format({"text_wrap": True, "font_size": 11})
-        justify_format = workbook.add_format({"align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 11})
-        justify_format_location = workbook.add_format({"align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 11, 'color': 'red', 'bold': True})
+        bold = workbook.add_format({"bold": True, "border": 1})
+        header_format = workbook.add_format({"bold": True, "bg_color": "#08248c", "font_color": "white", "align": "center", "valign": "vcenter", "font_size": 11, "border": 1})
+        cx_name_format = workbook.add_format({"font_size": 11, "align": "center", "font_size": 11, "border": 1})
+        right_text_format = workbook.add_format({"align": "right", "bold": True, "font_size": 11, "border": 1})
+        number_format = workbook.add_format({"num_format": "#,##0.00", "font_size": 11, "border": 1})
+        text_wrap_format = workbook.add_format({"text_wrap": True, "font_size": 11, "border": 1})
+        justify_format = workbook.add_format({"align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 11, "border": 1})
+        justify_format_location = workbook.add_format({"align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 11, 'color': 'red', 'bold': True, "border": 1})
         
         # Define the UTC+8 timezone
         utc_plus_8 = datetime.timezone(datetime.timedelta(hours=8))
