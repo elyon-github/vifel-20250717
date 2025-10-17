@@ -58,22 +58,51 @@ class CountSheet(models.AbstractModel):
             room_num = extract_room_number(room)
             return (room_num, side)
 
+        def write_headers(sheet, current_row, room_number, side, date_generated):
+            """Helper function to write headers"""
+            # Set default height for date generated row
+            sheet.set_row(current_row, None)
+            sheet.write(current_row, 0, f"Date Generated: {date_generated}", bold)
+            
+            header_row = current_row + 1
+            # Set default height for header row
+            sheet.set_row(header_row, None)
+            sheet.write(header_row, 0, f"Room {room_number} - {side}", header_format)
+            sheet.write(header_row, 1, "True", header_format)
+            sheet.write(header_row, 2, "Pallet # / Series", header_format)
+            sheet.write(header_row, 3, "Desc.", header_format)
+            sheet.write(header_row, 4, "PD", header_format)
+            sheet.write(header_row, 5, "ED", header_format)
+            sheet.write(header_row, 6, "QTY", header_format)
+            sheet.write(header_row, 7, "Kilos", header_format)
+            sheet.write(header_row, 8, "Container #", header_format)
+            sheet.write(header_row, 9, f"Room {room_number} - {side}", header_format)
+            sheet.write(header_row, 10, "True", header_format)
+            sheet.write(header_row, 11, "Pallet #", header_format)
+            sheet.write(header_row, 12, "Desc.", header_format)
+            sheet.write(header_row, 13, "PD", header_format)
+            sheet.write(header_row, 14, "ED", header_format)
+            sheet.write(header_row, 15, "QTY", header_format)
+            sheet.write(header_row, 16, "Kilos", header_format)
+            sheet.write(header_row, 17, "Container #", header_format)
+            
+            return header_row + 1  # Return the next row after headers
+
         # Sort records properly by numeric room number and side
         records_sorted_by_complete_name = sorted(records, key=lambda x: x.complete_name)
         records_sorted = sorted(records_sorted_by_complete_name, key=sort_key)
         grouped_records = groupby(records_sorted, key=lambda x: (get_room_number(x), get_side(x)))
 
-        # Rest of your code remains the same...
         for (room_number, side), group in grouped_records:
             sheet = workbook.add_worksheet(f"Room {room_number} - {side}")
             
             # Set the column widths
-            sheet.set_column(0, 0, 15.57)  
+            sheet.set_column(0, 0, 15.64)  
             sheet.set_column(1, 1, 5.7109375)  
-            sheet.set_column(2, 2, 19.140625)  
-            sheet.set_column(3, 3, 42.0)  
-            sheet.set_column(4, 4, 12.28515625)  
-            sheet.set_column(5, 5, 13.0)  
+            sheet.set_column(2, 2, 19.18)  
+            sheet.set_column(3, 3, 42.09)  
+            sheet.set_column(4, 4, 12.36)  #PD 
+            sheet.set_column(5, 5, 12.36)   #ED
             sheet.set_column(6, 6, 13.28515625)  
             sheet.set_column(7, 7, 10.28515625)  
             sheet.set_column(8, 8, 17.85546875)  
@@ -85,56 +114,54 @@ class CountSheet(models.AbstractModel):
             sheet.set_column(14, 14, 12.28515625)  
             sheet.set_column(15, 15, 13.28515625)  
             sheet.set_column(16, 16, 10.28515625)  
-            sheet.set_column(17, 17, 17.85546875)  
+            sheet.set_column(17, 17, 17.85546875)
+            
+            # Hide columns after setting widths
+            sheet.set_column(1, 1, None, None, {'hidden': True})
+            sheet.set_column(10, 10, None, None, {'hidden': True})
 
-            sheet.write(0, 0, f"Date Generated: {date_generated}", bold)
-
-            sheet.write(1, 0, f"Room {room_number} - {side}", header_format)
-            sheet.write(1, 1, "True", header_format)
-            sheet.write(1, 2, "Pallet # / Series", header_format)
-            sheet.write(1, 3, "Desc.", header_format)
-            sheet.write(1, 4, "PD", header_format)
-            sheet.write(1, 5, "ED", header_format)
-            sheet.write(1, 6, "QTY", header_format)
-            sheet.write(1, 7, "Kilos", header_format)
-            sheet.write(1, 8, "Container #", header_format)
-            sheet.write(1, 9, f"Room {room_number} - {side}", header_format)
-            sheet.write(1, 10, "True", header_format)
-            sheet.write(1, 11, "Pallet #", header_format)
-            sheet.write(1, 12, "Desc.", header_format)
-            sheet.write(1, 13, "PD", header_format)
-            sheet.write(1, 14, "ED", header_format)
-            sheet.write(1, 15, "QTY", header_format)
-            sheet.write(1, 16, "Kilos", header_format)
-            sheet.write(1, 17, "Container #", header_format)
-
-            row = 2
-            col = 0
-            for i in range(3, 88):
-                sheet.set_row(i, 81.95)
-                
-            for idx, record in enumerate(group):
+            # Write initial headers
+            row = write_headers(sheet, 0, room_number, side, date_generated)
+            
+            # List to track page break positions
+            page_breaks = []
+            
+            # Set row heights for content rows
+            for i in range(2, 300):  # Extended range to cover all possible rows
+                sheet.set_row(i, 52.5)
+            
+            group_list = list(group)
+            content_row_counter = 0  # Track content rows written
+            
+            for idx, record in enumerate(group_list):
                 location_name = record.complete_name
                 
                 pallet_names = ", ".join(record.x_studio_pallets.mapped("name")) if record.x_studio_pallets else ""
                 pallet_series_names = ", ".join(
-    record.quant_ids.filtered(lambda q: q.quantity != 0).mapped("x_studio_pallet_series_id")
-) if record.quant_ids else ""
+                    record.quant_ids.filtered(lambda q: q.quantity != 0).mapped("x_studio_pallet_series_id")
+                ) if record.quant_ids else ""
                 pallet_names = f"{pallet_names} | {pallet_series_names}"
 
+                # Check if we need to reinitialize headers (every 21 content rows)
+                if content_row_counter > 0 and content_row_counter % 21 == 0:
+                    # Add page break before the new header
+                    page_breaks.append(row + content_row_counter)
+                    row = write_headers(sheet, row + content_row_counter, room_number, side, date_generated)
+                    content_row_counter = 0  # Reset counter after headers
+                
+                # Calculate current row based on content rows written
+                current_row = row + content_row_counter
                 
                 if idx % 2 == 0:  # Left side
-                    current_row = row + (idx // 2)  # Calculate the actual row
-                    sheet.write(current_row, col, self.convert_location_string(location_name), justify_format_location)
-                    sheet.write(current_row, col + 1, "", justify_format)
-                    sheet.write(current_row, col + 2, pallet_names if pallet_series_names else '', justify_format)
-                    sheet.write(current_row, col + 7, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
+                    sheet.write(current_row, 0, self.convert_location_string(location_name), justify_format_location)
+                    sheet.write(current_row, 1, "", justify_format)
+                    sheet.write(current_row, 2, pallet_names if pallet_series_names else '', justify_format)
+                    sheet.write(current_row, 7, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
                 else:  # Right side
-                    current_row = row + (idx // 2)  # Same row as the previous left item
-                    sheet.write(current_row, col + 9, self.convert_location_string(location_name), justify_format_location)
-                    sheet.write(current_row, col + 10, "", justify_format)
-                    sheet.write(current_row, col + 11, pallet_names if pallet_series_names else '', justify_format)
-                    sheet.write(current_row, col + 16, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
+                    sheet.write(current_row, 9, self.convert_location_string(location_name), justify_format_location)
+                    sheet.write(current_row, 10, "", justify_format)
+                    sheet.write(current_row, 11, pallet_names if pallet_series_names else '', justify_format)
+                    sheet.write(current_row, 16, record.x_studio_total_quantity if record.x_studio_total_quantity else '', justify_format)
                 
                 # Write product details for both sides
                 product_names = []
@@ -158,22 +185,25 @@ class CountSheet(models.AbstractModel):
                             container_number_name.append(container_number)
                 
                 if idx % 2 == 0:  # Left side
-                    current_row = row + (idx // 2)
-                    sheet.write(current_row, col + 3, ", ".join(product_names), justify_format)
-                    sheet.write(current_row, col + 4, ", ".join(pd), justify_format)
-                    sheet.write(current_row, col + 5, ", ".join(ed), justify_format)
-                    sheet.write(current_row, col + 6, qty if qty else '', justify_format)
-                    sheet.write(current_row, col + 8, ", ".join(container_number_name), justify_format)
+                    sheet.write(current_row, 3, ", ".join(product_names), justify_format)
+                    sheet.write(current_row, 4, ", ".join(pd), justify_format)
+                    sheet.write(current_row, 5, ", ".join(ed), justify_format)
+                    sheet.write(current_row, 6, qty if qty else '', justify_format)
+                    sheet.write(current_row, 8, ", ".join(container_number_name), justify_format)
                 else:  # Right side
-                    current_row = row + (idx // 2)
-                    sheet.write(current_row, col + 12, ", ".join(product_names), justify_format)
-                    sheet.write(current_row, col + 13, ", ".join(pd), justify_format)
-                    sheet.write(current_row, col + 14, ", ".join(ed), justify_format)
-                    sheet.write(current_row, col + 15, qty if qty else '', justify_format)
-                    sheet.write(current_row, col + 17, ", ".join(container_number_name), justify_format)
+                    sheet.write(current_row, 12, ", ".join(product_names), justify_format)
+                    sheet.write(current_row, 13, ", ".join(pd), justify_format)
+                    sheet.write(current_row, 14, ", ".join(ed), justify_format)
+                    sheet.write(current_row, 15, qty if qty else '', justify_format)
+                    sheet.write(current_row, 17, ", ".join(container_number_name), justify_format)
+                
+                # Increment content row counter only on right side completion or last item
+                if idx % 2 == 1 or idx == len(group_list) - 1:
+                    content_row_counter += 1
             
-            # Update the final row calculation
-            row += ((len(list(group)) + 1) // 2) + 2
+            # Set all page breaks at once for this worksheet
+            if page_breaks:
+                sheet.set_h_pagebreaks(page_breaks)
 
     def convert_location_string(self, s):
         parts = s.split('/')
