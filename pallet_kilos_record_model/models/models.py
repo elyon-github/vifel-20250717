@@ -29,7 +29,7 @@ class PalletKilosRecordModel(models.Model):
     # Storage operation fields - these will be populated directly, not computed
     pallets_received = fields.Float(store=True, string="Pallets Received", readonly=True)
     pallets_withdrawn = fields.Float(store=True, string="Pallets Withdrawn", readonly=True)
-    kilos_received = fields.Float(store=True, string="Kilos Received", readonly=True)
+    kilos_received = fields.Float(store=True, string="Kilos Received")
     kilos_withdrawn = fields.Float(store=True, string="Kilos Withdrawn", readonly=True)
 
     # Operation fields - stored, not computed
@@ -41,7 +41,7 @@ class PalletKilosRecordModel(models.Model):
     # Balance fields - stored, calculated via method calls
     total_balance_in_units = fields.Float(store=True, string="Total Balance in Packs", readonly=True, group_operator=False)
     total_balance_in_packaging = fields.Float(store=True, string="Total Balance in Quantity", readonly=True, group_operator=False)
-    total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False)
+    total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", group_operator=False)
     total_balance_in_pallets = fields.Float(store=True, string="Total Balance in Pallets", readonly=True, group_operator=False)
 
     # Return fields - stored, not computed
