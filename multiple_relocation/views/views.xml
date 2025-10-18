@@ -789,7 +789,13 @@
         <field optional="show" name="x_studio_number_of_lines" column_invisible="parent.picking_type_code == 'outgoing'" string="No. of Pallets"/>
         <field optional="show" name="x_studio_demand_packaging" string="Quantity" readonly="False"/>
         <field optional="show" name="x_studio_actual_packaging_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
-        <field optional="show" name="x_studio_packaging_variance" column_invisible="parent.state == 'draft'" decoration-bg-danger="x_studio_packaging_variance &gt; 0 or x_studio_packaging_variance &lt; 0" string="Variance"/>
+        <field name="x_studio_packaging_variance"
+       string="Variance"
+       optional="show"
+       column_invisible="parent.state == 'draft'"
+       widget="badge"
+       decoration-danger="x_studio_packaging_variance &lt; 0"
+       decoration-success="x_studio_packaging_variance &gt; 0"/>
         <field optional="show" name="x_studio_packaging_unit" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;Packaging UOM&quot;)]" string="UOM" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_demand_packaging" options="{&quot;no_create&quot;:true}"/>
         <field optional="show" name="x_studio_variance" column_invisible="True" invisible="False"/>
       </xpath>
@@ -797,7 +803,13 @@
         <field optional="show" name="x_studio_packaging_uom" column_invisible="True"/>
         <field optional="show" name="x_studio_min_uom" column_invisible="False" invisible="False" string="Minimum" required="x_studio_demand_packaging"/>
         <field optional="show" name="x_studio_min_actual_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
-        <field optional="show" name="x_studio_min_variance" column_invisible="parent.state == 'draft'" decoration-bg-danger="x_studio_min_variance &gt; 0 or x_studio_min_variance &lt; 0"/>
+        <field name="x_studio_min_variance"
+       optional="show"
+       column_invisible="parent.state == 'draft'"
+       widget="badge"
+       decoration-danger="x_studio_min_variance &lt; 0"
+       decoration-success="x_studio_min_variance &gt; 0"/>
+
         <field optional="show" name="x_studio_min_unit" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;min&quot;)]" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_min_uom" options="{&quot;no_quick_create&quot;:true}" string="UOM"/>
       </xpath>
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom_qty']" position="attributes">
@@ -817,7 +829,15 @@
           </xpath> -->
         
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="after">
-        <field optional="show" name="x_studio_kg_variance" column_invisible="False" decoration-bg-danger="x_studio_kg_variance &gt; 0 or x_studio_kg_variance &lt; 0" invisible="False" string="Variance"/>
+            <field name="x_studio_kg_variance"
+           string="Variance"
+           optional="show"
+           column_invisible="False"
+           invisible="False"
+           widget="badge"
+           decoration-danger="x_studio_kg_variance &lt; 0"
+           decoration-success="x_studio_kg_variance &gt; 0"/>
+
       </xpath>
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]" position="after">
         <form string="Move Detail">
