@@ -260,7 +260,7 @@ class OverrideStockQuant(models.Model):
             # We skip calling super() here to avoid the original restriction
             from odoo import models
             return models.Model.write(self.sudo(), vals)
-        
+
         return super().write(vals)
         
     @api.model_create_multi

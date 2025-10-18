@@ -784,6 +784,8 @@
         
         <field optional="show" name="x_studio_client_ref" column_invisible="parent.picking_type_code == 'outgoing'" required="True"/>
         <field optional="show" name="x_studio_atw_no" column_invisible="parent.picking_type_code == 'incoming' or not parent.picking_type_id in [2, 7] or 1" required="picking_type_id in [2, 7]"/>
+        <field optional="show" name="x_studio_total_request" column_invisible="parent.picking_type_code == 'incoming' or not parent.picking_type_id in [2, 7]" required="picking_type_id in [2, 7]"/>
+          
         <field optional="show" name="x_studio_number_of_lines" column_invisible="parent.picking_type_code == 'outgoing'" string="No. of Pallets"/>
         <field optional="show" name="x_studio_demand_packaging" string="Quantity" readonly="False"/>
         <field optional="show" name="x_studio_actual_packaging_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
