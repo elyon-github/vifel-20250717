@@ -632,3 +632,6 @@ class StockQuantCorrectionLine(models.TransientModel):
         # Update the quant
         if update_vals:
             quant.write(update_vals)
+
+
+

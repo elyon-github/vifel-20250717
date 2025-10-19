@@ -8,3 +8,4 @@ access_stock_quant_correction_wizard,stock.quant.correction.wizard,model_stock_q
 access_stock_quant_correction_line,stock.quant.correction.line,model_stock_quant_correction_line,stock.group_stock_user,1,1,1,1
 access_stock_move_line_fast_encode_rr,stock.move.line.fast_encode_rr,model_stock_move_line_fast_encode_rr,stock.group_stock_user,1,1,1,1
 access_stock_move_line_fast_encode_rr_line,stock.move.line.fast_encode_rr.line,model_stock_move_line_fast_encode_rr_line,stock.group_stock_user,1,1,1,1
+access_stock_quant_relocation_line,stock.quant.relocation.line,model_stock_quant_relocation_line,stock.group_stock_user,1,1,1,1
