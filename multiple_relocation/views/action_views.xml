@@ -51,7 +51,7 @@
         name="Pallet Relocation History"
         parent="stock.menu_warehouse_report"
         action="action_stock_move_line_relocation_history"
-        sequence="9"
+        sequence="8"
     />
 
     <!-- Tree View for Pallet Detail Adjustment History -->
@@ -106,7 +106,7 @@
         name="Pallet Detail Adjustment History"
         parent="stock.menu_warehouse_report"
         action="action_stock_move_line_adjustment_history"
-        sequence="10"
+        sequence="9"
     />
 
 
