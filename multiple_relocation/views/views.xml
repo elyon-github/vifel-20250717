@@ -599,15 +599,22 @@
      invisible="next_step_status != 'RR Complete Pallet Details'">
      <b>Steps to Complete:</b>
      <br/>
-     1. Assign <b>Pallet Series</b> and <b>Locations</b> inside <b>Pallet Breakdown</b> (top-center of screen).
+     <!-- 1. Assign <b>Pallet Series</b> and <b>Locations</b> inside <b>Pallet Breakdown</b> (top-center of screen). -->
+     1. Assign <b>Pallet Series</b> inside <b>Pallet Breakdown</b> (top-center of screen).
      <br/>
      2. Generate the <b>Tally Sheet</b> and <b>Pallet Tag Form</b>.
      <br/>
      3. Provide both documents to the <b>Checker</b>.
      <br/>
-     4. Once returned, encode the data again under <b>Pallet Breakdown</b>.
+     4. Once returned, encode the data again under <b>Pallet Breakdown</b> (top-center of screen). 
      <br/>
      5. Ensure all required <b>columns</b> are properly completed.
+     <br/>
+     6. Complete all the details in the <b>Client Window Details</b> on this view.
+    <br/>
+     7. If all details are complete, feel free to click the <b>Verify Transfer Button</b> to check if all details are complete.
+    <br/>
+     8. Make sure to click the <b>Validate Button</b> by the Text Label and a notification should show at the Top-Left of the screen.
 </div>
 
 <div class="alert alert-warning" role="alert"
