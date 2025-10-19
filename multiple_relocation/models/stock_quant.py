@@ -18,37 +18,262 @@ from ast import literal_eval
 
 class multiple_relocation(models.TransientModel):
     _inherit = 'stock.quant.relocate'
-
-
     warehouseman = fields.Many2one(
         'res.partner', 
         string="Warehouseman", 
         domain="[('category_id.name', '=', 'Warehouseman')]"
     )
     
-    def action_relocate_quants(self):
-        self.ensure_one()
-        relocation_form_series = self.env['ir.sequence'].search([('code', '=', 'relocate.form.series')], limit=1)
-        x_reloc_batch_number = relocation_form_series.next_by_id()
-
+    quant_relocation_line_ids = fields.One2many('stock.quant.relocation.line', 'relocate_wizard_id', string='Quant Relocation')
+    
+    def default_get(self, fields_list):
+        res = super().default_get(fields_list)
         
-        quanties = self.env['stock.quant'].search([("package_id.id", "!=", False)])
+        # Get selected quants from context
+        quant_ids = self.env.context.get('active_ids', [])
+        if not quant_ids:
+            raise UserError(_("Please select at least one stock quant to correct."))
+            
+        # Validate selected quants
+        quants = self.env['stock.quant'].browse(quant_ids)
         
-        for quant in quanties:
-            for line_quants in self.quant_ids:
-                if line_quants.x_studio_dest_relocation.id == quant.location_id.id and not quant.x_studio_dest_relocation.id and not line_quants.x_studio_dest_relocation.x_studio_is_an_aisle:
-                    
-                    pass
+        # Check for reserved quantities in selected quants
+        reserved_quants = quants.filtered(lambda q: q.reserved_quantity > 0)
+        if reserved_quants:
+            raise UserError(_("Cannot relocate Pallets with reserved Quantities. "
+                            "Please unreserve the following Pallets first:\n%s") % 
+                          '\n'.join(reserved_quants.mapped('product_id.name')))
         
+        # ============================================
+        # Auto-include missing quants from same package
+        # ============================================
+        package_ids = quants.mapped('package_id').filtered(lambda p: p)
+        
+        all_quants_to_include = quants
+        
+        for package in package_ids:
+            # Find ALL quants for this package
+            all_package_quants = self.env['stock.quant'].search([
+                ('package_id', '=', package.id),
+                ('quantity', '>', 0)
+            ])
+            
+            # Add missing quants using |= to avoid duplicates
+            all_quants_to_include |= all_package_quants
+        
+        # Check for reserved quantities in auto-included quants
+        reserved_quants = all_quants_to_include.filtered(lambda q: q.reserved_quantity > 0)
+        if reserved_quants:
+            raise UserError(_("Cannot relocate Pallets with reserved Quantities. "
+                            "Please unreserve the following Pallets first:\n%s") % 
+                          '\n'.join(reserved_quants.mapped('product_id.name')))
+        
+        # Set the quant_ids field with all quants (original + auto-added)
+        res['quant_ids'] = [(6, 0, all_quants_to_include.ids)]
+        
+        # Create wizard lines with proper sequence
+        line_vals = []
+        for sequence_num, quant in enumerate(all_quants_to_include, start=1):
+            line_vals.append({
+                'sequence': sequence_num,
+                'quant_id': quant.id,
+                'owner_id': quant.owner_id.id,
+                'product_id': quant.product_id.id,
+                'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
+                'package_id': quant.package_id.id,
+                'current_location': quant.location_id.id,
+                'x_studio_production_date': quant.x_studio_production_date,
+                'x_studio_expiration_date': quant.x_studio_expiration_date,
+                'x_studio_2nd_uom': quant.x_studio_2nd_uom,
+                'x_studio_quantity_uom': quant.x_studio_quantity_uom.id,
+                'x_studio_total_units': quant.x_studio_total_units,
+                'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id,
+                'quantity': quant.quantity,
+            })
+        
+        res['quant_relocation_line_ids'] = [(0, 0, vals) for vals in line_vals]
+        return res
+    
+    
+    def _validate_new_locations_set(self):
+        """Validate that all lines have a new location set"""
+        errors = []
+        for line in self.quant_relocation_line_ids:
+            if not line.new_location:
+                errors.append(f"Line #{line.sequence}: Pallet {line.x_studio_pallet_series_id or 'N/A'} - Missing new location")
+        return errors
+    
+    
+    def _validate_reserved_and_conflicting_locations(self):
+        """Check if locations are reserved by system or conflicting within wizard"""
+        errors = []
+        reserved_by_system = {}
+        conflicting_lines = {}
+        
+        # Check for system-reserved locations
+        for line in self.quant_relocation_line_ids:
+            if line.new_location and line.new_location.x_studio_is_reserved:
+                if hasattr(line.new_location, 'x_studio_receiving_report_id') and line.new_location.x_studio_receiving_report_id:
+                    if line.new_location.id not in reserved_by_system:
+                        reserved_by_system[line.new_location.id] = {
+                            'location': line.new_location,
+                            'lines': []
+                        }
+                    reserved_by_system[line.new_location.id]['lines'].append(line)
+        
+        # Check for conflicts within the wizard
+        location_usage = {}
+        for line in self.quant_relocation_line_ids:
+            if line.new_location:
+                if line.new_location.id not in location_usage:
+                    location_usage[line.new_location.id] = {
+                        'location': line.new_location,
+                        'lines': []
+                    }
+                location_usage[line.new_location.id]['lines'].append(line)
+        
+        # Find locations used by multiple lines (conflicts)
+        for loc_id, data in location_usage.items():
+            if len(data['lines']) > 1:
+                packages = set([l.package_id.id for l in data['lines'] if l.package_id])
+                if len(packages) > 1 or not packages:
+                    conflicting_lines[loc_id] = data
+        
+        # Create error messages
+        for loc_id, data in reserved_by_system.items():
+            line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
+            errors.append(f"Location '{data['location'].complete_name}' is already reserved for incoming stock. Cannot use in Line(s): {line_numbers}")
+        
+        for loc_id, data in conflicting_lines.items():
+            line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
+            errors.append(f"Location '{data['location'].complete_name}' selected multiple times. Conflicting Line(s): {line_numbers}")
+        
+        return errors
+    
+    
+    def _validate_package_split(self):
+        """Check that packages are not split across different locations"""
+        errors = []
+        package_location_map = {}
+        
+        for line in self.quant_relocation_line_ids:
+            if line.package_id and line.new_location:
+                if line.package_id.id in package_location_map:
+                    prev_location = package_location_map[line.package_id.id]['location']
+                    prev_line = package_location_map[line.package_id.id]['line']
+                    if prev_location.id != line.new_location.id:
+                        errors.append(
+                            f"Line #{line.sequence}: Package '{line.package_id.name}' cannot be split - "
+                            f"it's already assigned to '{prev_location.complete_name}' in Line #{prev_line.sequence}. "
+                            f"All items in the same package must go to the same location."
+                        )
+                else:
+                    package_location_map[line.package_id.id] = {
+                        'location': line.new_location,
+                        'line': line
+                    }
+        
+        return errors
+    
+    
+    def _log_multiple_packages_per_location(self):
+        """Log warning when multiple packages are going to same location"""
+        location_package_map = {}
+        
+        for line in self.quant_relocation_line_ids:
+            if line.new_location and line.package_id:
+                if line.new_location.id not in location_package_map:
+                    location_package_map[line.new_location.id] = []
+                if line.package_id.id not in [p.id for p in location_package_map[line.new_location.id]]:
+                    location_package_map[line.new_location.id].append(line.package_id)
+        
+        for loc_id, packages in location_package_map.items():
+            if len(packages) > 1:
+                location = self.env['stock.location'].browse(loc_id)
+                package_names = ', '.join([p.name for p in packages])
+                _logger.info(f"Location '{location.complete_name}' will contain multiple packages: {package_names}")
+    
+    
+    def _validate_location_suitability(self):
+        """Validate that locations are suitable (not view, active, etc)"""
+        errors = []
+        view_locations = {}
+        inactive_locations = {}
+        
+        for line in self.quant_relocation_line_ids:
+            if line.new_location:
+                if line.new_location.usage == 'view':
+                    if line.new_location.id not in view_locations:
+                        view_locations[line.new_location.id] = {
+                            'location': line.new_location,
+                            'lines': []
+                        }
+                    view_locations[line.new_location.id]['lines'].append(line)
+                
+                if not line.new_location.active:
+                    if line.new_location.id not in inactive_locations:
+                        inactive_locations[line.new_location.id] = {
+                            'location': line.new_location,
+                            'lines': []
+                        }
+                    inactive_locations[line.new_location.id]['lines'].append(line)
+        
+        for loc_id, data in view_locations.items():
+            line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
+            errors.append(f"Cannot relocate to '{data['location'].complete_name}' - it's a view location. Used in Line(s): {line_numbers}")
+        
+        for loc_id, data in inactive_locations.items():
+            line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
+            errors.append(f"Location '{data['location'].complete_name}' is inactive. Used in Line(s): {line_numbers}")
+        
+        return errors
+    
+    
+    def _validate_same_location_relocation(self):
+        """Check if new location is same as current location"""
+        errors = []
+        same_locations = {}
+        
+        for line in self.quant_relocation_line_ids:
+            if line.new_location and line.current_location:
+                if line.new_location.id == line.current_location.id:
+                    if line.current_location.id not in same_locations:
+                        same_locations[line.current_location.id] = {
+                            'location': line.current_location,
+                            'lines': []
+                        }
+                    same_locations[line.current_location.id]['lines'].append(line)
+        
+        for loc_id, data in same_locations.items():
+            line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
+            errors.append(f"New location is the same as current location '{data['location'].complete_name}'. Used in Line(s): {line_numbers}")
+        
+        return errors
+    
+    
+    def _update_destination_locations(self):
+        """Write destination locations to quant records"""
+        for line in self.quant_relocation_line_ids:
+            line.quant_id.write({
+                'x_studio_dest_relocation': line.new_location.id
+            })
+    
+    
+    def _validate_quants_before_relocation(self):
+        """Validate quants for special holding, reserved quantities, and missing destinations"""
         for quant in self.quant_ids:
             if quant.x_studio_special_holding:
                 raise UserError('\nYou cannot relocate pallets that are on Special Holding State')
+            
             if quant.available_quantity != quant.quantity:
-                raise UserError(f"\nRecord with a Product of {quant.product_id.display_name} and a Pallet of {quant.package_id.name} seems to have quantites reserved on a picking record. Please release them before relocating the stock record.")
-        
+                raise UserError(
+                    f"\nRecord with a Product of {quant.product_id.display_name} and a Pallet of {quant.package_id.name} "
+                    f"seems to have quantities reserved on a picking record. Please release them before relocating the stock record."
+                )
+            
             if not quant.x_studio_dest_relocation and not quant.x_studio_dest_relocation.x_studio_is_an_aisle:
                 raise UserError(f"It seems like a record with a Pallet Series ID of {quant.x_studio_pallet_series_id} has no Relocation Location set.")
-
+            
             # Check if there are other quants with the same package that don't have relocation location set
             if quant.package_id:
                 other_quants = self.env['stock.quant'].search([
@@ -71,7 +296,10 @@ class multiple_relocation(models.TransientModel):
                         error_msg += f"    Pallet Series ID: {q.x_studio_pallet_series_id}\n\n"
                     error_msg += "Please set relocation destinations for all quants in this pallet before proceeding."
                     raise UserError(error_msg)
-                    
+    
+    
+    def _perform_relocation(self, x_reloc_batch_number):
+        """Group and relocate quants"""
         # Group quants by package_id and location_id
         grouped_quants = {}
         for quant in self.quant_ids:
@@ -97,7 +325,7 @@ class multiple_relocation(models.TransientModel):
                         )
                     quants -= quants_to_unpack
                 
-                # Move quants as a group - the move_quants method will handle individual field values
+                # Move quants as a group
                 quants.move_quants(
                     location_dest_id=dest_location_id,
                     package_dest_id=self.dest_package_id,
@@ -107,9 +335,10 @@ class multiple_relocation(models.TransientModel):
                     x_studio_pallet_series_id=quants[0].x_studio_pallet_series_id,
                     bf_pallet_char=quants[0].bf_pallet_char
                 )
-            
     
-        # Handle lot and product actions
+    
+    def _handle_post_relocation_actions(self):
+        """Handle lot and product actions after relocation"""
         lot_ids = self.quant_ids.mapped('lot_id')
         product_ids = self.quant_ids.mapped('product_id')
     
@@ -117,9 +346,165 @@ class multiple_relocation(models.TransientModel):
             lot_ids.action_lot_open_quants()
         elif self.env.context.get('single_product', False) and len(product_ids) == 1:
             product_ids.action_update_quantity_on_hand()
+    
+    
+    def action_relocate_quants(self):
+        """Main relocation function - orchestrates all validation and relocation steps"""
+        self.ensure_one()
+        
+        # ============================================
+        # VALIDATION PHASE
+        # ============================================
+        errors = []
+        
+        # Run all validation checks
+        errors.extend(self._validate_new_locations_set())
+        errors.extend(self._validate_reserved_and_conflicting_locations())
+        errors.extend(self._validate_package_split())
+        errors.extend(self._validate_location_suitability())
+        errors.extend(self._validate_same_location_relocation())
+        
+        # Log warnings (non-blocking)
+        self._log_multiple_packages_per_location()
+        
+        # If there are any errors, raise them all at once
+        if errors:
+            error_msg = "❌ Relocation Validation Failed:\n\n" + "\n".join([f"  • {err}" for err in errors])
+            raise UserError(error_msg)
+        
+        # ============================================
+        # WRITE PHASE
+        # ============================================
+        self._update_destination_locations()
+        
+        # ============================================
+        # RELOCATION LOGIC
+        # ============================================
+        relocation_form_series = self.env['ir.sequence'].search([('code', '=', 'relocate.form.series')], limit=1)
+        x_reloc_batch_number = relocation_form_series.next_by_id()
+        
+        # Original quant check logic (preserved)
+        quanties = self.env['stock.quant'].search([("package_id.id", "!=", False)])
+        for quant in quanties:
+            for line_quants in self.quant_ids:
+                if line_quants.x_studio_dest_relocation.id == quant.location_id.id and not quant.x_studio_dest_relocation.id and not line_quants.x_studio_dest_relocation.x_studio_is_an_aisle:
+                    pass
+        
+        # Validate quants before relocation
+        self._validate_quants_before_relocation()
+        
+        # Perform the actual relocation
+        self._perform_relocation(x_reloc_batch_number)
+        
+        # Handle post-relocation actions
+        self._handle_post_relocation_actions()
 
 
 
+        
+    
+    # def action_relocate_quants(self):
+    #     self.ensure_one()
+
+
+    #     # First, update the x_studio_dest_relocation field for all quants from wizard lines
+    #     for line in self.quant_relocation_line_ids:
+    #         if line.new_location:
+    #             line.quant_id.write({
+    #                 'x_studio_dest_relocation': line.new_location.id
+    #             })
+    #         else:
+    #             raise UserError(_(f"Please set a new location for Pallet {line.x_studio_pallet_series_id or 'N/A'}"))
+                
+    #     relocation_form_series = self.env['ir.sequence'].search([('code', '=', 'relocate.form.series')], limit=1)
+    #     x_reloc_batch_number = relocation_form_series.next_by_id()
+
+        
+    #     quanties = self.env['stock.quant'].search([("package_id.id", "!=", False)])
+        
+    #     for quant in quanties:
+    #         for line_quants in self.quant_ids:
+    #             if line_quants.x_studio_dest_relocation.id == quant.location_id.id and not quant.x_studio_dest_relocation.id and not line_quants.x_studio_dest_relocation.x_studio_is_an_aisle:
+                    
+    #                 pass
+        
+    #     for quant in self.quant_ids:
+    #         if quant.x_studio_special_holding:
+    #             raise UserError('\nYou cannot relocate pallets that are on Special Holding State')
+    #         if quant.available_quantity != quant.quantity:
+    #             raise UserError(f"\nRecord with a Product of {quant.product_id.display_name} and a Pallet of {quant.package_id.name} seems to have quantites reserved on a picking record. Please release them before relocating the stock record.")
+        
+    #         if not quant.x_studio_dest_relocation and not quant.x_studio_dest_relocation.x_studio_is_an_aisle:
+    #             raise UserError(f"It seems like a record with a Pallet Series ID of {quant.x_studio_pallet_series_id} has no Relocation Location set.")
+
+    #         # Check if there are other quants with the same package that don't have relocation location set
+    #         if quant.package_id:
+    #             other_quants = self.env['stock.quant'].search([
+    #                 ('package_id', '=', quant.package_id.id),
+    #                 ('quantity', '!=', 0),
+    #                 ('id', '!=', quant.id),
+    #                 ('x_studio_dest_relocation', '=', False)
+    #             ])
+                
+    #             quants_without_dest = other_quants.filtered(
+    #                 lambda q: not q.x_studio_dest_relocation or not q.x_studio_dest_relocation.x_studio_is_an_aisle
+    #             )
+                
+    #             if quants_without_dest:
+    #                 error_msg = f"\nPallet '{quant.package_id.name}' has other quants without a relocation destination set:\n\n"
+    #                 for q in quants_without_dest:
+    #                     error_msg += f"  • Product: {q.product_id.display_name}\n"
+    #                     error_msg += f"    Location: {q.location_id.complete_name}\n"
+    #                     error_msg += f"    Quantity: {q.quantity}\n"
+    #                     error_msg += f"    Pallet Series ID: {q.x_studio_pallet_series_id}\n\n"
+    #                 error_msg += "Please set relocation destinations for all quants in this pallet before proceeding."
+    #                 raise UserError(error_msg)
+                    
+    #     # Group quants by package_id and location_id
+    #     grouped_quants = {}
+    #     for quant in self.quant_ids:
+    #         key = (quant.package_id.id, quant.location_id.id)
+    #         if key not in grouped_quants:
+    #             grouped_quants[key] = self.env['stock.quant']
+    #         grouped_quants[key] |= quant
+        
+    #     for (package_id, location_id), quants in grouped_quants.items():
+    #         dest_location_id = quants[0].x_studio_dest_relocation
+            
+    #         if dest_location_id:
+    #             # Handle partial package unpacking first
+    #             if self.is_partial_package and not self.dest_package_id:
+    #                 quants_to_unpack = quants.filtered(lambda q: not all(sub_q in quants.ids for sub_q in q.package_id.quant_ids.ids))
+    #                 for unpack_quant in quants_to_unpack:
+    #                     unpack_quant.move_quants(
+    #                         location_dest_id=dest_location_id, 
+    #                         message=self.message, 
+    #                         unpack=True,
+    #                         warehouseman=self.warehouseman,
+    #                         x_reloc_batch_number=x_reloc_batch_number
+    #                     )
+    #                 quants -= quants_to_unpack
+                
+    #             # Move quants as a group - the move_quants method will handle individual field values
+    #             quants.move_quants(
+    #                 location_dest_id=dest_location_id,
+    #                 package_dest_id=self.dest_package_id,
+    #                 message=self.message,
+    #                 warehouseman=self.warehouseman,
+    #                 x_reloc_batch_number=x_reloc_batch_number,
+    #                 x_studio_pallet_series_id=quants[0].x_studio_pallet_series_id,
+    #                 bf_pallet_char=quants[0].bf_pallet_char
+    #             )
+            
+    
+    #     # Handle lot and product actions
+    #     lot_ids = self.quant_ids.mapped('lot_id')
+    #     product_ids = self.quant_ids.mapped('product_id')
+    
+    #     if self.env.context.get('default_lot_id', False) and len(lot_ids) == 1:
+    #         lot_ids.action_lot_open_quants()
+    #     elif self.env.context.get('single_product', False) and len(product_ids) == 1:
+    #         product_ids.action_update_quantity_on_hand()
 
 
 class OverrideStockQuant(models.Model):
