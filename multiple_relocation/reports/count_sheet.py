@@ -18,6 +18,7 @@ class CountSheet(models.AbstractModel):
         text_wrap_format = workbook.add_format({"text_wrap": True, "font_size": 11, "border": 1})
         justify_format = workbook.add_format({"align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 11, "border": 1})
         justify_format_location = workbook.add_format({"align": "center", "valign": "vcenter", "text_wrap": True, "font_size": 11, 'color': 'red', 'bold': True, "border": 1})
+        page_counter_format = workbook.add_format({"bold": True, "align": "right", "font_size": 11})
         
         # Define the UTC+8 timezone
         utc_plus_8 = datetime.timezone(datetime.timedelta(hours=8))
@@ -58,11 +59,12 @@ class CountSheet(models.AbstractModel):
             room_num = extract_room_number(room)
             return (room_num, side)
 
-        def write_headers(sheet, current_row, room_number, side, date_generated):
+        def write_headers(sheet, current_row, room_number, side, date_generated, page_number, total_pages):
             """Helper function to write headers"""
             # Set default height for date generated row
             sheet.set_row(current_row, None)
             sheet.write(current_row, 0, f"Date Generated: {date_generated}", bold)
+            sheet.write(current_row, 17, f"Page {page_number} of {total_pages}", page_counter_format)
             
             header_row = current_row + 1
             # Set default height for header row
@@ -91,9 +93,23 @@ class CountSheet(models.AbstractModel):
         # Sort records properly by numeric room number and side
         records_sorted_by_complete_name = sorted(records, key=lambda x: x.complete_name)
         records_sorted = sorted(records_sorted_by_complete_name, key=sort_key)
-        grouped_records = groupby(records_sorted, key=lambda x: (get_room_number(x), get_side(x)))
+        
+        # Convert to list to allow multiple iterations
+        grouped_records_dict = {}
+        for key, group in groupby(records_sorted, key=lambda x: (get_room_number(x), get_side(x))):
+            grouped_records_dict[key] = list(group)
+        
+        # Calculate total pages across all sheets
+        total_pages_all_sheets = 0
+        for group_list in grouped_records_dict.values():
+            total_records = len(group_list)
+            records_per_page = 42  # 21 rows * 2 sides
+            sheet_pages = (total_records + records_per_page - 1) // records_per_page
+            total_pages_all_sheets += sheet_pages
+        
+        global_page_number = 1  # Global page counter across all sheets
 
-        for (room_number, side), group in grouped_records:
+        for (room_number, side), group_list in grouped_records_dict.items():
             sheet = workbook.add_worksheet(f"Room {room_number} - {side}")
             
             # Set the column widths
@@ -120,8 +136,13 @@ class CountSheet(models.AbstractModel):
             sheet.set_column(1, 1, None, None, {'hidden': True})
             sheet.set_column(10, 10, None, None, {'hidden': True})
 
-            # Write initial headers
-            row = write_headers(sheet, 0, room_number, side, date_generated)
+            # Calculate total pages needed for this sheet
+            total_records = len(group_list)
+            records_per_page = 42  # 21 rows * 2 sides
+            sheet_total_pages = (total_records + records_per_page - 1) // records_per_page
+
+            # Write initial headers with global page number
+            row = write_headers(sheet, 0, room_number, side, date_generated, global_page_number, total_pages_all_sheets)
             
             # List to track page break positions
             page_breaks = []
@@ -130,7 +151,6 @@ class CountSheet(models.AbstractModel):
             for i in range(2, 300):  # Extended range to cover all possible rows
                 sheet.set_row(i, 52.5)
             
-            group_list = list(group)
             content_row_counter = 0  # Track content rows written
             
             for idx, record in enumerate(group_list):
@@ -146,7 +166,8 @@ class CountSheet(models.AbstractModel):
                 if content_row_counter > 0 and content_row_counter % 21 == 0:
                     # Add page break before the new header
                     page_breaks.append(row + content_row_counter)
-                    row = write_headers(sheet, row + content_row_counter, room_number, side, date_generated)
+                    global_page_number += 1
+                    row = write_headers(sheet, row + content_row_counter, room_number, side, date_generated, global_page_number, total_pages_all_sheets)
                     content_row_counter = 0  # Reset counter after headers
                 
                 # Calculate current row based on content rows written
@@ -204,6 +225,9 @@ class CountSheet(models.AbstractModel):
             # Set all page breaks at once for this worksheet
             if page_breaks:
                 sheet.set_h_pagebreaks(page_breaks)
+            
+            # Increment global page number for next sheet (add 1 because the last page of current sheet was counted)
+            global_page_number += 1
 
     def convert_location_string(self, s):
         parts = s.split('/')
