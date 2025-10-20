@@ -29,15 +29,15 @@
                     <!-- Skip Approval Toggle (Only for Managers) -->
                     <field name="skip_approval" 
                            widget="boolean_toggle"
-                           invisible="not reason_for_adjustment"
+                           invisible="not reason_for_adjustment or 1"
                            string="Apply Immediately (Skip Approval)"
-                           help="If checked, changes will be applied immediately without approval. Only available for managers."/>
+                           help="If checked, changes will be applied immediately without approval. Only available for Inventory Suprvisor."/>
                 <!-- </group> -->
                 
                 <!-- Info Messages -->
                 <div class="alert alert-info" invisible="skip_approval or not reason_for_adjustment" role="alert" style="margin-top: 15px;">
                     <i class="fa fa-info-circle"/> 
-                    This will create an adjustment request for approval. Changes will not be applied until approved by a manager.
+                    This will create an adjustment request for approval. Changes will not be applied until approved by an inventory supervisor.
                 </div>
                 <div class="alert alert-warning" invisible="not skip_approval" role="alert" style="margin-top: 15px;">
                     <i class="fa fa-exclamation-triangle"/> 
@@ -157,7 +157,7 @@ else:
                       decoration-warning="state == 'pending'"
                       decoration-success="state == 'approved'"
                       decoration-danger="state == 'rejected'"
-                      decoration-muted="state == 'cancelled'">
+                      decoration-muted="state == 'cancelled'" create="0" delete="0">
                     
                     <field name="name" string="Request #"/>
                     <field name="requested_by" widget="many2one_avatar_user"/>
@@ -221,7 +221,7 @@ else:
                                 type="object" 
                                 class="btn-success"
                                 invisible="state not in ['pending', 'partial'] or selected_line_count == 0"
-                                groups="stock.group_stock_manager"
+                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"
                                 confirm="Approve selected lines?"/>
                         
                         <button name="action_reject_selected" 
@@ -229,7 +229,7 @@ else:
                                 type="object" 
                                 class="btn-danger"
                                 invisible="state not in ['pending', 'partial'] or selected_line_count == 0"
-                                groups="stock.group_stock_manager"/>
+                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"/>
                         
                         <!-- Approve All Pending Lines -->
                         <button name="action_approve_all_pending" 
@@ -237,7 +237,7 @@ else:
                                 type="object" 
                                 class="oe_highlight"
                                 invisible="state not in ['pending', 'partial'] or pending_line_count == 0"
-                                groups="stock.group_stock_manager"
+                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"/>
                                 confirm="Approve all pending lines without conflicts?"/>
                         
                         <!-- Check for Conflicts -->
@@ -245,6 +245,7 @@ else:
                                 string="Check Conflicts" 
                                 type="object" 
                                 class="btn-secondary"
+                                groups="multiple_relocation.inventory_super_admin"/>
                                 invisible="state not in ['pending', 'partial']"/>
                         
                         <!-- Cancel Request -->
@@ -391,13 +392,50 @@ else:
                                           create="false" 
                                           edit="false" 
                                           delete="false">
-                                        <field name="display_pallet_series"/>
-                                        <field name="conflict_status" widget="badge"/>
-                                        <field name="line_state" widget="badge"/>
-                                        <field name="old_product_id"/>
-                                        <field name="new_product_id"/>
-                                        <field name="old_quantity"/>
-                                        <field name="new_quantity"/>
+                                        
+                                        <!-- Selection Checkbox (but readonly for conflicts) -->
+                                        <!-- <field name="selected" 
+                                               widget="boolean_toggle"
+                                               readonly="1"/> -->
+                                        
+                                        <!-- Pallet Info -->
+                                        <field name="display_pallet_series" string="Pallet Series"/>
+                                        <field name="display_location" string="Location" optional="hide"/>
+                                        
+                                        <!-- Show Changes using the same HTML field -->
+                                        <field name="changed_fields_display" string="Changes" widget="html"/>
+                                        
+                                        <!-- Status -->
+                                        <field name="conflict_status" string="Conflict" 
+                                               widget="badge"
+                                               decoration-success="conflict_status == 'ok'"
+                                               decoration-danger="conflict_status in ['changed', 'reserved', 'deleted']"/>
+                                        <field name="line_state" string="Status" 
+                                               widget="badge"
+                                               decoration-info="line_state == 'draft'"
+                                               decoration-warning="line_state == 'pending'"
+                                               decoration-success="line_state == 'approved'"
+                                               decoration-danger="line_state == 'rejected'"
+                                               decoration-muted="line_state == 'cancelled'"/>
+                                        
+                                        <!-- Approval Info -->
+                                        <field name="approved_by" optional="hide" 
+                                               invisible="not approved_by"/>
+                                        <field name="approved_date" optional="hide" 
+                                               invisible="not approved_date"/>
+                                        <field name="rejection_reason" optional="hide" 
+                                               invisible="not rejection_reason"/>
+                            
+                                        <button name="action_view_line_details" 
+                                                string="View Details" 
+                                                type="object" 
+                                                icon="fa-eye"
+                                                class="btn-link"/>
+                                        
+                                        <!-- Hidden fields for domain/logic -->
+                                        <field name="quant_id" column_invisible="1"/>
+                                        <field name="request_id" column_invisible="1"/>
+                                        <field name="has_changes" column_invisible="1"/>
                                     </tree>
                                 </field>
                             </page>
@@ -434,7 +472,7 @@ else:
 
                         <group>
                             <group string="Pallet Information">
-                                <field name="quant_id" readonly="1"/>
+                                <field name="quant_id" readonly="1" groups="multiple_relocation.inventory_super_admin"/>
                                 <field name="display_pallet_series" readonly="1"/>
                                 <field name="display_location" readonly="1"/>
                             </group>
@@ -450,7 +488,7 @@ else:
                                 <page string="Changes" name="changes">
                                     <field name="changed_fields_display" nolabel="1" widget="html"/>
                                 </page>
-                            <page string="Snapshot" name="snapshot">
+                            <page string="Snapshot" name="snapshot" groups="multiple_relocation.inventory_super_admin">
                                 <field name="quant_snapshot" readonly="1" widget="text"/>
                             </page>
                         </notebook>
@@ -531,9 +569,9 @@ else:
         <!-- ==================== MENU ITEMS ==================== -->
         <menuitem id="menu_stock_quant_adjustment_request"
                   name="Adjustment Requests"
-                  parent="stock.menu_stock_warehouse_mgmt"
+                  parent="stock.menu_warehouse_report"
                   action="action_stock_quant_adjustment_request"
-                  sequence="100"
+                  sequence="10"
                   groups="stock.group_stock_manager,stock.group_stock_user"/>
     </data>
 </odoo>

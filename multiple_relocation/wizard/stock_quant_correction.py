@@ -22,19 +22,51 @@ class StockQuantCorrectionWizard(models.TransientModel):
 
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
-
-        # raise UserError('ey')
+    
         quant_ids = self.env.context.get('active_ids', [])
-        # if not quant_ids:
-        #     raise UserError(_("Please select at least one stock quant to correct."))
-            
         quants = self.env['stock.quant'].browse(quant_ids)
         
+        # Check 1: Reserved quantities
         reserved_quants = quants.filtered(lambda q: q.reserved_quantity > 0)
         if reserved_quants:
-            raise UserError(_("Cannot modify quants with reserved quantities. "
-                            "Please unreserve the following quants first:\n%s") % 
-                          '\n'.join(reserved_quants.mapped('product_id.name')))
+            raise UserError(_("Cannot modify Pallet details with reserved quantities. "
+                              "\nPlease unreserve the following Pallets first:\n• %s") %
+                            '\n• '.join(reserved_quants.mapped('x_studio_pallet_series_id')))
+        
+        # Check 2: Active pending adjustment requests
+        pallet_series_ids = quants.mapped('x_studio_pallet_series_id')
+        
+        # Search for any pending adjustment lines for these pallet series
+        pending_lines = self.env['stock.quant.adjustment.line'].search([
+            ('quant_id.x_studio_pallet_series_id', 'in', pallet_series_ids),
+            ('line_state', 'in', ['pending', 'draft']),
+            ('request_id.state', 'in', ['draft', 'pending', 'partial'])
+        ])
+        
+        if pending_lines:
+            # Group by pallet series for clear error message
+            pallets_with_requests = {}
+            for line in pending_lines:
+                series_id = line.quant_id.x_studio_pallet_series_id
+                request_name = line.request_id.name
+                
+                if series_id not in pallets_with_requests:
+                    pallets_with_requests[series_id] = []
+                if request_name not in pallets_with_requests[series_id]:
+                    pallets_with_requests[series_id].append(request_name)
+            
+            # Build error message
+            error_lines = []
+            for series_id, request_names in pallets_with_requests.items():
+                requests_str = ', '.join(request_names)
+                error_lines.append(f"• {series_id} (Request: {requests_str})")
+            
+            raise UserError(_(
+                "Cannot modify Pallet details with active pending adjustment requests.\n"
+                "The following Pallets have pending adjustments:\n\n%s\n\n"
+                "Please wait for approval or cancel the existing requests first."
+            ) % '\n'.join(error_lines))
+
         
         line_vals = []
         for quant in quants:
@@ -292,7 +324,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_container_number': quant.x_studio_container_number,
         }
         
-        self.env['stock.move.line'].create(move_line_vals)
+        self.env['stock.move.line'].sudo().create(move_line_vals)
 
     def _create_correction_move(self, line, changes, original_state, batch_number, picking_id):
         """Create stock move to track the correction in history"""
@@ -365,7 +397,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 elif field_name.startswith('x_studio_'):
                     move_line_vals[field_name] = current_value
 
-        move_line = self.env['stock.move.line'].create(move_line_vals)
+        move_line = self.env['stock.move.line'].sudo().create(move_line_vals)
         return move
 
     def _format_changes_description(self, changes):
@@ -776,9 +808,14 @@ class StockQuantAdjustmentRequest(models.Model):
         self.ensure_one()
         
         selected_lines = self.line_ids.filtered(lambda l: l.selected and l.line_state == 'pending' and l.conflict_status == 'ok')
-        
+                
         if not selected_lines:
-            raise UserError(_("No valid lines selected. Please select pending lines without conflicts."))
+            raise UserError(_(
+                "No valid lines were selected.\n\n"
+                "Please ensure that the lines you are selecting are pending and have no conflicts — "
+                "conflicts typically occur when Pallets are reserved in another pending Picklist or have been successfully delivered out."
+            ))
+
         
         if not self.batch_number:
             adjustment_form_series = self.env['ir.sequence'].search([('code', '=', 'adjustment.form.series')], limit=1)
@@ -831,17 +868,29 @@ class StockQuantAdjustmentRequest(models.Model):
         pending_lines = self.line_ids.filtered(lambda l: l.line_state == 'pending' and l.conflict_status == 'ok')
         
         if not pending_lines:
-            raise UserError(_("No pending lines available for approval."))
+            raise UserError(_(
+                "There are no pending lines available for approval.\n\n"
+                "Please ensure that all conflicts have been resolved — "
+                "conflicts typically occur when Pallets are reserved in another pending Picklist  or have been successfully delivered out."
+            ))
         
         if not self.batch_number:
             adjustment_form_series = self.env['ir.sequence'].search([('code', '=', 'adjustment.form.series')], limit=1)
-            self.batch_number = adjustment_form_series.next_by_id() if adjustment_form_series else self.env['ir.sequence'].next_by_code('adjustment.form.series')
+            self.batch_number = (
+                adjustment_form_series.next_by_id()
+                if adjustment_form_series
+                else self.env['ir.sequence'].next_by_code('adjustment.form.series')
+            )
         
         for line in pending_lines:
             line.action_approve_line(self.batch_number, self.reason_for_adjustment)
         
         if not self.approved_by:
-            self.write({'approved_by': self.env.user.id, 'approved_date': fields.Datetime.now()})
+            self.write({
+                'approved_by': self.env.user.id,
+                'approved_date': fields.Datetime.now()
+            })
+
         
         # return {
         #     'type': 'ir.actions.client',
@@ -927,13 +976,13 @@ class StockQuantAdjustmentLine(models.Model):
     rejection_reason = fields.Text(string='Rejection Reason')
     approved_by = fields.Many2one('res.users', string='Approved By', readonly=True)
     approved_date = fields.Datetime(string='Approved Date', readonly=True)
-    quant_id = fields.Many2one('stock.quant', string='Stock Quant', required=True, readonly=True)
+    quant_id = fields.Many2one('stock.quant', string='Pallet Quant Details', required=True, readonly=True)
     quant_snapshot = fields.Text(string='Quant Snapshot', readonly=True, help='JSON snapshot of quant state when request was created')
     conflict_status = fields.Selection([
         ('ok', 'OK'),
-        ('changed', 'Quant Changed'),
-        ('reserved', 'Quant Reserved'),
-        ('deleted', 'Quant Deleted')
+        ('changed', 'Pallet Changed'),
+        ('reserved', 'Pallet Reserved'),
+        ('deleted', 'Pallet Deleted / Delivered')
     ], string='Conflict Status', default='ok', compute='_compute_conflict_status', store=True)
     
     has_changes = fields.Boolean(string='Has Changes', compute='_compute_has_changes', store=True)
@@ -1066,22 +1115,27 @@ class StockQuantAdjustmentLine(models.Model):
             changes = line._get_changes()
             line.has_changes = bool(changes)
     
-    @api.depends('quant_id', 'quant_snapshot')
+    @api.depends('quant_id', 'quant_snapshot', 'quant_id.reserved_quantity')
     def _compute_conflict_status(self):
         for line in self:
             line._check_quant_conflicts()
     
     def _check_quant_conflicts(self):
         for line in self:
-            if line.line_state in ['approved', 'rejected', 'cancelled']:
+            
+            quant = line.quant_id
+            
+            if line.line_state in ['approved', 'rejected', 'cancelled'] and quant.reserved_quantity == 0 and not quant.quantity == 0:
                 line.conflict_status = 'ok'
+                continue
+
+            if quant.quantity == 0:
+                line.conflict_status = 'deleted'
                 continue
                 
             if not line.quant_id.exists():
                 line.conflict_status = 'deleted'
                 continue
-            
-            quant = line.quant_id
             
             if quant.reserved_quantity > 0:
                 line.conflict_status = 'reserved'
@@ -1143,6 +1197,8 @@ class StockQuantAdjustmentLine(models.Model):
     
     def action_approve_line(self, batch_number, reason):
         self.ensure_one()
+
+        # self._check_quant_conflicts()
         
         if self.line_state != 'pending':
             raise UserError(_("Only pending lines can be approved."))
