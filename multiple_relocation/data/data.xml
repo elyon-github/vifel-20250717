@@ -28,5 +28,15 @@
         <field name="category_id" ref="base.module_category_hidden"/>
         <field name="users" eval="[(4, 2)]"/>
     </record>
+
     
+    <!-- Sequence for Adjustment Requests -->
+    <record id="seq_stock_quant_adjustment_request" model="ir.sequence">
+        <field name="name">Stock Quant Adjustment Request</field>
+        <field name="code">stock.quant.adjustment.request</field>
+        <field name="prefix">ADJ/%(year)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False"/>
+    </record>
+
 </odoo>
