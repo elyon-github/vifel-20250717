@@ -470,7 +470,7 @@ class stock_move_line_Override(models.Model):
         owner = self.owner_id.name
         
         for record in self:
-            if record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and record.result_package_id and record.product_id:
+            if record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and record.result_package_id and record.product_id and not record.return_id:
                 # Exclude the current record ID to avoid self-inclusion in search results
                 self_id = self.extract_id_from_newid(record.id)
                 previous_location = record._origin.location_dest_id
