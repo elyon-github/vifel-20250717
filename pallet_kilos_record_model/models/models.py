@@ -135,14 +135,16 @@ class PalletKilosRecordModel(models.Model):
             building_operations = {}
 
             # Get move lines data from effective document
-            for line in record.effective_document.move_ids_without_package:
-                units_received += line.x_studio_min_actual_demand
-                packaging_received += line.x_studio_actual_packaging_demand
-                units_withdrawn += line.x_studio_min_actual_demand
-                packaging_withdrawn += line.x_studio_actual_packaging_demand
-                kilos_received += line.quantity
-                kilos_withdrawn += line.quantity
-x_studio_actual_packaging_demand
+            for line in record.effective_document.move_line_ids:
+                if record.effective_document.picking_type_code in ['outgoing']:
+                    units_withdrawn += line.x_studio_withdraw_units
+                    packaging_withdrawn += line.x_studio_affected_2nd_uom
+                    kilos_withdrawn += line.quantity
+                else:
+                    units_received += line.x_studio_total_units
+                    packaging_received += line.x_studio_2nd_uom
+                    kilos_received += line.quantity
+                    
             # Count unique pallets and track by building
             if record.effective_document.picking_type_code in ['outgoing']:
                 for move_line in record.effective_document.move_line_ids:
@@ -160,8 +162,8 @@ x_studio_actual_packaging_demand
                         }
                     
                     # Add quantities to building totals
-                    building_operations[building_name]['units'] += move_line.x_studio_actual_min or 0
-                    building_operations[building_name]['packaging'] += move_line.x_studio_actual_packaging or 0
+                    building_operations[building_name]['units'] += move_line.x_studio_withdraw_units or 0
+                    building_operations[building_name]['packaging'] += move_line.x_studio_affected_2nd_uom or 0
                     building_operations[building_name]['kilos'] += move_line.quantity or 0
 
                     if move_line.picking_id.x_studio_is_a_blast_freezer:
@@ -575,8 +577,8 @@ x_studio_actual_packaging_demand
                         'units': 0, 'packaging': 0, 'kilos': 0, 'pallets': 0
                     }
                 
-                building_operations[building_name]['units'] += move_line.x_studio_actual_min or 0
-                building_operations[building_name]['packaging'] += move_line.x_studio_actual_packaging or 0
+                building_operations[building_name]['units'] += move_line.x_studio_withdraw_units or 0
+                building_operations[building_name]['packaging'] += move_line.x_studio_affected_2nd_uom or 0
                 building_operations[building_name]['kilos'] += move_line.quantity or 0
         else:  # incoming
             for move_line in record.effective_document.move_line_ids:
