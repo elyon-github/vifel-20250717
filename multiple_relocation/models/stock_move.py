@@ -660,7 +660,7 @@ class stock_move_line_Override(models.Model):
             #Todo, consider if has unmatch
             
             for pallet_series in unmatched_pallet_series:
-                if pallet_series:
+                if pallet_series and not self[0].picking_id.return_id:
                     self[0].owner_id.push_unused_pallet(pallet_series)
     
     
