@@ -40,7 +40,7 @@ class PalletKilosRecordModel(models.Model):
 
     # Balance fields - stored, calculated via method calls
     total_balance_in_units = fields.Float(store=True, string="Total Balance in Packs", readonly=True, group_operator=False)
-    total_balance_in_packaging = fields.Float(store=True, string="Total Balance in Quantity", readonly=True, group_operator=False)
+    total_balance_in_packaging = fields.Float(store=True, string="Total Balance in Quantity", group_operator=False)
     total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False)
     total_balance_in_pallets = fields.Float(store=True, string="Total Balance in Pallets", readonly=True, group_operator=False)
 
@@ -135,14 +135,16 @@ class PalletKilosRecordModel(models.Model):
             building_operations = {}
 
             # Get move lines data from effective document
-            for line in record.effective_document.move_ids_without_package:
-                units_received += line.x_studio_min_actual_demand
-                packaging_received += line.x_studio_actual_packaging_demand
-                units_withdrawn += line.x_studio_min_actual_demand
-                packaging_withdrawn += line.x_studio_actual_packaging_demand
-                kilos_received += line.quantity
-                kilos_withdrawn += line.quantity
-
+            for line in record.effective_document.move_line_ids:
+                if record.effective_document.picking_type_code in ['outgoing']:
+                    units_withdrawn += line.x_studio_withdraw_units
+                    packaging_withdrawn += line.x_studio_affected_2nd_uom
+                    kilos_withdrawn += line.quantity
+                else:
+                    units_received += line.x_studio_total_units
+                    packaging_received += line.x_studio_2nd_uom
+                    kilos_received += line.quantity
+                    
             # Count unique pallets and track by building
             if record.effective_document.picking_type_code in ['outgoing']:
                 for move_line in record.effective_document.move_line_ids:
@@ -160,8 +162,8 @@ class PalletKilosRecordModel(models.Model):
                         }
                     
                     # Add quantities to building totals
-                    building_operations[building_name]['units'] += move_line.x_studio_total_units or 0
-                    building_operations[building_name]['packaging'] += move_line.x_studio_2nd_uom or 0
+                    building_operations[building_name]['units'] += move_line.x_studio_withdraw_units or 0
+                    building_operations[building_name]['packaging'] += move_line.x_studio_affected_2nd_uom or 0
                     building_operations[building_name]['kilos'] += move_line.quantity or 0
 
                     if move_line.picking_id.x_studio_is_a_blast_freezer:
@@ -292,159 +294,7 @@ class PalletKilosRecordModel(models.Model):
                     'end_time': record.effective_document.x_studio_end_time,
                 })
 
-    def _recalculate_building_balances(self, warehouse_id, blast_freezer_flag, owner_id, from_datetime=None):
-        """
-        Calculate building-level balances for a specific owner in a warehouse
-        Returns a dictionary with building-level balances for the owner
-        """
-        domain = [
-            ('warehouse', '=', warehouse_id),
-            ('is_blast_freezer', '=', blast_freezer_flag),
-            ('owner_id', '=', owner_id),
-        ]
-        
-        if from_datetime:
-            domain.append(('start_time', '>=', from_datetime))
 
-        # Get all records for this owner in chronological order
-        records = self.search(domain, order='start_time asc, id asc')
-        
-        if not records:
-            return {}
-
-        # Initialize building balances
-        building_balances = {}
-        
-        # Get previous balances for each building if from_datetime is specified
-        if from_datetime:
-            prev_record = self.search([
-                ('warehouse', '=', warehouse_id),
-                ('is_blast_freezer', '=', blast_freezer_flag),
-                ('owner_id', '=', owner_id),
-                ('start_time', '<', from_datetime)
-            ], order='start_time desc, id desc', limit=1)
-            
-            if prev_record and prev_record.total_balances:
-                building_balances = json.loads(json.dumps(prev_record.total_balances))
-
-        # Process each record
-        for record in records:
-            # Get building operations data from the record (check temp attribute first)
-            building_operations = getattr(record, 'building_operations_temp', {})
-            
-            if not building_operations and record.effective_document:
-                # If building_operations wasn't stored, calculate it on the fly
-                building_operations = {}
-                if record.effective_document.picking_type_code == 'outgoing':
-                    for move_line in record.effective_document.move_line_ids:
-                        building = move_line.location_id.x_studio_building if move_line.location_id else None
-                        building_name = self._get_building_name(building)
-                        
-                        if building_name not in building_operations:
-                            building_operations[building_name] = {
-                                'units': 0, 'packaging': 0, 'kilos': 0, 'pallets': 0
-                            }
-                        
-                        building_operations[building_name]['units'] += move_line.x_studio_total_units or 0
-                        building_operations[building_name]['packaging'] += move_line.x_studio_2nd_uom or 0
-                        building_operations[building_name]['kilos'] += move_line.quantity or 0
-                        # Pallet counting logic would go here - simplified for now
-                else:
-                    for move_line in record.effective_document.move_line_ids:
-                        building = move_line.location_dest_id.x_studio_building if move_line.location_dest_id else None
-                        building_name = self._get_building_name(building)
-                        
-                        if building_name not in building_operations:
-                            building_operations[building_name] = {
-                                'units': 0, 'packaging': 0, 'kilos': 0, 'pallets': 0
-                            }
-                        
-                        building_operations[building_name]['units'] += move_line.x_studio_total_units or 0
-                        building_operations[building_name]['packaging'] += move_line.x_studio_2nd_uom or 0
-                        building_operations[building_name]['kilos'] += move_line.quantity or 0
-
-            # Handle opening balance records
-            if not record.effective_document and record.remarks == 'imported via opening balance':
-                building_name = "MAIN"
-                if building_name not in building_balances:
-                    building_balances[building_name] = {
-                        'total_balance_in_units': 0,
-                        'total_balance_in_packaging': 0,
-                        'total_balance_in_kilos': 0,
-                        'total_balance_in_pallets': 0,
-                        'beginning_balance_in_pallets': 0,
-                        'beginning_balance_in_kilos': 0,
-                    }
-                
-                # Store beginning balance (before this operation)
-                beginning_pallets = building_balances[building_name]['total_balance_in_pallets']
-                beginning_kilos = building_balances[building_name]['total_balance_in_kilos']
-                
-                # Add opening balance
-                building_balances[building_name]['total_balance_in_units'] += record.units_received
-                building_balances[building_name]['total_balance_in_packaging'] += record.packaging_received
-                building_balances[building_name]['total_balance_in_kilos'] += record.kilos_received
-                building_balances[building_name]['total_balance_in_pallets'] += record.pallets_received
-                
-                building_balances[building_name]['beginning_balance_in_pallets'] = beginning_pallets
-                building_balances[building_name]['beginning_balance_in_kilos'] = beginning_kilos
-                
-                continue
-
-            # Process building operations for regular documents
-            for building_name, operations in building_operations.items():
-                if building_name not in building_balances:
-                    building_balances[building_name] = {
-                        'total_balance_in_units': 0,
-                        'total_balance_in_packaging': 0,
-                        'total_balance_in_kilos': 0,
-                        'total_balance_in_pallets': 0,
-                        'beginning_balance_in_pallets': 0,
-                        'beginning_balance_in_kilos': 0,
-                    }
-
-                # Store beginning balance (before this operation)
-                beginning_pallets = building_balances[building_name]['total_balance_in_pallets']
-                beginning_kilos = building_balances[building_name]['total_balance_in_kilos']
-
-                # Apply operation based on picking type
-                if record.effective_document.picking_type_id.code == 'incoming':
-                    building_balances[building_name]['total_balance_in_units'] += operations.get('units', 0)
-                    building_balances[building_name]['total_balance_in_packaging'] += operations.get('packaging', 0)
-                    building_balances[building_name]['total_balance_in_kilos'] += operations.get('kilos', 0)
-                    building_balances[building_name]['total_balance_in_pallets'] += operations.get('pallets', 0)
-                elif record.effective_document.picking_type_id.code == 'outgoing':
-                    building_balances[building_name]['total_balance_in_units'] -= operations.get('units', 0)
-                    building_balances[building_name]['total_balance_in_packaging'] -= operations.get('packaging', 0)
-                    building_balances[building_name]['total_balance_in_kilos'] -= operations.get('kilos', 0)
-                    building_balances[building_name]['total_balance_in_pallets'] -= operations.get('pallets', 0)
-
-                # Store beginning balance for this operation
-                building_balances[building_name]['beginning_balance_in_pallets'] = beginning_pallets
-                building_balances[building_name]['beginning_balance_in_kilos'] = beginning_kilos
-
-            # Apply adjustments (distributed equally across all buildings for this record)
-            if record.adjustment_heads or record.adjustment_packaging or record.adjustment_kilos or record.adjustment_pallets:
-                num_buildings = len(building_balances) if building_balances else 1
-                if num_buildings == 0:
-                    # If MAINs yet, create "MAIN"
-                    building_balances["MAIN"] = {
-                        'total_balance_in_units': 0,
-                        'total_balance_in_packaging': 0,
-                        'total_balance_in_kilos': 0,
-                        'total_balance_in_pallets': 0,
-                        'beginning_balance_in_pallets': 0,
-                        'beginning_balance_in_kilos': 0,
-                    }
-                    num_buildings = 1
-
-                for building_name in building_balances:
-                    building_balances[building_name]['total_balance_in_units'] += record.adjustment_heads / num_buildings
-                    building_balances[building_name]['total_balance_in_packaging'] += record.adjustment_packaging / num_buildings
-                    building_balances[building_name]['total_balance_in_kilos'] += record.adjustment_kilos / num_buildings
-                    building_balances[building_name]['total_balance_in_pallets'] += record.adjustment_pallets / num_buildings
-
-        return building_balances
 
     def _recalculate_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
         """
@@ -629,7 +479,7 @@ class PalletKilosRecordModel(models.Model):
                     # FIXED: Set beginning balance for this building (before current operation)
                     record_building_balances[building_name]['beginning_balance_in_pallets'] = record_building_balances[building_name].get('total_balance_in_pallets', 0)
                     record_building_balances[building_name]['beginning_balance_in_kilos'] = record_building_balances[building_name].get('total_balance_in_kilos', 0)
-    
+                    # raise UserError(str(operations))
                     # Apply operations to the specific building
                     if record.effective_document.picking_type_id.code == 'incoming':
                         record_building_balances[building_name]['total_balance_in_units'] += operations.get('units', 0)
@@ -727,8 +577,8 @@ class PalletKilosRecordModel(models.Model):
                         'units': 0, 'packaging': 0, 'kilos': 0, 'pallets': 0
                     }
                 
-                building_operations[building_name]['units'] += move_line.x_studio_total_units or 0
-                building_operations[building_name]['packaging'] += move_line.x_studio_2nd_uom or 0
+                building_operations[building_name]['units'] += move_line.x_studio_withdraw_units or 0
+                building_operations[building_name]['packaging'] += move_line.x_studio_affected_2nd_uom or 0
                 building_operations[building_name]['kilos'] += move_line.quantity or 0
         else:  # incoming
             for move_line in record.effective_document.move_line_ids:
@@ -898,7 +748,7 @@ class PalletKilosRecordModel(models.Model):
 
     def resync_all_2(self):
         """Resync all records in chronological order"""
-        all_records = self.search([], order='start_time asc')
+        all_records = self.search([], order='start_time desc, id desc')
         warehouses_processed = set()
         
         for record in all_records:
