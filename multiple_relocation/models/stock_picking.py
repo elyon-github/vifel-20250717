@@ -1178,7 +1178,7 @@ class transfer_locations(models.Model):
                 picking.quant_count = False
                 return
             if picking.picking_type_id.code == 'incoming':
-                domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False)]
+                domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False),  ('quantity', '!=', 0)]
             elif picking.picking_type_id.code == 'outgoing' and not is_blast_freeze:
                 # child_location_ids = self.env['stock.location'].search([
                 #     ('id', 'child_of', picking.location_id.id)
@@ -1228,7 +1228,7 @@ class transfer_locations(models.Model):
         domain = []
         is_blast_freeze, is_receiving = self.operation_type_checker(self.picking_type_id)
         if self.picking_type_id.code == 'incoming':
-            domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False )]
+            domain = [('lot_id', 'in', lot_ids), ('package_id', '!=', False), ('quantity', '!=', 0)]
         elif self.picking_type_id.code == 'outgoing' and not is_blast_freeze:
             child_location_ids = self.env['stock.location'].search([
                     ('id', 'child_of', self.location_id.id)
