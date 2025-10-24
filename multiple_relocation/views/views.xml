@@ -557,6 +557,7 @@
     3. Click <b>Process Return</b>
 </div>
 
+
 <field name="next_step_status" invisible="1"/>
 
 <div class="alert alert-warning" role="alert"
@@ -675,6 +676,11 @@
      <b>⚠️ Double-Check Required:</b>
      <br/><br/>
      Verify the <b>Tally Sheet</b> carefully. Ensure the <b>Pallet #</b> and <b>Location</b> of all returned pallets are correctly updated if any changes were made.
+    <br/>
+    <br/>
+     <span style="color: darkred;">
+         Please make sure to <b>Validate</b> the <b>WR</b> first before validating the this <b>RR return</b>!
+     </span>
 </div>
 
 <div class="alert alert-warning" role="alert"
@@ -704,6 +710,10 @@
      (e.g., <b>Pallet Weight (KG)</b> = <b>1000</b> → <b>Actual Weight Out</b> = <b>500</b>).
     <br/><br/>
     Enter the actual values (e.g., <b>500</b>) in their respective <b>Gold-highlighted column</b> before proceeding. Once <b>done</b>, simply complete the window form view and <b>Verify</b> the transfer.
+</div>
+
+<div class="alert alert-warning" role="alert" invisible="state in ['done']">
+    <b>Note:</b> For <b>Additional Charges</b> such as <b>Repacking</b>, <b>Resacking</b>, <b>Unloaded by Vifel</b>, etc., please go to the <b>Note / Additional Charges Tab</b> and look for the <b>Additional Charges Field</b>.
 </div>
 
           
