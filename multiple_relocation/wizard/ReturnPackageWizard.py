@@ -753,7 +753,7 @@ class ReturnPackageWizard(models.TransientModel):
             for package, move_line in zip(selected_packages, created_move_lines):
                 # Calculate return count properly - increment from the original counter
                 return_count = package.return_counter + 1 if self.return_reason not in ['Wrong Details Encoded', 'Void Transfer', 'Others'] else package.return_counter
-                raise UserError(return_count)
+
                 move_line.write({
                     'is_return': True,
                     'picking_id': new_picking.id,
