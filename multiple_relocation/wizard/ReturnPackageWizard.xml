@@ -63,7 +63,7 @@
                                         <field name="x_studio_building_dropped"/>
                                         <field name="original_record_reference"/>
                                         <field name="product_id"/>
-                                        <field name="return_counter" readonly="1"/>
+                                        <field name="return_counter" readonly="1" force_save="1"/>
                                         <field name="pallet_series_id" readonly="is_a_blast_freeze"/>
                                         <field name="bf_pallet_char" readonly="not is_a_blast_freeze"/>
                                         <field name="result_package_id" domain="[

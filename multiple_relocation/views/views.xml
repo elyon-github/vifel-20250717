@@ -184,18 +184,22 @@
         <!-- Define Domain for Location Destination Field -->
         <xpath expr="//tree//field[@name='location_dest_id'][2]" position="attributes">
             <attribute name="domain">[
-                '&amp;', 
-                '|', 
-                ('x_studio_occupied_by_1', '=', ''), 
-                ('x_studio_occupied_by_1', '=', False), 
-                ('child_ids', '=', False), 
-                ('id', 'child_of', context.get('default_location_dest_id')), 
-                '|', 
-                ('x_studio_receiving_report_id', '=', False),
-                ('x_studio_receiving_report_id', 'in', context.get('default_picking_id') and [context.get('default_picking_id')] or [])
+                '&amp;',
+                    ('id', 'child_of', context.get('default_location_dest_id')),
+                    '|',
+                        ('x_studio_is_an_aisle', '=', True),
+                        '&amp;',
+                            '|',
+                                ('x_studio_occupied_by_1', '=', ''),
+                                ('x_studio_occupied_by_1', '=', False),
+                            ('child_ids', '=', False),
+                '|',
+                    ('x_studio_receiving_report_id', '=', False),
+                    ('x_studio_receiving_report_id', 'in', context.get('default_picking_id') and [context.get('default_picking_id')] or [])
             ]</attribute>
             <attribute name="readonly">state == 'done'</attribute>
         </xpath>
+
 
         <xpath expr="//tree//field[@name='product_id']" position="before">
         <field name="x_studio_" optional="show" readonly="True"/>
@@ -210,9 +214,9 @@
             <field optional="hide" name="x_studio_pallet_series_id" invisible="1" string="Placeholder" readonly="state == 'done'"/>
             <field optional="show" name="x_studio_pallet_series_display" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="1"/>   
             <field name="reserved_quantity_on_validation" string="Remaining Pallet Quantity" readonly="1" column_invisible="1"/>
-            <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="state == 'done'" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
+            <field name="package_id" string="Pallet #" column_invisible="picking_code == 'incoming' or context.get('is_blast_freeze')" readonly="1" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
             <field optional="show" name="x_studio_dest_id" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>   
-            <field optional="show" name="x_studio_is_reserved" invisible="picking_type_id in [45, 46, 47, 48, 2, 7]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>  
+            <!--<field optional="show" name="x_studio_is_reserved" invisible="picking_type_id in [45, 46, 47, 48, 2, 7]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>  -->
         </xpath>
 
         <!-- Replace the 'result_package_id' Field and Add Domain -->
@@ -249,13 +253,13 @@
             <field optional="show" name="x_studio_affected_2nd_uom" column_invisible="context.get('picking_code') == 'incoming'" string="Quantity (Withdraw) " width="120" readonly="1"/>
             <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
 
-            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string=" Quantity UOM" width="120" readonly="state == 'done'" options="{'no_create': True, 'no_open':True}"/>
+            <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string=" Quantity UOM" width="120" readonly="picking_code == 'outgoing' or state == 'done'" options="{'no_create': True, 'no_open':True}"/>
 
 
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
-            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120" options="{'no_create': True, 'no_open':True}"/>
+            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="picking_code == 'outgoing' or state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120" options="{'no_create': True, 'no_open':True}"/>
 
 
         </xpath>
@@ -295,7 +299,6 @@
                 <xpath expr="//tree//field[@name='quantity']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-
 
     </field>
 </record>
