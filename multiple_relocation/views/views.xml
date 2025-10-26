@@ -1404,6 +1404,9 @@
           <xpath expr="//field[@name='active']" position="after">
             <field name="id" optional="show" column_invisible="False" invisible="False"/>
           </xpath>
+        <xpath expr="//field[@name='complete_name']" position="before">
+            <field name="vifel_location_name" optional="show"/>
+        </xpath>    
           <xpath expr="//field[@name='complete_name']" position="after">
             <field name="x_studio_is_reserved" optional="show" string="Is Reserved/Occupied"/>
             <field name="x_studio_receiving_report_id" optional="show" string="Reserved/Occupied RR ID"/>
