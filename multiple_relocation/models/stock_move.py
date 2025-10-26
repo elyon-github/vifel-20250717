@@ -230,8 +230,8 @@ class stock_move_line_Override(models.Model):
     reserved_quantity_on_validation = fields.Float(string="Reserved Quantity on Validation")
     original_pallet_series_id = fields.Char(string="Original Pallet Series")
     adjusted_quantity = fields.Float(string="Weight (KG)")
-
-
+    vifel_dest_location_name = fields.Char(string="Vifel Location Name", related="location_dest_id.vifel_location_name", readonly=True)
+    vifel_location_name = fields.Char(string="Vifel Location Name", related="location_id.vifel_location_name", readonly=True)
         
     @api.depends('quant_id')
     def _compute_container_number(self):
