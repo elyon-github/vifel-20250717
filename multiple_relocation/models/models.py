@@ -267,6 +267,85 @@ class StockLocation(models.Model):
         compute="_compute_x_studio_occupied_by_1"
     )
 
+    vifel_location_name = fields.Char(compute="_compute_vifel_location_name", store=True)
+
+    @api.depends('complete_name')
+    def _compute_vifel_location_name(self):
+        for record in self:
+            record.vifel_location_name = record.convert_location_string(record.complete_name)
+            
+    def convert_location_string(self, s):
+        parts = s.split('/')
+        try:
+            if len(parts) < 3:
+                return s
+            
+            # Build the name progressively based on available parts
+            result = ""
+            
+            # Start from part 3 (index 2)
+            if len(parts) > 2:
+                result += parts[2]  # e.g., "Freezer" -> "F" or full name
+            
+            if len(parts) > 3:
+                result += parts[3]  # e.g., "Aisle 1" -> "A1"
+            
+            if len(parts) > 4:
+                result += parts[4]  # e.g., "Row A" -> "R"
+            
+            if len(parts) > 5:
+                result += parts[5]  # e.g., "Rack 01" -> "01"
+            
+            # Add the dot separator before Level and Location if they exist
+            if len(parts) > 6:
+                result += "."
+                digit = ''.join(filter(str.isdigit, parts[6]))
+                if digit:
+                    result += digit
+            
+
+            
+            return result if result else s
+        
+        except Exception:
+            return s
+            
+            
+    def name_get(self):
+        """
+        Override name_get to display vifel_location_name when available
+        """
+        res = []
+        for record in self:
+            # Use vifel_location_name if it exists and is different from complete_name
+            if record.vifel_location_name and record.vifel_location_name != record.complete_name:
+                name = f"{record.vifel_location_name}"
+            else:
+                name = record.complete_name or record.name
+            res.append((record.id, name))
+        return res
+    
+    @api.model
+    def name_search(self, name='', args=None, operator='ilike', limit=100):
+        """
+        Override name search to include vifel_location_name field in Many2one dropdowns.
+        """
+        args = args or []
+        
+        if name:
+            # Search in both complete_name (default) and vifel_location_name
+            domain = ['|', 
+                      ('complete_name', operator, name),
+                      ('vifel_location_name', operator, name)]
+            domain += args
+            
+            locations = self.search(domain, limit=limit)
+            return locations.name_get()
+        
+        # If no name provided, use default behavior
+        return super(StockLocation, self).name_search(name=name, args=args, operator=operator, limit=limit)
+
+    
     @api.depends('quant_ids.quantity', 'quant_ids')
     def _compute_x_studio_occupied_by_1(self):
         for record in self:
