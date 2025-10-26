@@ -8,7 +8,8 @@
             <tree>
                 <field name="product_id"/>
                 <field name="owner_id"/>
-                <field name="location_id"/>
+                <field name="x_studio_vifel_location_name"/>
+                <field name="location_id" string="System Location Name"/>
                 <field name="x_studio_pallet_series_id"/>
                 <field name="package_id" string="Pallet #"/>
                 <field name="x_studio_container_number"/>
@@ -89,7 +90,8 @@
                             <tree>
                                 <field name="product_id"/>
                                 <field name="owner_id"/>
-                                <field name="location_id"/>
+                                <field name="x_studio_vifel_location_name"/>
+                                <field name="location_id" string="System Location Name"/>
                                 <field name="x_studio_pallet_series_id"/>
                                 <field name="bf_pallet_char" string="Pallet Text"/>
                                 <field name="package_id" string="Pallet #"/>
@@ -110,6 +112,7 @@
                                     <field name="x_studio_exp_warned" column_invisible="1" invisible="1" />
                                     <field name="is_package_multiple_withdraw" column_invisible="1"/>
                                     <field name="company_id" column_invisible="1"/>
+                               
                                     <field name="location_dest_id" column_invisible="1"/>
                                     <field name="product_id"/>
                                     <field name="x_studio_return_count" readonly="1"/>
@@ -118,6 +121,7 @@
                                     <field name="x_studio_pallet_series_id" readonly="1"/>
                                     <field name="package_id"  string="Pallet #" readonly="1"/>
                                     <field name="reserved_quantity_on_validation"  string="Remaining Pallet Quantity" readonly="1" column_invisible="1"/>
+                                    <field name="vifel_dest_location_name" column_invisible="1"/>
                                     <field name="location_id" readonly="1"/>
                                     <field name="x_studio_container_number" readonly="1"/>
                                     <field name="x_studio_production_date" readonly="1" />
