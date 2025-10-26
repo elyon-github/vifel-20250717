@@ -556,7 +556,7 @@ class stock_move_line_Override(models.Model):
                 
                 if not unmatched_locations and unmatched_package and not location.x_studio_is_an_aisle and self.location_dest_id:
                     # raise UserError(f"Please set locations First")
-                    raise UserError(f"{self.location_dest_id.complete_name} can't have two or more pallets")
+                    raise UserError(f"{self.location_dest_id.vifel_location_name} can't have two or more pallets")
 
                 # raise UserError(self_id)
                 if self_id:

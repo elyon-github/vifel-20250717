@@ -142,11 +142,11 @@ class multiple_relocation(models.TransientModel):
         # Create error messages
         for loc_id, data in reserved_by_system.items():
             line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
-            errors.append(f"Location '{data['location'].complete_name}' is already reserved for incoming stock. Cannot use in Line(s): {line_numbers}")
+            errors.append(f"Location '{data['location'].vifel_location_name}' is already reserved for incoming stock. Cannot use in Line(s): {line_numbers}")
         
         for loc_id, data in conflicting_lines.items():
             line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
-            errors.append(f"Location '{data['location'].complete_name}' selected multiple times. Conflicting Line(s): {line_numbers}")
+            errors.append(f"Location '{data['location'].vifel_location_name}' selected multiple times. Conflicting Line(s): {line_numbers}")
         
         return errors
     
@@ -164,7 +164,7 @@ class multiple_relocation(models.TransientModel):
                     if prev_location.id != line.new_location.id:
                         errors.append(
                             f"Line #{line.sequence}: Package '{line.package_id.name}' cannot be split - "
-                            f"it's already assigned to '{prev_location.complete_name}' in Line #{prev_line.sequence}. "
+                            f"it's already assigned to '{prev_location.vifel_location_name}' in Line #{prev_line.sequence}. "
                             f"All items in the same package must go to the same location."
                         )
                 else:
@@ -191,7 +191,7 @@ class multiple_relocation(models.TransientModel):
             if len(packages) > 1:
                 location = self.env['stock.location'].browse(loc_id)
                 package_names = ', '.join([p.name for p in packages])
-                _logger.info(f"Location '{location.complete_name}' will contain multiple packages: {package_names}")
+                _logger.info(f"Location '{location.vifel_location_name}' will contain multiple packages: {package_names}")
     
     
     def _validate_location_suitability(self):
@@ -220,11 +220,11 @@ class multiple_relocation(models.TransientModel):
         
         for loc_id, data in view_locations.items():
             line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
-            errors.append(f"Cannot relocate to '{data['location'].complete_name}' - it's a view location. Used in Line(s): {line_numbers}")
+            errors.append(f"Cannot relocate to '{data['location'].vifel_location_name}' - it's a view location. Used in Line(s): {line_numbers}")
         
         for loc_id, data in inactive_locations.items():
             line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
-            errors.append(f"Location '{data['location'].complete_name}' is inactive. Used in Line(s): {line_numbers}")
+            errors.append(f"Location '{data['location'].vifel_location_name}' is inactive. Used in Line(s): {line_numbers}")
         
         return errors
     
@@ -246,7 +246,7 @@ class multiple_relocation(models.TransientModel):
         
         for loc_id, data in same_locations.items():
             line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
-            errors.append(f"New location is the same as current location '{data['location'].complete_name}'. Used in Line(s): {line_numbers}")
+            errors.append(f"New location is the same as current location '{data['location'].vifel_location_name}'. Used in Line(s): {line_numbers}")
         
         return errors
     
@@ -291,7 +291,7 @@ class multiple_relocation(models.TransientModel):
                     error_msg = f"\nPallet '{quant.package_id.name}' has other quants without a relocation destination set:\n\n"
                     for q in quants_without_dest:
                         error_msg += f"  • Product: {q.product_id.display_name}\n"
-                        error_msg += f"    Location: {q.location_id.complete_name}\n"
+                        error_msg += f"    Location: {q.location_id.vifel_location_name}\n"
                         error_msg += f"    Quantity: {q.quantity}\n"
                         error_msg += f"    Pallet Series ID: {q.x_studio_pallet_series_id}\n\n"
                     error_msg += "Please set relocation destinations for all quants in this pallet before proceeding."
@@ -1029,7 +1029,7 @@ class OverrideStockQuant(models.Model):
                 if quant.package_id.id == self.package_id.id:
                     first_init_loc = quant.x_studio_dest_relocation
                     if first_init_loc != self.x_studio_dest_relocation and first_init_loc:
-                        raise UserError(f"You cannot move the same Pallet into multiple Locations. Relocate to this Location {first_init_loc.complete_name}")
+                        raise UserError(f"You cannot move the same Pallet into multiple Locations. Relocate to this Location {first_init_loc.vifel_location_name}")
                 if self.x_studio_dest_relocation.id == quant.location_id.id:
                     raise UserError("You selected the same location. Please relocate to another location")
 
