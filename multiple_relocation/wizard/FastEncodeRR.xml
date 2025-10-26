@@ -7,13 +7,14 @@
         <field name="model">stock.move.line.fast_encode_rr.line</field>
         <field name="arch" type="xml">
             <tree editable="bottom" create="false" js_class="fast_encode_rr_list_button" multi_edit="1" class="no-footer">
+                <field name="has_duplicate_pallet" column_invisible="1"/>
                 <field name="transfer_id" column_invisible="1"/>
                 <field name="product_id"/>
                 <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')"/>
                 <field name="result_package_id" string="RR Pallet #" groups="stock.group_tracking_lot" 
                     domain="[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'), '|', ('x_studio_receiving_report_id', '=', False),
                     ('x_studio_receiving_report_id', '=', transfer_id)]" 
-                    options="{'no_create': True}" column_invisible="context.get('is_blast_freeze')"/>
+                    options="{'no_create': True}" column_invisible="context.get('is_blast_freeze')" force_save="1"  decoration-danger="has_duplicate_pallet"/>
                 <field name="bf_pallet_char" string="BFRR Pallet #" column_invisible="not context.get('is_blast_freeze')"/>
                 <field name="quantity"/>
                 <field name="kilogram" sum="Total"/>

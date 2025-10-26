@@ -340,6 +340,9 @@ class PalletKilosRecordModel(models.Model):
         # Track per-owner AND per-building balances
         owner_building_balances = {}
         
+        # FIXED: Track calculated balances IN MEMORY during the loop
+        calculated_balances = {}  # {record_id: {'total_pallets': X, 'total_kilos': Y, 'total_balances': {...}}}
+        
         # Get previous balances for each owner
         owners_in_scope = records_to_update.mapped('owner_id')
         for owner in owners_in_scope:
@@ -409,8 +412,15 @@ class PalletKilosRecordModel(models.Model):
                 ('start_time', '=', record.start_time),  # Same timestamp
                 ('id', '<', record.id)  # But lower ID (created earlier)
             ], order='start_time desc, create_date desc, id desc', limit=1)
-            
-            if prev_owner_record:
+    
+            # FIXED: Check if we just calculated this previous record's balance in THIS loop
+            if prev_owner_record and prev_owner_record.id in calculated_balances:
+                # Use the freshly calculated balance (not yet written to DB)
+                main_beginning_pallets = calculated_balances[prev_owner_record.id]['total_pallets']
+                main_beginning_kilos = calculated_balances[prev_owner_record.id]['total_kilos']
+                building_beginning_balances = json.loads(json.dumps(calculated_balances[prev_owner_record.id]['total_balances']))
+            elif prev_owner_record:
+                # Use the database values (record wasn't in this batch)
                 # Beginning balance is the total balance from the previous record
                 main_beginning_pallets = prev_owner_record.total_balance_in_pallets
                 main_beginning_kilos = prev_owner_record.total_balance_in_kilos
@@ -479,7 +489,7 @@ class PalletKilosRecordModel(models.Model):
                     # FIXED: Set beginning balance for this building (before current operation)
                     record_building_balances[building_name]['beginning_balance_in_pallets'] = record_building_balances[building_name].get('total_balance_in_pallets', 0)
                     record_building_balances[building_name]['beginning_balance_in_kilos'] = record_building_balances[building_name].get('total_balance_in_kilos', 0)
-                    # raise UserError(str(operations))
+                    
                     # Apply operations to the specific building
                     if record.effective_document.picking_type_id.code == 'incoming':
                         record_building_balances[building_name]['total_balance_in_units'] += operations.get('units', 0)
@@ -505,7 +515,7 @@ class PalletKilosRecordModel(models.Model):
                 num_buildings = len(buildings_with_balances) if buildings_with_balances else 1
                 
                 if not buildings_with_balances:
-                    # MAINs with balances, create "MAIN"
+                    # No buildings with balances, create "MAIN"
                     building_name = "MAIN"
                     if building_name not in record_building_balances:
                         record_building_balances[building_name] = {
@@ -541,6 +551,13 @@ class PalletKilosRecordModel(models.Model):
             total_packaging = sum(building_data.get('total_balance_in_packaging', 0) for building_data in record_building_balances.values())
             total_kilos = sum(building_data.get('total_balance_in_kilos', 0) for building_data in record_building_balances.values())
             total_pallets = sum(building_data.get('total_balance_in_pallets', 0) for building_data in record_building_balances.values())
+    
+            # FIXED: Store calculated balances in memory for next iteration
+            calculated_balances[record.id] = {
+                'total_pallets': total_pallets,
+                'total_kilos': total_kilos,
+                'total_balances': record_building_balances
+            }
     
             updates.append({
                 'id': record.id,
