@@ -470,7 +470,7 @@ class stock_move_line_Override(models.Model):
         owner = self.owner_id.name
         
         for record in self:
-            if record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and record.result_package_id and record.product_id and not record.picking_id.return_id:
+            if record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and record.product_id and not record.picking_id.return_id:
                 # Exclude the current record ID to avoid self-inclusion in search results
                 self_id = self.extract_id_from_newid(record.id)
                 previous_location = record._origin.location_dest_id
@@ -492,7 +492,9 @@ class stock_move_line_Override(models.Model):
                     if reuse_recycle and not unmatched_pallet_series:
                         for pallet_id in reuse_recycle:
                             
-                            record.location_dest_id = self.env['stock.location'].browse(record.x_studio_initial_location)
+                            initial_loc = self.env['stock.location'].browse(record.x_studio_initial_location)
+                            if initial_loc:
+                                record.location_dest_id = initial_loc
                             record.x_studio_pallet_series_id = pallet_id
                             
                     else:
@@ -944,24 +946,27 @@ class stock_move_line_Override(models.Model):
         return self.call_server_action('verify_pallet_lines')
 
 
-
 class stock_move_line_Override(models.Model):
     _inherit = 'stock.move.line'
     _order = 'product_id asc'
-
-class stock_move_line_Override(models.Model):
-    _inherit = 'stock.move.line'
-    _order = 'product_id asc'
-    
+        
     def action_open_fast_encode_wizard(self):
         """Open Fast Encode RR Wizard with selected move lines"""
         
         # Get picking_id from first record (assuming all from same picking)
         picking_id = self[0].picking_id.id if self else False
+        is_blast_freeze, is_receiving = self.picking_id.operation_type_checker(self.picking_id.picking_type_id)
+        
+        # Collect lines that need pallet series and location set
+        invalid_lines = []
         
         # Prepare line values from selected records
         line_vals = []
         for line in self:
+            # Check validation only if not blast freeze
+            if not is_blast_freeze and (not line.x_studio_pallet_series_id or (line.location_dest_id.child_ids and not line.location_dest_id.x_studio_is_an_aisle)):
+                invalid_lines.append(f'\n#{line.x_studio_} | {line.product_id.name}')
+            
             line_vals.append((0, 0, {
                 'stock_move_line': line.id,
                 'product_id': line.product_id.id,
@@ -971,14 +976,20 @@ class stock_move_line_Override(models.Model):
                 'min_uom_unit': line.x_studio_total_units or 0.0,
                 'kilogram': line.quantity or 0.0,
                 'result_package_id': line.result_package_id.id,
+                'location_dest_id': line.location_dest_id.id
             }))
+        
+        # Raise error if there are invalid lines
+        if invalid_lines:
+            pallet_series_list = ', '.join([str(ps) for ps in invalid_lines])
+            raise UserError(f"Please set pallet series ID and location first for the following Pallet lines: \n{pallet_series_list}")
         
         # Create wizard with lines
         wizard = self.env['stock.move.line.fast_encode_rr'].create({
             'transfer_id': picking_id,
             'line_ids': line_vals,
         })
-        is_blast_freeze, is_receiving = self.picking_id.operation_type_checker(self.picking_id.picking_type_id)
+        
         return {
             'name': 'Fast Encode RR Lines',
             'type': 'ir.actions.act_window',
@@ -986,16 +997,15 @@ class stock_move_line_Override(models.Model):
             'view_mode': 'list',
             'view_id': self.env.ref('multiple_relocation.view_fast_encode_rr_line_list').id,
             'target': 'new',
-            'domain': [('wizard_id', '=', wizard.id)],  # CRITICAL: Filter by wizard instance
+            'domain': [('wizard_id', '=', wizard.id)],
             'context': {
-                'default_wizard_id': wizard.id,  # Link new lines to this wizard
+                'default_wizard_id': wizard.id,
                 'default_transfer_id': picking_id,
                 'is_blast_freeze': is_blast_freeze
             }
         }
             
-    
-    # Add these methods to your model class
+
     
     
     def old_rr_quantity(self, doc):

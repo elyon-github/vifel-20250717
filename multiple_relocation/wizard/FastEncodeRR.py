@@ -12,38 +12,206 @@ class FastEncodeRRWizard(models.TransientModel):
     line_ids = fields.One2many(
         'stock.move.line.fast_encode_rr.line', 'wizard_id', string="Pallet Lines", readonly=False
     )
+    
     def action_confirm(self):
         """Apply wizard changes back to stock.move.line"""
+        
+        # Check if this is a blast freeze operation
+        is_blast_freeze = self.env.context.get('is_blast_freeze', False)
+        
+        if is_blast_freeze:
+            # Simple write for blast freeze - no pallet series grouping or reservations
+            for line in self.line_ids:
+                if line.stock_move_line:
+                    move_line = self.env['stock.move.line'].browse(line.stock_move_line)
+                    move_line.write({
+                        'result_package_id': line.result_package_id.id if line.result_package_id else False,
+                        'bf_pallet_char': line.bf_pallet_char,
+                        'x_studio_2nd_uom': line.quantity,
+                        'x_studio_total_units': line.min_uom_unit,
+                        'quantity': line.kilogram,
+                    })
+            return {'type': 'ir.actions.act_window_close'}
+        
+        # Normal logic for non-blast-freeze operations
+        # Get all move lines for this transfer to track pallet and location changes
+        if not self.line_ids:
+            return {'type': 'ir.actions.act_window_close'}
+        
+        transfer_id = self.line_ids[0].transfer_id
+        
+        # Track pallets and locations that were previously used (before wizard changes)
+        previous_pallets = set()
+        previous_locations = set()
         for line in self.line_ids:
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
-                move_line.write({
-                    'result_package_id': line.result_package_id,
+                if move_line.result_package_id:
+                    previous_pallets.add(move_line.result_package_id.id)
+                if move_line.location_dest_id:
+                    previous_locations.add(move_line.location_dest_id.id)
+        
+        # First pass: Build mappings of pallet_id -> first pallet_series_id and first location
+        pallet_to_first_series = {}
+        pallet_to_first_location = {}
+        wizard_series_to_recycle = set()  # Track which series will be replaced
+        current_pallets = set()  # Track pallets being used after wizard changes
+        current_locations = set()  # Track locations being used after wizard changes
+        
+        for line in self.line_ids:
+            if line.result_package_id:
+                pallet_id = line.result_package_id.id
+                current_pallets.add(pallet_id)
+                
+                # Only store the first series and location for each pallet
+                if pallet_id not in pallet_to_first_series:
+                    pallet_to_first_series[pallet_id] = line.pallet_series_id
+                    pallet_to_first_location[pallet_id] = line.location_dest_id.id if line.location_dest_id else False
+                    if line.location_dest_id:
+                        current_locations.add(line.location_dest_id.id)
+                else:
+                    # This line's series will be replaced, mark it for recycling
+                    wizard_series_to_recycle.add(line.pallet_series_id)
+            
+            # Track locations even if no pallet is set
+            if line.location_dest_id:
+                current_locations.add(line.location_dest_id.id)
+        
+        # Second pass: Check if pallets are already used by OTHER existing move lines
+        # If so, prioritize their existing series and location, recycle wizard series accordingly
+        for pallet_id, wizard_series in pallet_to_first_series.items():
+            existing_line = self.env['stock.move.line'].search([
+                ('picking_id', '=', transfer_id),
+                ('result_package_id', '=', pallet_id),
+                ('x_studio_pallet_series_id', '!=', False),
+                ('id', 'not in', self.line_ids.mapped('stock_move_line'))
+            ], limit=1)
+            
+            if existing_line:
+                # Existing line found - use its series and location instead
+                # Mark the wizard's first series for this pallet as unused too
+                wizard_series_to_recycle.add(wizard_series)
+                pallet_to_first_series[pallet_id] = existing_line.x_studio_pallet_series_id
+                pallet_to_first_location[pallet_id] = existing_line.location_dest_id.id if existing_line.location_dest_id else False
+        
+        # Third pass: Apply changes to stock.move.line
+        for line in self.line_ids:
+            if line.stock_move_line:
+                move_line = self.env['stock.move.line'].browse(line.stock_move_line)
+                
+                # Determine which pallet_series_id and location_dest_id to use
+                pallet_series_to_use = line.pallet_series_id
+                location_dest_to_use = line.location_dest_id.id if line.location_dest_id else False
+                
+                if line.result_package_id:
+                    # Use the determined series and location for this pallet
+                    pallet_series_to_use = pallet_to_first_series.get(line.result_package_id.id, line.pallet_series_id)
+                    location_dest_to_use = pallet_to_first_location.get(line.result_package_id.id, location_dest_to_use)
+                
+                # Build the values to write
+                write_vals = {
+                    'result_package_id': line.result_package_id.id if line.result_package_id else False,
                     'bf_pallet_char': line.bf_pallet_char,
                     'x_studio_2nd_uom': line.quantity,
                     'x_studio_total_units': line.min_uom_unit,
                     'quantity': line.kilogram,
-                })
+                    'x_studio_pallet_series_id': pallet_series_to_use,
+                }
                 
-                for ml in move_line:
-                    # Only assign pallet series if this pallet is already used by another line
-                    if ml.result_package_id and self._is_pallet_already_used(ml):
-                        ml.assign_pallet_series_on_already_used_pallets()
-                    
-                    # ml.unreserve_onchange_pallet()
+                # Only write location_dest_id if we have a valid value
+                if location_dest_to_use:
+                    write_vals['location_dest_id'] = location_dest_to_use
+                
+                # Write all the values
+                move_line.write(write_vals)
+                
+                # Reserve the pallet if it's not already reserved
+                if line.result_package_id and not line.result_package_id.x_studio_is_reserved:
+                    line.result_package_id.write({
+                        'x_studio_is_reserved': True, 
+                        'x_studio_receiving_report_id': transfer_id
+                    })
+                
+                # Reserve the location if it's not already reserved
+                if location_dest_to_use:
+                    location = self.env['stock.location'].browse(location_dest_to_use)
+                    if location.exists() and not location.x_studio_is_reserved:
+                        location.write({
+                            'x_studio_is_reserved': True,
+                            'x_studio_receiving_report_id': transfer_id
+                        })
+        
+        # Fourth pass: Remove reservations for pallets that are no longer being used
+        removed_pallets = previous_pallets - current_pallets
+        for pallet_id in removed_pallets:
+            # Check if this pallet is still used by other move lines in the same transfer
+            other_usage = self.env['stock.move.line'].search([
+                ('picking_id', '=', transfer_id),
+                ('result_package_id', '=', pallet_id),
+                ('id', 'not in', self.line_ids.mapped('stock_move_line'))
+            ], limit=1)
+            
+            # Only remove reservation if no other lines are using it
+            if not other_usage:
+                pallet = self.env['stock.quant.package'].browse(pallet_id)
+                if pallet.exists():
+                    pallet.remove_reservation()
+        
+        # Fifth pass: Remove reservations for locations that are no longer being used
+        removed_locations = previous_locations - current_locations
+        for location_id in removed_locations:
+            # Check if this location is still used by other move lines in the same transfer
+            other_usage = self.env['stock.move.line'].search([
+                ('picking_id', '=', transfer_id),
+                ('location_dest_id', '=', location_id),
+                ('id', 'not in', self.line_ids.mapped('stock_move_line'))
+            ], limit=1)
+            
+            # Only remove reservation if no other lines are using it
+            if not other_usage:
+                location = self.env['stock.location'].browse(location_id)
+                if location.exists():
+                    location.remove_reservation()
+        
+        # Sixth pass: Push unused pallet series back to owner
+        self._recycle_unused_pallet_series(wizard_series_to_recycle)
         
         return {'type': 'ir.actions.act_window_close'}
     
-    def _is_pallet_already_used(self, move_line):
-        """Check if this pallet is already used by another line in the same transfer"""
-        existing_usage = self.env['stock.move.line'].search([
-            ('picking_id', '=', move_line.picking_id.id),
-            ('result_package_id', '=', move_line.result_package_id.id),
-            ('x_studio_pallet_series_id', '!=', False),  # Has a pallet series already
-            ('id', '!=', move_line.id)  # Exclude current line
-        ], limit=1)
+    def _recycle_unused_pallet_series(self, series_to_recycle):
+        """Push unused pallet series back to the owner's pool"""
+        if not series_to_recycle:
+            return
         
-        return bool(existing_usage)
+        # Get the picking to find the owner
+        if not self.line_ids:
+            return
+        
+        picking = self.env['stock.picking'].browse(self.line_ids[0].transfer_id)
+        if not picking:
+            return
+        
+        # For each series that needs recycling, verify it's not being used anywhere
+        for series_id in series_to_recycle:
+            # Check if this series is actually being used in the final move lines
+            series_in_use = self.env['stock.move.line'].search([
+                ('picking_id', '=', picking.id),
+                ('x_studio_pallet_series_id', '=', series_id)
+            ], limit=1)
+            
+            # Only push back if it's truly unused
+            if not series_in_use:
+                # Find the owner from any move line in this picking
+                move_line_with_owner = self.env['stock.move.line'].search([
+                    ('picking_id', '=', picking.id),
+                    ('owner_id', '!=', False)
+                ], limit=1)
+                
+                if move_line_with_owner and move_line_with_owner.owner_id:
+                    move_line_with_owner.owner_id.push_unused_pallet(series_id)
+    
+
+
 
 class FastEncodeRRWizardLine(models.TransientModel):
     _name = 'stock.move.line.fast_encode_rr.line'
@@ -62,124 +230,27 @@ class FastEncodeRRWizardLine(models.TransientModel):
     quantity = fields.Float(string="Quantity")
     min_uom_unit = fields.Float(string="Packs")
     kilogram = fields.Float(string="Weight (KG)")
-    previous_result_package_id = fields.Many2one('stock.quant.package', string='Previous RR Pallet #', copy=False)
-
-    def write(self, vals):
-        """Override write to handle pallet changes"""
-        # Handle pallet logic before write if result_package_id is changing
-        if 'result_package_id' in vals:
-            # Store each record's previous value individually before the batch write
-            previous_values = {}
-            for record in self:
-                previous_values[record.id] = record.result_package_id.id if record.result_package_id else False
-            
-            # Perform the write
-            result = super(FastEncodeRRWizardLine, self).write(vals)
-            
-            # Handle pallet logic after write for each record
-            for record in self:
-                # Set the previous value for this specific record
-                record.previous_result_package_id = previous_values.get(record.id, False)
-                record._handle_pallet_change()
-            
-            return result
-        else:
-            # No pallet change, just do normal write
-            return super(FastEncodeRRWizardLine, self).write(vals)
-
-
-    def extract_id_from_newid(self, newid):
-        # Already an integer
-        if isinstance(newid, int):
-            return newid
-        
-        # None or False
-        if not newid:
-            return False
-            
-        # Ensure that newid is a string before processing below
-        newid = str(newid)
-        
-        # Check if the string starts with "NewId_"
-        if newid.startswith("NewId_"):
-            # Return false because its a memory address
-            if len(newid[6:]) > 13:
-                return False
-            # Extract the numeric part after "NewId_"
-            return int(newid[6:])
-        else:
-            raise ValueError(f"Invalid NewId format: {newid}")
-
+    location_dest_id = fields.Many2one('stock.location', string='Destination Location')
     
-    def _handle_pallet_change(self):
-        """Separate method to handle pallet reservation logic"""
-        
-        if not self.product_id or not self.transfer_id:
-            return
-        
-        report_id = self.transfer_id
-        picking = self.env['stock.picking'].browse(report_id)
-        id = self.extract_id_from_newid(self.id)
-        if not picking:
-            return
-        
-        # Check if others are using the previous pallet
-        if self.previous_result_package_id:
-            wizard_lines_using_previous = self.env['stock.move.line.fast_encode_rr.line'].search([
-                ('transfer_id', '=', report_id),
-                ('result_package_id', '=', self.previous_result_package_id.id),
-                ('id', '!=', id)
+    has_duplicate_pallet = fields.Boolean(
+        string='Has Duplicate Pallet',
+        compute='_compute_has_duplicate_pallet',
+        store=False
+    )
+    
+    @api.depends('result_package_id', 'wizard_id.line_ids.result_package_id')
+    def _compute_has_duplicate_pallet(self):
+        """Check if this line's pallet is used by other lines in the wizard"""
+        for record in self:
+            if not record.result_package_id:
+                record.has_duplicate_pallet = False
+                continue
+            
+            # Count how many lines in this wizard have the same pallet
+            duplicate_count = self.search_count([
+                ('wizard_id', '=', record.wizard_id.id),
+                ('result_package_id', '=', record.result_package_id.id)
             ])
             
-            move_lines_using_previous = self.env['stock.move.line'].search([
-                ('picking_id', '=', report_id),
-                ('result_package_id', '=', self.previous_result_package_id.id)
-            ])
-            
-            # Unreserve if no one else is using it
-            if not wizard_lines_using_previous and not move_lines_using_previous:
-                self.previous_result_package_id.write({
-                    'x_studio_is_reserved': False,
-                    'x_studio_receiving_report_id': False,
-                })
-        
-        # Reserve the new pallet
-        if self.result_package_id and picking.picking_type_code == 'incoming':
-            # Check if the new pallet is already being used by other wizard lines OR move lines
-            wizard_lines_using_new = self.env['stock.move.line.fast_encode_rr.line'].search([
-                ('transfer_id', '=', report_id),
-                ('result_package_id', '=', self.result_package_id.id),
-                ('id', '!=', id)
-            ])
-            
-            move_lines_using_new = self.env['stock.move.line'].search([
-                ('picking_id', '=', report_id),
-                ('result_package_id', '=', self.result_package_id.id)
-            ])
-            
-            # If other wizard lines or move lines are using this pallet in the SAME transfer
-            if wizard_lines_using_new or move_lines_using_new:
-                # Just make sure it's reserved for THIS transfer (or not reserved yet)
-                if self.result_package_id.x_studio_receiving_report_id and \
-                   self.result_package_id.x_studio_receiving_report_id.id != report_id:
-                    # It's reserved for a DIFFERENT transfer - this is an error
-                    raise UserError("Oops, it seems like someone already reserved the pallet for another transfer. Please select another pallet.")
-                
-                # It's either not reserved yet, or reserved for this transfer - reserve it
-                if not self.result_package_id.x_studio_is_reserved or \
-                   not self.result_package_id.x_studio_receiving_report_id:
-                    self.result_package_id.write({
-                        'x_studio_is_reserved': True,
-                        'x_studio_receiving_report_id': report_id,
-                    })
-                return
-            
-            # No one else is using it, so we need to reserve it
-            if not self.result_package_id.x_studio_receiving_report_id or \
-               self.result_package_id.x_studio_receiving_report_id.id == report_id:
-                self.result_package_id.write({
-                    'x_studio_is_reserved': True,
-                    'x_studio_receiving_report_id': report_id,
-                })
-            else:
-                raise UserError("Oops, it seems like someone already reserved the pallet. Please select another pallet.")
+            # If more than 1, then this pallet is duplicated
+            record.has_duplicate_pallet = duplicate_count > 1
