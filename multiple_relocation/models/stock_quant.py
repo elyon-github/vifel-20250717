@@ -82,6 +82,7 @@ class multiple_relocation(models.TransientModel):
                 'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
                 'package_id': quant.package_id.id,
                 'current_location': quant.location_id.id,
+                'new_location': quant.x_studio_dest_relocation,
                 'x_studio_production_date': quant.x_studio_production_date,
                 'x_studio_expiration_date': quant.x_studio_expiration_date,
                 'x_studio_2nd_uom': quant.x_studio_2nd_uom,
