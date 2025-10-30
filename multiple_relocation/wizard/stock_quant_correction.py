@@ -351,7 +351,8 @@ class StockQuantCorrectionWizard(models.TransientModel):
         }
         
         move = self.env['stock.move'].create(move_vals)
-        
+
+
         move_line_vals = {
             'move_id': move.id,
             'product_id': quant.product_id.id,
@@ -360,7 +361,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'location_id': inventory_location.id,
             'location_dest_id': quant.location_id.id,
             'lot_id': quant.lot_id.id if quant.lot_id else False,
-            'package_id': quant.package_id.id if quant.package_id else False,
+            'package_id': original_state.get('package_id') if original_state.get('package_id') else None,
             'result_package_id': quant.package_id.id if quant.package_id else False,
             'reference': self._format_changes_reference(changes, original_state),
             'x_studio_reason_for_adjustment': self.reason_for_adjustment,
@@ -423,23 +424,47 @@ class StockQuantCorrectionWizard(models.TransientModel):
         """Format changes for reference field"""
         change_list = []
         for field, (old_val, new_val) in changes.items():
-            if field == 'product_id':
+            old_display = new_display = None
+
+            # Handle special relational fields
+            if field == 'package_id':
+                old_pkg = self.env['stock.quant.package'].browse(old_val) if old_val else False
+                new_pkg = self.env['stock.quant.package'].browse(new_val) if new_val else False
+                old_display = old_pkg.name if old_pkg else 'None'
+                new_display = new_pkg.name if new_pkg else 'None'
+    
+            elif field == 'x_studio_quantity_uom':
+                old_uom = self.env['uom.uom'].browse(old_val) if old_val else False
+                new_uom = self.env['uom.uom'].browse(new_val) if new_val else False
+                old_display = old_uom.name if old_uom else 'None'
+                new_display = new_uom.name if new_uom else 'None'
+    
+            elif field == 'product_id':
                 old_display = original_state.get('product_name', 'Unknown')
                 new_display = original_state.get('new_product_name', str(new_val))
+    
             else:
+                # fallback to generic formatter
                 old_display = self._format_value_for_display(old_val)
                 new_display = self._format_value_for_display(new_val)
+    
             field_label = self._get_field_label(field)
             change_list.append(f"[{field_label}: {old_display} → {new_display}]")
+    
+        # Compose reference text
         from datetime import datetime, timezone, timedelta
         utc_plus_8 = timezone(timedelta(hours=8))
         timestamp = datetime.now(utc_plus_8).strftime('%m/%d/%y %H:%M:%S')
         user = self.env.user.name
         return f"CORRECTION ({timestamp} by {user}): " + " ".join(change_list)
+
     
     def _get_field_label(self, field_name):
         """Get field label"""
+
         Quant = self.env['stock.quant']
+        if field_name == 'package_id':
+            return 'Pallet #'
         if field_name in Quant._fields:
             return Quant._fields[field_name].string or field_name
         if field_name == 'product_uom_qty':
@@ -527,7 +552,7 @@ class StockQuantCorrectionLine(models.TransientModel):
 
     wizard_id = fields.Many2one('stock.quant.correction.wizard', required=True, ondelete='cascade')
     quant_id = fields.Many2one('stock.quant', string='Original Quant', required=True)
-    package_id = fields.Many2one('stock.quant.package', string='Package')
+    package_id = fields.Many2one('stock.quant.package', string='Pallet #')
     x_studio_pallet_series_id = fields.Char(string='Placeholder')
     product_id = fields.Many2one('product.product', string='Product', required=True)
     x_studio_production_date = fields.Date(string='Production Date')
@@ -990,7 +1015,7 @@ class StockQuantAdjustmentLine(models.Model):
     display_location = fields.Char(string='Location', related='quant_id.location_id.complete_name', readonly=True)
     
     # OLD VALUES
-    old_package_id = fields.Many2one('stock.quant.package', string='Old Package', readonly=True)
+    old_package_id = fields.Many2one('stock.quant.package', string='Old Pallet #', readonly=True)
     old_product_id = fields.Many2one('product.product', string='Old Product', readonly=True)
     old_quantity = fields.Float(string='Old Quantity', readonly=True)
     old_lot_id = fields.Many2one('stock.lot', string='Old Lot', readonly=True)
@@ -1003,7 +1028,7 @@ class StockQuantAdjustmentLine(models.Model):
     old_x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Old Heads UOM', readonly=True)
     
     # NEW VALUES
-    new_package_id = fields.Many2one('stock.quant.package', string='New Package')
+    new_package_id = fields.Many2one('stock.quant.package', string='New Pallet #')
     new_product_id = fields.Many2one('product.product', string='New Product')
     new_quantity = fields.Float(string='New Quantity')
     new_lot_id = fields.Many2one('stock.lot', string='New Lot')
