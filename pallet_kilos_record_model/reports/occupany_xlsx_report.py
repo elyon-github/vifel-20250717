@@ -148,8 +148,8 @@ class PalletKilosXlsx(models.AbstractModel):
         sheet.set_column(2, 200, 12)  # Date columns
 
         # Sort records by date
-        sorted_records = sorted(records, key=lambda x: x.start_time)
-        
+        sorted_records = sorted(records, key=lambda x: (x.start_time, x.id))        
+
         if not sorted_records:
             return
 
@@ -278,7 +278,7 @@ class PalletKilosXlsx(models.AbstractModel):
                     if date in owner_dates:
                         day_records = owner_dates[date]
                         if day_records:
-                            last_record = sorted(day_records, key=lambda x: x['record'].start_time)[-1]
+                            last_record = sorted(day_records, key=lambda x: (x['record'].start_time, x['record'].id))[-1]
                             pallet_count = last_record['pallets'] or 0
                             kilos_count = last_record['kilos'] or 0
                             last_known_pallet = pallet_count

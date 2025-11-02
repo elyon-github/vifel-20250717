@@ -1312,7 +1312,8 @@ class transfer_locations(models.Model):
                 'default_picking_id': self.id,  # Pass the current picking_id to the wizard
                 'is_for_revision': self.x_studio_for_revision,
                 'default_warehouse_id': self.picking_type_id.warehouse_id.id,
-                'voided': self.x_studio_voided
+                'voided': self.x_studio_voided,
+                'is_a_blast_freeze': self.x_studio_is_a_blast_freezer,
             },
         }
         
