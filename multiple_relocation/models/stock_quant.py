@@ -527,14 +527,13 @@ class OverrideStockQuant(models.Model):
 
     x_studio_building_dropped = fields.Char(string="Building")
     original_record_reference = fields.Many2one('stock.picking')
-    
+        
     x_studio_aging_days = fields.Integer(
         string='Aging Day/s',
         compute='_compute_aging_days',
-        store=True,  # Optional: set to True if you want to store the computed value
+        store=True,
         help='Number of days from today to expiration date. Negative values indicate expired items.',
-        group_operator=False
-        
+        group_operator='avg'  # or 'max', 'min', 'sum' depending on what makes sense
     )
 
     @api.onchange('x_studio_dest_relocation')
