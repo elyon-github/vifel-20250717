@@ -830,7 +830,8 @@ class OverrideStockQuant(models.Model):
             # Get all quants for this package
             all_package_quants = Quant.search([
                 ('package_id', '=', package_name),
-                ('x_studio_pallet_series_id', '!=', False)
+                ('x_studio_pallet_series_id', '!=', False),
+                ("quantity", ">", 0)
             ])
         
             selected_quant_ids = selected_quant_ids or set()
