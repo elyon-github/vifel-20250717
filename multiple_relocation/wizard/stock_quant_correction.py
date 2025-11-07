@@ -975,7 +975,7 @@ class StockQuantAdjustmentRequest(models.Model):
         if approval_group:
             self.activity_schedule(
                 'mail.mail_activity_data_todo',
-                user_id=approval_group.users[0].id if approval_group.users else self.env.user.id,
+                user_id=approval_group.users[1].id if approval_group.users else self.env.user.id,
                 summary=_('Stock Adjustment Approval Required'),
                 note=_('Request %s submitted by %s requires approval.\nReason: %s\nLines: %s') % (
                     self.name, self.requested_by.name, self.reason_for_adjustment, self.line_count
