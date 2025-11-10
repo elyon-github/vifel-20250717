@@ -10,6 +10,7 @@ class StockQuantRelocationLine(models.TransientModel):
     
     sequence = fields.Integer(string='#', default=10)
     relocate_wizard_id = fields.Many2one('stock.quant.relocate', required=True, ondelete='cascade')
+    
     quant_id = fields.Many2one('stock.quant', string='Original Quant', required=True)
     owner_id = fields.Many2one('res.partner', string="Owner", readonly=True)
     product_id = fields.Many2one('product.product', string='Product', readonly=True)
@@ -24,3 +25,12 @@ class StockQuantRelocationLine(models.TransientModel):
     x_studio_total_units = fields.Float(string='Total Packs', readonly=True)
     x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Packs UOM', readonly=True)
     quantity = fields.Float(string='Weight (KG)', readonly=True)
+    building = fields.Many2one('x_warehouse_building', string="Building", compute="_compute_building", store=True)
+
+    @api.depends('relocate_wizard_id.building')
+    def _compute_building(self):
+        for record in self:
+            if record.relocate_wizard_id.building:
+                record.building = record.relocate_wizard_id.building.id
+            else:
+                record.building = self.env['x_warehouse_building'].search([], limit=1)
