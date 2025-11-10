@@ -40,7 +40,7 @@
         <field name="name">Pallet Relocation History</field>
         <field name="res_model">stock.move.line</field>
         <field name="view_mode">tree</field>
-        <field name="views" eval="[(ref('view_stock_move_line_relocation_history_tree'), 'tree')]"/>
+        <field name="view_id" ref="view_stock_move_line_relocation_history_tree"/>
         <field name="domain">[('x_relocate_batch', '!=', False)]</field>
         <field name="target">current</field>
     </record>
@@ -97,7 +97,7 @@
         <field name="name">Pallet Detail Adjustment History</field>
         <field name="res_model">stock.move.line</field>
         <field name="view_mode">tree</field>
-        <field name="views" eval="[(ref('view_stock_move_line_adjustment_history_tree'), 'tree')]"/>
+        <field name="view_id" ref="view_stock_move_line_adjustment_history_tree"/>
         <field name="domain">[('adjustment_batch_number', '!=', False)]</field>
         <field name="target">current</field>
     </record>
