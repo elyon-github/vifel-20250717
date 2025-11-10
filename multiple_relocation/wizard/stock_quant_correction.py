@@ -1001,7 +1001,7 @@ class StockQuantAdjustmentLine(models.Model):
     rejection_reason = fields.Text(string='Rejection Reason')
     approved_by = fields.Many2one('res.users', string='Approved By', readonly=True)
     approved_date = fields.Datetime(string='Approved Date', readonly=True)
-    quant_id = fields.Many2one('stock.quant', string='Pallet Quant Details', required=True)
+    quant_id = fields.Many2one('stock.quant', string='Pallet Quant Details')
     quant_snapshot = fields.Text(string='Quant Snapshot', readonly=True, help='JSON snapshot of quant state when request was created')
     conflict_status = fields.Selection([
         ('ok', 'OK'),

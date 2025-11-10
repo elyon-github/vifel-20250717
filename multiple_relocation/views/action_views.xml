@@ -63,8 +63,8 @@
                 <field name="company_id" column_invisible="1"/>
                 <field name="product_uom_category_id" column_invisible="1"/>
                 <field name="date"/>
-                <field name="x_studio_relocation_done"/>
-                <field name="x_relocate_batch"/>
+                <!-- <field name="x_studio_relocation_done"/>
+                <field name="x_relocate_batch"/> -->
                 <field name="reference"/>
                 <field name="x_studio_reason_for_adjustment"/>
                 <field name="owner_id"/>
