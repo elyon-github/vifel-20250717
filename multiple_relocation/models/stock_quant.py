@@ -25,6 +25,8 @@ class multiple_relocation(models.TransientModel):
     )
     
     quant_relocation_line_ids = fields.One2many('stock.quant.relocation.line', 'relocate_wizard_id', string='Quant Relocation')
+
+    building = fields.Many2one('x_warehouse_building', string="Building", required=True)
     
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
