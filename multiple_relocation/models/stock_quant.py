@@ -149,7 +149,8 @@ class multiple_relocation(models.TransientModel):
         
         for loc_id, data in conflicting_lines.items():
             line_numbers = ', '.join([f"#{l.sequence}" for l in data['lines']])
-            errors.append(f"Location '{data['location'].vifel_location_name}' selected multiple times. Conflicting Line(s): {line_numbers}")
+            if not data['location'].x_studio_is_an_aisle:
+                errors.append(f"Location '{data['location'].vifel_location_name}' selected multiple times. Conflicting Line(s): {line_numbers}")
         
         return errors
     
