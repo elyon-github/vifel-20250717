@@ -179,12 +179,13 @@ class transfer_locations(models.Model):
         store=False
     )
 
-    @api.depends("return_ids.state")
+    @api.depends("return_ids.state", "return_ids.return_reason")
     def _compute_show_return_alert(self):
         for rec in self:
-            # True if at least one return_id is in draft or assigned
+            # True if at least one return_id is in draft or assigned and is NOT a void transfer
             rec.show_return_alert = any(
-                r.state in ("draft", "assigned") for r in rec.return_ids
+                r.state in ("draft", "assigned") and r.return_reason != 'Void Transfer'
+                for r in rec.return_ids
             )
     
     def _compute_void_equivalent(self):
@@ -533,6 +534,7 @@ class transfer_locations(models.Model):
             'x_studio_gate_pass': record.x_studio_gate_pass,
             'x_studio_source': 'VOIDED',
             'x_studio_remarks': f'Auto-created from voided {record.name}',
+            'x_studio_manual_document_': 'VOIDED',
         })
         
         # Remove copied moves - we'll create fresh ones from quants
@@ -733,7 +735,8 @@ class transfer_locations(models.Model):
         if result and result.get('res_id'):
             return_picking = self.env['stock.picking'].browse(result['res_id'])
             return_picking.is_void_return = True
-            _logger.info("Marked return RR %s as void_return, will auto-void after validation", return_picking.name)
+            return_picking.x_studio_manual_document_ = 'VOIDED'
+            _logger.info("Marked return RR %s as void_return with VOIDED tag, will auto-void after validation", return_picking.name)
 
         _logger.info("Created return RR from voided WR %s via Return Packages wizard", record.name)
         return result
