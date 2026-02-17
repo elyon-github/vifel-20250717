@@ -179,6 +179,7 @@
         <xpath expr="//tree" position="attributes">
             <attribute name="editable">bottom</attribute>
             <attribute name="default_order">x_studio_pallet_series_id asc, product_id, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id</attribute>
+            <attribute name="js_class">magic_wizard_list_view</attribute>
         </xpath>
 
         <!-- Define Domain for Location Destination Field -->

@@ -55,6 +55,8 @@ Long description of module's purpose
             'multiple_relocation/static/src/js/many2many_tags_field.js',
             'multiple_relocation/static/src/js/fast_encode_rr_list_controller.js',
             'multiple_relocation/static/src/js/fast_encode_rr_list_view_template.xml',
+            'multiple_relocation/static/src/js/magic_wizard_list_controller.js',
+            'multiple_relocation/static/src/js/magic_wizard_list_view_template.xml',
         ],
         
     }
