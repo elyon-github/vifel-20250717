@@ -23,6 +23,17 @@ class picking_type(models.Model):
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
+    is_void_wr = fields.Boolean(string="Is Void WR", default=False, copy=False, help="Marks this WR as auto-created by voiding an RR. Will auto-void after validation.")
+    void_source_picking_id = fields.Many2one('stock.picking', string="Void Source Picking", copy=False, readonly=True, help="The original RR that was voided to create this WR.")
+    is_void_return = fields.Boolean(string="Is Void Return", default=False, copy=False, help="Marks this return RR as auto-created by voiding a WR. Will auto-void after validation.")
+
+    # Void equivalent smart button fields
+    void_equivalent_count = fields.Integer(string="Void Equivalent Count", compute="_compute_void_equivalent")
+    void_equivalent_label = fields.Char(string="Void Equivalent Label", compute="_compute_void_equivalent")
+
+    # Non-void return count (excludes returns with return_reason='Void Transfer')
+    non_void_return_count = fields.Integer(string="Non-Void Returns", compute="_compute_non_void_return_count")
+
     next_step_status = fields.Char(compute="_compute_next_step_status", default=lambda self: self._default_next_step_status())
 
 
@@ -175,6 +186,106 @@ class transfer_locations(models.Model):
             rec.show_return_alert = any(
                 r.state in ("draft", "assigned") for r in rec.return_ids
             )
+    
+    def _compute_void_equivalent(self):
+        """Compute the void equivalent record(s) count and label for the smart button."""
+        for record in self:
+            void_records = self.env['stock.picking']
+
+            if record.is_void_wr:
+                # This IS a void WR → parent is the source RR
+                if record.void_source_picking_id:
+                    void_records = record.void_source_picking_id
+                record.void_equivalent_label = "Void Parent Equivalent Record"
+            elif record.is_void_return:
+                # This IS a void return RR → parent is the WR
+                if record.return_id:
+                    void_records = record.return_id
+                record.void_equivalent_label = "Void Parent Equivalent Record"
+            elif record.x_studio_voided:
+                is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
+                if is_receiving:
+                    # Voided RR → find the void WR created from it
+                    void_records = self.env['stock.picking'].search([
+                        ('void_source_picking_id', '=', record.id),
+                    ])
+                else:
+                    # Voided WR → find the void return RR created from it
+                    void_records = record.return_ids.filtered(lambda r: r.is_void_return)
+                record.void_equivalent_label = "Void Equivalent Record"
+            else:
+                record.void_equivalent_label = "Void Equivalent Record"
+
+            record.void_equivalent_count = len(void_records)
+
+    def _compute_non_void_return_count(self):
+        """Compute the count of returns excluding those with return_reason='Void Transfer'."""
+        for record in self:
+            non_void_returns = record.return_ids.filtered(
+                lambda r: r.return_reason != 'Void Transfer'
+            )
+            record.non_void_return_count = len(non_void_returns)
+
+    def action_see_void_equivalent(self):
+        """Navigate to the void equivalent record(s)."""
+        self.ensure_one()
+        void_records = self.env['stock.picking']
+
+        if self.is_void_wr:
+            # This IS a void WR → navigate to source RR
+            if self.void_source_picking_id:
+                void_records = self.void_source_picking_id
+        elif self.is_void_return:
+            # This IS a void return RR → navigate to parent WR
+            if self.return_id:
+                void_records = self.return_id
+        elif self.x_studio_voided:
+            is_blast_freeze, is_receiving = self.operation_type_checker(self.picking_type_id)
+            if is_receiving:
+                # Voided RR → find void WR
+                void_records = self.env['stock.picking'].search([
+                    ('void_source_picking_id', '=', self.id),
+                ])
+            else:
+                # Voided WR → find void return RR
+                void_records = self.return_ids.filtered(lambda r: r.is_void_return)
+
+        if len(void_records) == 1:
+            return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'stock.picking',
+                'views': [[False, 'form']],
+                'res_id': void_records.id,
+            }
+        elif len(void_records) > 1:
+            return {
+                'name': _('Void Equivalent Records'),
+                'type': 'ir.actions.act_window',
+                'res_model': 'stock.picking',
+                'views': [[False, 'tree'], [False, 'form']],
+                'domain': [('id', 'in', void_records.ids)],
+            }
+
+    def action_see_returns(self):
+        """Override to exclude returns with return_reason='Void Transfer'."""
+        self.ensure_one()
+        non_void_returns = self.return_ids.filtered(
+            lambda r: r.return_reason != 'Void Transfer'
+        )
+        if len(non_void_returns) == 1:
+            return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'stock.picking',
+                'views': [[False, 'form']],
+                'res_id': non_void_returns.id,
+            }
+        return {
+            'name': _('Returns'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'views': [[False, 'tree'], [False, 'form']],
+            'domain': [('id', 'in', non_void_returns.ids)],
+        }
     
             
     
@@ -330,57 +441,414 @@ class transfer_locations(models.Model):
             record.total_weight = total_weight
             
         
+    def _void_archive_pallet_kilos_record(self, record):
+        """Archive the pallet kilos record associated with a picking and recalculate balances."""
+        pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search(
+            [('effective_document', '=', record.id), ('active', '=', True)],
+            order='create_date desc',
+            limit=1
+        )
+        
+        if pallet_record:
+            warehouse_id = pallet_record.warehouse.id
+            is_blast_freezer = pallet_record.is_blast_freezer
+            start_time = pallet_record.start_time
+            
+            if pallet_record.readjustment_document and pallet_record.readjustment_document.id == record.id:
+                pallet_record.readjustment_document = False
+            pallet_record.active = False
+            
+            _logger.info("Deactivated pallet kilos record: %s", pallet_record.effective_document.name)
+            
+            previous_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search([
+                ('warehouse', '=', warehouse_id),
+                ('is_blast_freezer', '=', is_blast_freezer),
+                ('start_time', '<', start_time),
+                ('active', '=', True)
+            ], order='start_time desc', limit=1)
+
+            if previous_record:
+                recalc_from_time = previous_record.start_time
+            else:
+                recalc_from_time = None
+
+            pallet_record._recalculate_running_balances(
+                warehouse_id, 
+                is_blast_freezer, 
+                recalc_from_time
+            )
+            
+            _logger.info("Voided transfer and archived Pallet Kilos Log: %s", record.name)
+        else:
+            _logger.warning("No pallet kilos record found for transfer: %s", record.name)
+
+    def _create_void_wr_from_rr(self, record):
+        """
+        Create an outgoing (WR) picking to reverse the inventory from a voided RR/BFRR.
+        Automatically checks out the same stock quants that were received.
+        Returns the created WR picking record.
+        """
+        is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
+        
+        if not is_receiving:
+            return False
+        
+        warehouse_id = record.picking_type_id.warehouse_id.id
+        
+        # Find the matching outgoing picking type
+        outgoing_picking_type = self.env['stock.picking.type'].search([
+            ('code', '=', 'outgoing'),
+            ('is_blast_freeze_operation', '=', is_blast_freeze),
+            ('warehouse_id', '=', warehouse_id)
+        ], limit=1)
+        
+        if not outgoing_picking_type:
+            raise UserError(_("No matching outgoing operation type found for warehouse. Cannot create void WR."))
+        
+        # Source = where goods were received TO (RR destination)
+        # Destination = default location for outgoing operations (ID 5)
+        wr_source_location = record.location_dest_id.id
+        wr_dest_location = 5  # Default destination location for void WR
+        
+        # Create the WR picking
+        wr_picking = record.copy({
+            'picking_type_id': outgoing_picking_type.id,
+            'location_id': wr_source_location,
+            'location_dest_id': wr_dest_location,
+            'x_studio_last_operation_source_document': record.id,
+            'state': 'draft',
+            'is_void_wr': True,
+            'void_source_picking_id': record.id,
+            'x_studio_voided': False,
+            'x_studio_loading_dock_no': 'N/A',
+            'truck_type': record.truck_type,
+            'x_studio_trucks_plate_': record.x_studio_trucks_plate_,
+            'x_studio_driver': record.x_studio_driver,
+            'x_studio_client_reference': record.x_studio_client_reference,
+            'x_studio_start_time': record.x_studio_end_time,
+            'x_studio_truck_time': record.x_studio_end_time,
+            'x_studio_validated_by': False,
+            'x_studio_checked_by': False,
+            'x_studio_approved_by': False,
+            'x_studio_gate_pass': record.x_studio_gate_pass,
+            'x_studio_source': 'VOIDED',
+            'x_studio_remarks': f'Auto-created from voided {record.name}',
+        })
+        
+        # Remove copied moves - we'll create fresh ones from quants
+        wr_picking.move_ids_without_package.unlink()
+        
+        _logger.info("Created void WR %s from voided RR %s", wr_picking.name, record.name)
+        
+        # Find the stock quants that were received by this RR
+        # These are quants at the RR's destination location, owned by the same partner,
+        # with pallet_series_ids matching the RR's move lines
+        rr_pallet_series_ids = record.move_line_ids.mapped('x_studio_pallet_series_id')
+        # Filter out empty strings
+        rr_pallet_series_ids = [p for p in rr_pallet_series_ids if p]
+        
+        if not rr_pallet_series_ids:
+            _logger.warning("No pallet series IDs found on voided RR %s, cannot auto-checkout quants", record.name)
+            return wr_picking
+        
+        # Get child locations of the RR destination (where goods landed)
+        child_location_ids = self.env['stock.location'].search([
+            ('id', 'child_of', wr_source_location)
+        ]).ids
+        
+        # Find quants with matching pallet series in those locations
+        quant_domain = [
+            ('location_id', 'in', child_location_ids),
+            ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
+            ('quantity', '>', 0),
+        ]
+        
+        if record.partner_id:
+            quant_domain.append(('owner_id', '=', record.partner_id.id))
+        
+        quants_to_checkout = self.env['stock.quant'].search(quant_domain)
+        
+        if not quants_to_checkout:
+            _logger.warning("No quants found for voided RR %s at location %s", record.name, record.location_dest_id.name)
+            return wr_picking
+        
+        # Use create_transfer_stock_move logic to checkout quants into the WR
+        self._checkout_quants_to_picking(wr_picking, quants_to_checkout)
+        
+        _logger.info("Auto-checked out %d quants into void WR %s", len(quants_to_checkout), wr_picking.name)
+        
+        return wr_picking
+    
+    def _checkout_quants_to_picking(self, picking, quants):
+        """
+        Checkout stock quants into a picking by creating stock.move and stock.move.line records.
+        This replicates the logic from create_transfer_stock_move() on stock.quant.
+        """
+        StockMove = self.env['stock.move']
+        StockMoveLine = self.env['stock.move.line']
+        
+        grouped_data = {}
+        
+        for quant in quants:
+            product = quant.product_id
+            prod_id = product.id
+            
+            if not quant.quantity or quant.quantity <= 0:
+                continue
+            
+            # Merge key matches the pattern used in create_transfer_stock_move
+            merge_key = (
+                prod_id,
+                quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
+                quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False
+            )
+            
+            if merge_key not in grouped_data:
+                move_vals = {
+                    'picking_id': picking.id,
+                    'product_id': prod_id,
+                    'name': product.display_name,
+                    'product_uom': quant.product_uom_id.id,
+                    'location_id': quant.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                    'product_uom_qty': 0.0,
+                    'x_studio_packaging_unit': quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
+                    'x_studio_min_unit': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
+                    'picking_type_id': picking.picking_type_id.id,
+                }
+                
+                grouped_data[merge_key] = {
+                    'move_vals': move_vals,
+                    'total_qty': 0.0,
+                    'quant_ids': [],
+                    'move_line_vals': [],
+                }
+            
+            grouped_data[merge_key]['total_qty'] += quant.quantity
+            grouped_data[merge_key]['quant_ids'].append(quant.id)
+            
+            move_line_vals = {
+                'move_id': False,  # Updated after move creation
+                'picking_id': picking.id,
+                'product_id': prod_id,
+                'product_uom_id': quant.product_uom_id.id,
+                'quantity': quant.quantity,
+                'location_id': quant.location_id.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'lot_id': quant.lot_id.id if quant.lot_id else False,
+                'package_id': quant.package_id.id if quant.package_id else False,
+                'result_package_id': False,
+                'owner_id': quant.owner_id.id if quant.owner_id else False,
+            }
+            grouped_data[merge_key]['move_line_vals'].append(move_line_vals)
+        
+        # Create moves and move lines
+        all_move_lines = []
+        for merge_key, data in grouped_data.items():
+            data['move_vals']['product_uom_qty'] = data['total_qty']
+            move = StockMove.create(data['move_vals'])
+            
+            move.write({'quant_ids_picked': [(4, q_id) for q_id in data['quant_ids']]})
+            
+            for ml_vals in data['move_line_vals']:
+                ml_vals['move_id'] = move.id
+            all_move_lines.extend(data['move_line_vals'])
+        
+        if all_move_lines:
+            StockMoveLine.create(all_move_lines)
+    
+    def _create_return_rr_from_wr(self, record):
+        """
+        Create a return RR from a voided WR by programmatically invoking the
+        Return Packages wizard (action_return_packages) with all items selected
+        and return reason set to 'Void Transfer'.
+        Returns the wizard's action result (navigation to the new RR).
+        """
+        # Verify this is an outgoing operation
+        is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
+        if is_receiving:
+            _logger.warning("_create_return_rr_from_wr called on incoming operation %s - skipping", record.name)
+            return False
+
+        # Build wizard lines manually (replicating _compute_location_and_packages logic)
+        lines = []
+        for move_line in record.move_line_ids:
+            location_dest_id = False
+            pallet_result_id = False
+            if not move_line.location_id.x_studio_is_reserved:
+                occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
+                package_occupying_owners = (move_line.package_id.quant_ids.mapped('x_studio_pallet_series_id') if move_line.package_id else [])
+                if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
+                    location_dest_id = move_line.location_id.id
+            else:
+                package_occupying_owners = []
+            if (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners) or not move_line.package_id.location_id.id:
+                pallet_result_id = move_line.package_id.id
+
+            lines.append((0, 0, {
+                'select_package': True,  # Auto-select all
+                'result_package_id': pallet_result_id,
+                'location_dest_id': location_dest_id,
+                'pallet_series_id': move_line.x_studio_pallet_series_id,
+                'bf_pallet_char': move_line.bf_pallet_char,
+                'product_id': move_line.product_id.id,
+                'expiration_date': move_line.x_studio_expiration_date,
+                'x_studio_building_dropped': move_line.x_studio_building_dropped,
+                'original_record_reference': move_line.original_record_reference.id if move_line.original_record_reference else False,
+                'production_date': move_line.x_studio_production_date,
+                'lot_id': move_line.lot_id.id,
+                'stock_move_line': move_line.id,
+                'return_counter': move_line.x_studio_return_count,
+                'container_number': move_line.x_studio_container_number,
+                'pack_uom_unit': move_line.x_studio_affected_2nd_uom,
+                'min_uom_unit': move_line.x_studio_withdraw_units,
+                'quantity': move_line.quantity,
+                'pack_uom': move_line.x_studio_quantity_uom_delivery.id if move_line.x_studio_quantity_uom_delivery else False,
+                'min_uom': move_line.x_studio_min_quantity_uom.id if move_line.x_studio_min_quantity_uom else False,
+                'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
+                'actual_min_uom_unit': move_line.x_studio_withdraw_units,
+                'actual_quantity': move_line.quantity,
+                'location_id': record.location_id.id,
+            }))
+
+        # Create the wizard with all lines pre-built and selected
+        wizard = self.env['return.package.wizard'].with_context(
+            default_picking_id=record.id,
+            voided=True,
+            default_warehouse_id=record.picking_type_id.warehouse_id.id,
+        ).create({
+            'picking_id': record.id,
+            'return_reason': 'Void Transfer',
+            'warehouse_id': record.picking_type_id.warehouse_id.id,
+            'location_id': record.location_id.id,
+            'select_all': True,
+            'lines_computed': True,
+            'package_line_ids': lines,
+        })
+
+        # Process the return (creates the RR and returns navigation action)
+        result = wizard.action_process_return()
+
+        # If a return was created, mark it as a void return so it auto-voids after validation
+        if result and result.get('res_id'):
+            return_picking = self.env['stock.picking'].browse(result['res_id'])
+            return_picking.is_void_return = True
+            _logger.info("Marked return RR %s as void_return, will auto-void after validation", return_picking.name)
+
+        _logger.info("Created return RR from voided WR %s via Return Packages wizard", record.name)
+        return result
+
     def void_transfer(self):
-        """Mark transfer as voided and deactivate the latest associated pallet kilos record."""
+        """Mark transfer as voided and deactivate the latest associated pallet kilos record.
+        For incoming (RR/BFRR) transfers, creates a WR to reverse the inventory.
+        For outgoing (WR/BFWR) transfers, creates a return RR to reverse the withdrawal."""
         for record in self:
             if not self.env.user.has_group('__custom__.inventory_supervisor'):
                 raise UserError(_("You do not have permission to void transfers."))
-    
+
+            # Determine operation type early for guard rail checks
+            is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
+
+            # === GUARD RAILS ===
+            if is_receiving:
+                # RR/BFRR Guard Rail: Check if stock quants with pallet series still exist at destination
+                pallet_series_ids = record.move_line_ids.mapped('x_studio_pallet_series_id')
+                # Filter out empty strings
+                pallet_series_ids = [p for p in pallet_series_ids if p]
+                
+                if pallet_series_ids:
+                    child_location_ids = self.env['stock.location'].search([
+                        ('id', 'child_of', record.location_dest_id.id)
+                    ]).ids
+
+                    missing_pallets = []
+                    used_in_wr_pallets = []
+                    for pallet_series in pallet_series_ids:
+                        quant = self.env['stock.quant'].search([
+                            ('x_studio_pallet_series_id', '=', pallet_series),
+                            ('location_id', 'in', child_location_ids),
+                            ('quantity', '>', 0),
+                        ], limit=1)
+                        if not quant:
+                            # Quant is missing - check if it was used in a done WR
+                            used_in_wr = self.env['stock.move.line'].search([
+                                ('x_studio_pallet_series_id', '=', pallet_series),
+                                ('picking_id', '!=', record.id),
+                                ('picking_id.picking_type_id.code', '=', 'outgoing'),
+                                ('picking_id.x_studio_voided', '=', False),
+                                ('state', '=', 'done'),
+                            ], limit=1)
+                            if used_in_wr:
+                                used_in_wr_pallets.append((pallet_series, used_in_wr.picking_id.name))
+                            else:
+                                missing_pallets.append(pallet_series)
+
+                    if used_in_wr_pallets:
+                        details = '\n'.join([f"  - Pallet {pallet} → used in {wr}" for pallet, wr in used_in_wr_pallets])
+                        raise UserError(_(
+                            "Cannot void this receiving record.\n\n"
+                            "The following pallet(s) have been used in withdrawal record(s) that are still active:\n"
+                            "%(details)s\n\n"
+                            "Please void those withdrawal record(s) first before voiding this receiving record.",
+                            details=details,
+                        ))
+
+                    if missing_pallets:
+                        raise UserError(_(
+                            "Cannot void this receiving record.\n\n"
+                            "The following pallet(s) no longer have available stock at the destination location:\n"
+                            "%(pallet_names)s\n\n"
+                            "This stock may have been moved or consumed. "
+                            "Please check and resolve any dependent transactions first.",
+                            pallet_names=', '.join(missing_pallets),
+                        ))
+            else:
+                # WR/BFWR: Check if there are active (non-voided) return pickings
+                active_returns = record.return_ids.filtered(
+                    lambda r: r.state != 'cancel' and not r.x_studio_voided
+                )
+                if active_returns:
+                    return_names = ', '.join(active_returns.mapped('name'))
+                    raise UserError(_(
+                        "Cannot void this withdrawal record.\n\n"
+                        "The following return record(s) are still active:\n"
+                        "%(return_names)s\n\n"
+                        "Please void those return record(s) first before voiding this withdrawal record.",
+                        return_names=return_names,
+                    ))
+
+            # === END GUARD RAILS ===
+
             record.x_studio_voided = True
     
-            # Find the latest related pallet kilos record
-            pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search(
-                [('effective_document', '=', record.id), ('active', '=', True)],
-                order='create_date desc',
-                limit=1
-            )
+            # Archive pallet kilos record and recalculate balances
+            record._void_archive_pallet_kilos_record(record)
             
-            if pallet_record:
-                # Store data needed for recalculation before deactivating
-                warehouse_id = pallet_record.warehouse.id
-                is_blast_freezer = pallet_record.is_blast_freezer
-                start_time = pallet_record.start_time
+            if is_receiving:
+                # Incoming (RR/BFRR): Create a WR to reverse the received inventory
+                void_wr = record._create_void_wr_from_rr(record)
                 
-                # Deactivate the record
-                if pallet_record.readjustment_document and pallet_record.readjustment_document.id == record.id:
-                    pallet_record.readjustment_document = False
-                pallet_record.active = False
-                
-                _logger.info("Deactivated pallet kilos record: %s", pallet_record.effective_document.name)
-                
-                # Find the previous record to start recalculation from
-                previous_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search([
-                    ('warehouse', '=', warehouse_id),
-                    ('is_blast_freezer', '=', is_blast_freezer),
-                    ('start_time', '<', start_time),
-                    ('active', '=', True)
-                ], order='start_time desc', limit=1)
-    
-                if previous_record:
-                    recalc_from_time = previous_record.start_time
-                else:
-                    recalc_from_time = None  # Recalculate from beginning
-    
-                # Recalculate running balances from the previous record forward
-                pallet_record._recalculate_running_balances(
-                    warehouse_id, 
-                    is_blast_freezer, 
-                    recalc_from_time
-                )
-                
-                _logger.info("Voided transfer and archived Pallet Kilos Log: %s", record.name)
+                if void_wr:
+                    _logger.info("Void WR %s created for voided RR %s - navigating user to WR", void_wr.name, record.name)
+                    
+                    return {
+                        'type': 'ir.actions.act_window',
+                        'name': 'Void Withdrawal',
+                        'res_model': 'stock.picking',
+                        'view_mode': 'form',
+                        'res_id': void_wr.id,
+                        'target': 'current',
+                    }
             else:
-                _logger.warning("No pallet kilos record found for transfer: %s", record.name)
+                # Outgoing (WR/BFWR): Create a return RR via Return Packages wizard
+                result = record._create_return_rr_from_wr(record)
+                
+                if result:
+                    _logger.info("Return RR created for voided WR %s - navigating user to RR", record.name)
+                    return result
+            
+            _logger.info("Voided transfer: %s", record.name)
+
     
     def unvoid_transfer(self):
         """Reverse the void operation: unmark transfer as voided and reactivate the associated pallet kilos record."""
@@ -467,8 +935,29 @@ class transfer_locations(models.Model):
                 _logger.error("No pallet kilos record found for transfer: %s. Cannot complete unvoid operation.", record.name)
                 raise UserError(_("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
-    
+    def button_validate(self):
+        """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
+        result = super(transfer_locations, self).button_validate()
+        
+        # After validation, check if any of these pickings are void WRs or void returns
+        for record in self:
+            if record.state == 'done':
+                # Auto-void WRs created from voiding RRs
+                if record.is_void_wr:
+                    _logger.info("Auto-voiding void WR %s after validation", record.name)
+                    record.x_studio_voided = True
+                    record._void_archive_pallet_kilos_record(record)
+                    _logger.info("Successfully auto-voided void WR %s", record.name)
                 
+                # Auto-void return RRs created from voiding WRs
+                elif record.is_void_return:
+                    _logger.info("Auto-voiding void return RR %s after validation", record.name)
+                    record.x_studio_voided = True
+                    record._void_archive_pallet_kilos_record(record)
+                    _logger.info("Successfully auto-voided void return RR %s", record.name)
+        
+        return result
+
     def get_grouped_move_lines_for_report(self):
         """
         Preprocess move lines for report rendering.

@@ -64,6 +64,11 @@
                 <field name="x_studio_warehouse_sh" invisible =  "1"/>
                 <field name="allowed_value_ids" invisible ="1"/>
                 <field name="allowed_product_ids" invisible="1"/>
+                <!-- Void-related fields needed for button modifiers -->
+                <field name="is_void_wr" invisible="1"/>
+                <field name="is_void_return" invisible="1"/>
+                <field name="void_equivalent_count" invisible="1"/>
+                <field name="non_void_return_count" invisible="1"/>
             </xpath>
 
              <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom']" position="after">
@@ -74,6 +79,33 @@
             <xpath expr="//button[@name='action_detailed_operations']" position="after">
                 <button class="oe_stat_button" icon="fa-cubes" type="object" name="action_open_related_quant" invisible="not quant_count" data-hotkey="q">
                     <field name="quant_count" widget="statinfo" string="Location Related Stocks" />
+                </button>
+            </xpath>
+
+            <!-- Override Returns smart button to use non_void_return_count (excludes Void Transfer returns) -->
+            <xpath expr="//button[@name='action_see_returns']" position="attributes">
+                <attribute name="invisible">non_void_return_count == 0</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_see_returns']/field[@name='return_count']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_see_returns']/field[@name='return_count']" position="after">
+                <field string="Returns" name="non_void_return_count" widget="statinfo"/>
+            </xpath>
+
+            <!-- Void Equivalent Record smart button -->
+            <xpath expr="//button[@name='action_see_returns']" position="after">
+                <!-- Button for voided originals (RR/WR) - shows "Void Equivalent Record" -->
+                <button name="action_see_void_equivalent" type="object"
+                    class="oe_stat_button" icon="fa-exchange"
+                    invisible="void_equivalent_count == 0 or is_void_wr or is_void_return">
+                    <field string="Void Equivalent Record" name="void_equivalent_count" widget="statinfo"/>
+                </button>
+                <!-- Button for void records (Void WR / Void Return RR) - shows "Void Parent Equivalent Record" -->
+                <button name="action_see_void_equivalent" type="object"
+                    class="oe_stat_button" icon="fa-exchange"
+                    invisible="void_equivalent_count == 0 or (not is_void_wr and not is_void_return)">
+                    <field string="Void Parent Equivalent Record" name="void_equivalent_count" widget="statinfo"/>
                 </button>
             </xpath>
 
@@ -431,6 +463,12 @@
       </xpath>
       <xpath expr="//button[@name='225']" position="attributes">
         <attribute name="invisible">True</attribute>
+      </xpath>
+      <xpath expr="//form[1]/sheet/group[1]" position="inside">
+        <!--Void Transfer Ribbon-->
+        <div class="ribbon ribbon-top-right" invisible="not x_studio_voided">
+            <span class="bg-danger">VOIDED</span>
+        </div>
       </xpath>
       <xpath expr="//form[1]/header[1]" position="after">
         <!--Added Warning-->
