@@ -976,7 +976,19 @@ class stock_move_line_Override(models.Model):
                 'min_uom_unit': line.x_studio_total_units or 0.0,
                 'kilogram': line.quantity or 0.0,
                 'result_package_id': line.result_package_id.id,
-                'location_dest_id': line.location_dest_id.id
+                'location_dest_id': line.location_dest_id.id,
+                'container_number': line.x_studio_container_number or '',
+                'production_date': line.x_studio_production_date,
+                'expiration_date': line.x_studio_expiration_date,
+                'quantity_uom': line.x_studio_quantity_uom.id if line.x_studio_quantity_uom else False,
+                'packs_uom': line.x_studio_min_quantity_uom.id if line.x_studio_min_quantity_uom else False,
+                'original_pallet_series_id': line.x_studio_pallet_series_id or '',
+                'original_location_dest_id': line.location_dest_id.id,
+                'original_container_number': line.x_studio_container_number or '',
+                'original_production_date': line.x_studio_production_date,
+                'original_expiration_date': line.x_studio_expiration_date,
+                'original_quantity_uom': line.x_studio_quantity_uom.id if line.x_studio_quantity_uom else False,
+                'original_packs_uom': line.x_studio_min_quantity_uom.id if line.x_studio_min_quantity_uom else False,
             }))
         
         # Raise error if there are invalid lines
@@ -990,12 +1002,14 @@ class stock_move_line_Override(models.Model):
             'line_ids': line_vals,
         })
         
+        view_id = self.env.ref('multiple_relocation.view_fast_encode_rr_line_list').id
         return {
             'name': 'Fast Encode RR Lines',
             'type': 'ir.actions.act_window',
             'res_model': 'stock.move.line.fast_encode_rr.line',
             'view_mode': 'list',
-            'view_id': self.env.ref('multiple_relocation.view_fast_encode_rr_line_list').id,
+            'view_id': view_id,
+            'views': [(view_id, 'list')],
             'target': 'new',
             'domain': [('wizard_id', '=', wizard.id)],
             'context': {

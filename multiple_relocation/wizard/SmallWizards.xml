@@ -4,7 +4,7 @@
         <field name="model">wizard.partial.package.notice</field>
         <field name="arch" type="xml">
             <form string="Incomplete Package Selection">
-                <sheet>
+                <sheet style="width: 100%; max-width: none;">
                     <!-- Optional title or heading -->
                     <div class="oe_title">
                         <h2>Incomplete Package Selection</h2>
@@ -26,7 +26,8 @@
                             Reference your custom tree view via 'tree_view_ref'.
                         -->
                         <field name="quant_ids"
-                               mode="tree"/>
+                               mode="tree"
+                               nolabel="1"/>
 
                     <!-- Footer buttons -->
                     <footer>

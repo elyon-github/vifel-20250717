@@ -30,6 +30,11 @@ class FastEncodeRRWizard(models.TransientModel):
                         'x_studio_2nd_uom': line.quantity,
                         'x_studio_total_units': line.min_uom_unit,
                         'quantity': line.kilogram,
+                        'x_studio_container_number': line.container_number or '',
+                        'x_studio_production_date': line.production_date,
+                        'x_studio_expiration_date': line.expiration_date,
+                        'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
+                        'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
                     })
             return {'type': 'ir.actions.act_window_close'}
         
@@ -116,6 +121,11 @@ class FastEncodeRRWizard(models.TransientModel):
                     'x_studio_total_units': line.min_uom_unit,
                     'quantity': line.kilogram,
                     'x_studio_pallet_series_id': pallet_series_to_use,
+                    'x_studio_container_number': line.container_number or '',
+                    'x_studio_production_date': line.production_date,
+                    'x_studio_expiration_date': line.expiration_date,
+                    'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
+                    'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
                 }
                 
                 # Only write location_dest_id if we have a valid value
@@ -231,6 +241,20 @@ class FastEncodeRRWizardLine(models.TransientModel):
     min_uom_unit = fields.Float(string="Packs")
     kilogram = fields.Float(string="Weight (KG)")
     location_dest_id = fields.Many2one('stock.location', string='Destination Location')
+    container_number = fields.Char(string='Container #')
+    production_date = fields.Date(string='Production Date')
+    expiration_date = fields.Date(string='Expiration Date')
+    quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM')
+    packs_uom = fields.Many2one('uom.uom', string='Packs UOM')
+    
+    # Hidden fallback fields - stores the original values before auto-sync
+    original_pallet_series_id = fields.Char(string='Original Pallet Series ID', readonly=True)
+    original_location_dest_id = fields.Many2one('stock.location', string='Original Location', readonly=True)
+    original_container_number = fields.Char(string='Original Container #', readonly=True)
+    original_production_date = fields.Date(string='Original Production Date', readonly=True)
+    original_expiration_date = fields.Date(string='Original Expiration Date', readonly=True)
+    original_quantity_uom = fields.Many2one('uom.uom', string='Original Quantity UOM', readonly=True)
+    original_packs_uom = fields.Many2one('uom.uom', string='Original Packs UOM', readonly=True)
     
     has_duplicate_pallet = fields.Boolean(
         string='Has Duplicate Pallet',
@@ -254,3 +278,146 @@ class FastEncodeRRWizardLine(models.TransientModel):
             
             # If more than 1, then this pallet is duplicated
             record.has_duplicate_pallet = duplicate_count > 1
+
+    def _sync_pallet_series_and_location(self, result_package_id):
+        """Core sync logic: find the PSI, location, and other fields for a given pallet.
+        
+        Used by both onchange (single edit) and write (multi-edit).
+        Returns dict with synced field values if found, or None if no sync needed.
+        """
+        if not result_package_id:
+            return None
+        
+        # Search sibling lines in the same wizard with the same pallet
+        sibling_lines = self.wizard_id.line_ids.filtered(
+            lambda l: l.result_package_id.id == result_package_id
+                      and l.id != self.id
+                      and l.pallet_series_id
+        )
+        
+        if sibling_lines:
+            source_line = sibling_lines[0]
+            return {
+                'pallet_series_id': source_line.pallet_series_id,
+                'location_dest_id': source_line.location_dest_id.id if source_line.location_dest_id else False,
+                'container_number': source_line.container_number,
+                'production_date': source_line.production_date,
+                'expiration_date': source_line.expiration_date,
+                'quantity_uom': source_line.quantity_uom.id if source_line.quantity_uom else False,
+                'packs_uom': source_line.packs_uom.id if source_line.packs_uom else False,
+            }
+        
+        # No sibling found in wizard - check actual stock.move.line records
+        existing_move_line = self.env['stock.move.line'].search([
+            ('picking_id', '=', self.transfer_id),
+            ('result_package_id', '=', result_package_id),
+            ('x_studio_pallet_series_id', '!=', False),
+            ('id', '!=', self.stock_move_line),
+        ], limit=1)
+        
+        if existing_move_line:
+            return {
+                'pallet_series_id': existing_move_line.x_studio_pallet_series_id,
+                'location_dest_id': existing_move_line.location_dest_id.id if existing_move_line.location_dest_id else False,
+                'container_number': existing_move_line.x_studio_container_number or '',
+                'production_date': existing_move_line.x_studio_production_date,
+                'expiration_date': existing_move_line.x_studio_expiration_date,
+                'quantity_uom': existing_move_line.x_studio_quantity_uom.id if existing_move_line.x_studio_quantity_uom else False,
+                'packs_uom': existing_move_line.x_studio_min_quantity_uom.id if existing_move_line.x_studio_min_quantity_uom else False,
+            }
+        
+        return None
+
+    @api.onchange('result_package_id')
+    def _onchange_result_package_id_sync(self):
+        """Auto-sync PSI and location when user changes Pallet# to match another row.
+        
+        Mirrors the behavior of assign_pallet_series_on_already_used_pallets 
+        in stock.move.line but operates within the wizard context.
+        """
+        for record in self:
+            if not record.result_package_id:
+                # Pallet cleared - revert to original values if available
+                if record.original_pallet_series_id:
+                    record.pallet_series_id = record.original_pallet_series_id
+                if record.original_location_dest_id:
+                    record.location_dest_id = record.original_location_dest_id
+                continue
+            
+            sync_vals = record._sync_pallet_series_and_location(record.result_package_id.id)
+            if sync_vals:
+                record.pallet_series_id = sync_vals['pallet_series_id']
+                record.location_dest_id = sync_vals['location_dest_id']
+                record.container_number = sync_vals['container_number']
+                record.production_date = sync_vals['production_date']
+                record.expiration_date = sync_vals['expiration_date']
+                record.quantity_uom = sync_vals['quantity_uom']
+                record.packs_uom = sync_vals['packs_uom']
+            else:
+                # No match anywhere - revert to original if user changed to isolated pallet
+                if record.original_pallet_series_id:
+                    record.pallet_series_id = record.original_pallet_series_id
+                if record.original_location_dest_id:
+                    record.location_dest_id = record.original_location_dest_id
+                if record.original_container_number:
+                    record.container_number = record.original_container_number
+                if record.original_production_date:
+                    record.production_date = record.original_production_date
+                if record.original_expiration_date:
+                    record.expiration_date = record.original_expiration_date
+                if record.original_quantity_uom:
+                    record.quantity_uom = record.original_quantity_uom
+                if record.original_packs_uom:
+                    record.packs_uom = record.original_packs_uom
+
+    def write(self, vals):
+        """Override write to handle multi-edit sync (onchange is bypassed during multi-edit)."""
+        res = super().write(vals)
+        
+        if 'result_package_id' in vals:
+            for record in self:
+                new_pallet_id = vals.get('result_package_id')
+                if not new_pallet_id:
+                    # Pallet cleared - revert to originals
+                    update_vals = {}
+                    if record.original_pallet_series_id:
+                        update_vals['pallet_series_id'] = record.original_pallet_series_id
+                    if record.original_location_dest_id:
+                        update_vals['location_dest_id'] = record.original_location_dest_id.id
+                    if record.original_container_number:
+                        update_vals['container_number'] = record.original_container_number
+                    if record.original_production_date:
+                        update_vals['production_date'] = record.original_production_date
+                    if record.original_expiration_date:
+                        update_vals['expiration_date'] = record.original_expiration_date
+                    if record.original_quantity_uom:
+                        update_vals['quantity_uom'] = record.original_quantity_uom.id
+                    if record.original_packs_uom:
+                        update_vals['packs_uom'] = record.original_packs_uom.id
+                    if update_vals:
+                        super(FastEncodeRRWizardLine, record).write(update_vals)
+                else:
+                    sync_vals = record._sync_pallet_series_and_location(new_pallet_id)
+                    if sync_vals:
+                        super(FastEncodeRRWizardLine, record).write(sync_vals)
+                    else:
+                        # No match - revert to originals
+                        update_vals = {}
+                        if record.original_pallet_series_id:
+                            update_vals['pallet_series_id'] = record.original_pallet_series_id
+                        if record.original_location_dest_id:
+                            update_vals['location_dest_id'] = record.original_location_dest_id.id
+                        if record.original_container_number:
+                            update_vals['container_number'] = record.original_container_number
+                        if record.original_production_date:
+                            update_vals['production_date'] = record.original_production_date
+                        if record.original_expiration_date:
+                            update_vals['expiration_date'] = record.original_expiration_date
+                        if record.original_quantity_uom:
+                            update_vals['quantity_uom'] = record.original_quantity_uom.id
+                        if record.original_packs_uom:
+                            update_vals['packs_uom'] = record.original_packs_uom.id
+                        if update_vals:
+                            super(FastEncodeRRWizardLine, record).write(update_vals)
+        
+        return res

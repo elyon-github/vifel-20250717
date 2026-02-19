@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="multiple_relocation.MagicWizardListView" t-inherit="web.ListView">
+        <xpath expr="//Layout/t[@t-set-slot='control-panel-create-button']" position="inside">
+            <t t-if="showMagicWizardButton">
+                <button type="button"
+                        class="btn btn-success"
+                        style="margin-left: 8px;"
+                        t-on-click="onMagicWizardClick">
+                    <i class="fa fa-magic"/> Magic Wizard
+                </button>
+            </t>
+        </xpath>
+    </t>
+</templates>
