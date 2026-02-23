@@ -9,7 +9,7 @@ _logger = logging.getLogger(__name__)
 class PalletKilosRecordModel(models.Model):
     _name = 'pallet_kilos_record_model.pallet_kilos_record_model'
     _description = 'Pallet Kilos Record Model'
-    _order = 'end_time asc, id asc'  # Critical for running balance
+    _order = 'start_time asc, id asc'  # Must match _recalculate_running_balances ordering
 
     # Basic identification fields
     report_no = fields.Char(string="Report No.", readonly=True)
@@ -272,7 +272,7 @@ class PalletKilosRecordModel(models.Model):
                         if line_ids.result_package_id and line_ids.result_package_id.id not in pallets:
                             return_pallets += 1
                             pallets.add(line_ids.result_package_id.id)
-                    break
+                    # Don't break - accumulate ALL valid partial withdraw returns
 
             record.write({
                 'return_id': return_id,
@@ -617,6 +617,19 @@ class PalletKilosRecordModel(models.Model):
     def create(self, vals):
         """Override create to handle backdated insertions"""
         record = super(PalletKilosRecordModel, self).create(vals)
+
+        # Guard: If the source picking is a void transfer (is_void_wr or is_void_return),
+        # immediately archive this record to prevent phantom entries.
+        # The automated action (BA 6) fires on ALL state='done' transitions,
+        # including void WRs and void return RRs that will be auto-voided right after.
+        source_picking = record.record_reference
+        if source_picking and (source_picking.is_void_wr or source_picking.is_void_return):
+            _logger.info(
+                "Skipping pallet kilos record creation for void transfer %s (is_void_wr=%s, is_void_return=%s)",
+                source_picking.name, source_picking.is_void_wr, source_picking.is_void_return
+            )
+            record.active = False
+            return record
 
         # Populate all data first
         record._populate_vehicle_data()

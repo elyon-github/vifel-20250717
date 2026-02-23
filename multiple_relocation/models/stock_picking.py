@@ -34,6 +34,13 @@ class transfer_locations(models.Model):
     # Non-void return count (excludes returns with return_reason='Void Transfer')
     non_void_return_count = fields.Integer(string="Non-Void Returns", compute="_compute_non_void_return_count")
 
+    # Unvalidated void child banner
+    has_unvalidated_void_child = fields.Boolean(
+        string="Has Unvalidated Void Child",
+        compute="_compute_has_unvalidated_void_child",
+        store=False,
+    )
+
     next_step_status = fields.Char(compute="_compute_next_step_status", default=lambda self: self._default_next_step_status())
 
 
@@ -179,6 +186,20 @@ class transfer_locations(models.Model):
         store=False
     )
 
+    validated_on = fields.Datetime(
+        string="Validated On",
+        readonly=True,
+        copy=False,
+        help="Date and time when this record was validated (UTC)"
+    )
+
+    documentation_staff_id = fields.Many2one(
+        'res.partner',
+        string="Documentation Staff",
+        domain="[('category_id.name', 'ilike', 'documentation staff')]",
+        copy=False
+    )
+
     @api.depends("return_ids.state", "return_ids.return_reason")
     def _compute_show_return_alert(self):
         for rec in self:
@@ -226,6 +247,30 @@ class transfer_locations(models.Model):
                 lambda r: r.return_reason != 'Void Transfer'
             )
             record.non_void_return_count = len(non_void_returns)
+
+    def _compute_has_unvalidated_void_child(self):
+        """Check if this voided parent has a void child record that is not yet validated."""
+        for record in self:
+            if not record.x_studio_voided or record.state != 'done':
+                record.has_unvalidated_void_child = False
+                continue
+
+            is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
+
+            if is_receiving:
+                # Voided RR/BFRR → check for unvalidated void WR
+                void_wr = self.env['stock.picking'].search([
+                    ('void_source_picking_id', '=', record.id),
+                    ('is_void_wr', '=', True),
+                    ('state', 'not in', ['done', 'cancel']),
+                ], limit=1)
+                record.has_unvalidated_void_child = bool(void_wr)
+            else:
+                # Voided WR/BFWR → check for unvalidated void return RR
+                void_return = record.return_ids.filtered(
+                    lambda r: r.is_void_return and r.state not in ('done', 'cancel')
+                )
+                record.has_unvalidated_void_child = bool(void_return)
 
     def action_see_void_equivalent(self):
         """Navigate to the void equivalent record(s)."""
@@ -440,8 +485,43 @@ class transfer_locations(models.Model):
 
             record.total_quantity = total_quantity
             record.total_weight = total_weight
-            
-        
+
+    def _refresh_pallet_kilos_on_lock(self):
+        """Refresh the pallet kilos record when locking/unlocking a done picking.
+        Re-syncs start_time, end_time, and all data from the effective document."""
+        PalletKilos = self.env['pallet_kilos_record_model.pallet_kilos_record_model']
+        pallet_record = PalletKilos.search([
+            '|',
+            ('record_reference', '=', self.id),
+            ('readjustment_document', '=', self.id),
+            ('active', '=', True),
+        ], limit=1)
+
+        if pallet_record:
+            old_start_time = pallet_record.start_time
+            # Re-populate all data from effective document
+            pallet_record._populate_vehicle_data()
+            pallet_record._populate_operations_data()
+            pallet_record._populate_returns_data()
+
+            # Recalculate running balances from the earlier of old or new start_time
+            new_start_time = pallet_record.start_time
+            if old_start_time and new_start_time:
+                earliest = min(old_start_time, new_start_time)
+            else:
+                earliest = new_start_time or old_start_time
+
+            if earliest and pallet_record.warehouse:
+                pallet_record._recalculate_running_balances(
+                    pallet_record.warehouse.id,
+                    pallet_record.is_blast_freezer,
+                    earliest,
+                )
+                _logger.info(
+                    "Refreshed pallet kilos record for %s on lock/unlock (start_time: %s -> %s)",
+                    self.name, old_start_time, new_start_time,
+                )
+
     def _void_archive_pallet_kilos_record(self, record):
         """Archive the pallet kilos record associated with a picking and recalculate balances."""
         pallet_record = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search(
@@ -493,6 +573,42 @@ class transfer_locations(models.Model):
         
         if not is_receiving:
             return False
+        
+        # === REUSE EXISTING VOID WR IF AVAILABLE ===
+        existing_void_wr = self.env['stock.picking'].search([
+            ('void_source_picking_id', '=', record.id),
+            ('is_void_wr', '=', True),
+            ('state', 'not in', ['done', 'cancel']),
+        ], limit=1)
+        
+        if existing_void_wr:
+            _logger.info("Reusing existing void WR %s for voided RR %s", existing_void_wr.name, record.name)
+            # Clear old moves and re-populate from current quants
+            existing_void_wr.move_ids_without_package.unlink()
+            existing_void_wr.x_studio_voided = False
+            
+            # Re-populate stock moves from current quants
+            rr_pallet_series_ids = record.move_line_ids.mapped('x_studio_pallet_series_id')
+            rr_pallet_series_ids = [p for p in rr_pallet_series_ids if p]
+            
+            if rr_pallet_series_ids:
+                child_location_ids = self.env['stock.location'].search([
+                    ('id', 'child_of', existing_void_wr.location_id.id)
+                ]).ids
+                quant_domain = [
+                    ('location_id', 'in', child_location_ids),
+                    ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
+                    ('quantity', '!=', 0),
+                ]
+                if record.partner_id:
+                    quant_domain.append(('owner_id', '=', record.partner_id.id))
+                quants_to_checkout = self.env['stock.quant'].search(quant_domain)
+                if quants_to_checkout:
+                    self._checkout_quants_to_picking(existing_void_wr, quants_to_checkout)
+                    _logger.info("Re-checked out %d quants into reused void WR %s", len(quants_to_checkout), existing_void_wr.name)
+            
+            return existing_void_wr
+        # === END REUSE ===
         
         warehouse_id = record.picking_type_id.warehouse_id.id
         
@@ -664,13 +780,25 @@ class transfer_locations(models.Model):
         Create a return RR from a voided WR by programmatically invoking the
         Return Packages wizard (action_return_packages) with all items selected
         and return reason set to 'Void Transfer'.
-        Returns the wizard's action result (navigation to the new RR).
+        If an existing void return RR already exists (from a previous void), the
+        wizard will automatically find it and reuse it via _append_to_existing_return.
+        Returns the wizard's action result (navigation to the RR).
         """
         # Verify this is an outgoing operation
         is_blast_freeze, is_receiving = record.operation_type_checker(record.picking_type_id)
         if is_receiving:
             _logger.warning("_create_return_rr_from_wr called on incoming operation %s - skipping", record.name)
             return False
+
+        # Check for existing void return RR that can be reused
+        existing_void_return = record.return_ids.filtered(
+            lambda r: r.is_void_return and r.state not in ('done', 'cancel')
+        )
+        if existing_void_return:
+            _logger.info(
+                "Existing void return RR %s found for WR %s — wizard will reuse it via _append_to_existing_return",
+                existing_void_return[0].name, record.name
+            )
 
         # Build wizard lines manually (replicating _compute_location_and_packages logic)
         lines = []
@@ -825,6 +953,30 @@ class transfer_locations(models.Model):
                         return_names=return_names,
                     ))
 
+                # Check if any of this WR's return RRs are voided and have unvalidated void children
+                # e.g., WR → RR (voided) → child void WR (still draft) = block voiding the original WR
+                voided_returns = record.return_ids.filtered(
+                    lambda r: r.x_studio_voided and r.state == 'done'
+                )
+                if voided_returns:
+                    # Look for unvalidated void WR children of these voided returns
+                    unvalidated_void_children = self.env['stock.picking'].search([
+                        ('void_source_picking_id', 'in', voided_returns.ids),
+                        ('is_void_wr', '=', True),
+                        ('state', 'in', ('draft', 'assigned')),
+                    ])
+                    if unvalidated_void_children:
+                        void_names = ', '.join(unvalidated_void_children.mapped('name'))
+                        parent_names = ', '.join(unvalidated_void_children.mapped('void_source_picking_id.name'))
+                        raise UserError(_(
+                            "Cannot void this withdrawal record.\n\n"
+                            "The following return(s) have been voided but their void child record(s) are still unvalidated:\n"
+                            "%(void_names)s (from voided return %(parent_names)s)\n\n"
+                            "Please complete validation of the void child record(s) first.",
+                            void_names=void_names,
+                            parent_names=parent_names,
+                        ))
+
             # === END GUARD RAILS ===
 
             record.x_studio_voided = True
@@ -856,6 +1008,15 @@ class transfer_locations(models.Model):
                     return result
             
             _logger.info("Voided transfer: %s", record.name)
+
+    def void_transfer_simple(self):
+        """Simple void: marks as voided and archives PKR only. No next operation created."""
+        for record in self:
+            if not self.env.user.has_group('__custom__.inventory_supervisor'):
+                raise UserError(_("You do not have permission to void transfers."))
+            record.x_studio_voided = True
+            record._void_archive_pallet_kilos_record(record)
+            _logger.info("Simple-voided transfer: %s", record.name)
 
     
     def unvoid_transfer(self):
@@ -950,6 +1111,10 @@ class transfer_locations(models.Model):
         # After validation, check if any of these pickings are void WRs or void returns
         for record in self:
             if record.state == 'done':
+                # Set validated_on timestamp when record is validated
+                if not record.validated_on:
+                    record.validated_on = fields.Datetime.now()
+                
                 # Auto-void WRs created from voiding RRs
                 if record.is_void_wr:
                     _logger.info("Auto-voiding void WR %s after validation", record.name)
@@ -1618,6 +1783,15 @@ class transfer_locations(models.Model):
 
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
+        # Capture old x_studio_edit_record values before super write
+        old_edit_record_vals = {}
+        if 'x_studio_edit_record' in vals:
+            for record in self:
+                old_edit_record_vals[record.id] = {
+                    'old_val': record.x_studio_edit_record if hasattr(record, 'x_studio_edit_record') else None,
+                    'state': record.state,
+                }
+
         for record in self:
             old_location = record.location_dest_id
             move_line_orig_locations = {
@@ -1636,6 +1810,13 @@ class transfer_locations(models.Model):
                                 'x_studio_is_reserved': False,
                                 'x_studio_receiving_report_id': False
                             })
+
+            # Refresh pallet kilos record on lock/unlock (x_studio_edit_record toggle)
+            if record.id in old_edit_record_vals and record.state == 'done':
+                old_info = old_edit_record_vals[record.id]
+                new_val = record.x_studio_edit_record if hasattr(record, 'x_studio_edit_record') else None
+                if old_info['old_val'] != new_val:
+                    record._refresh_pallet_kilos_on_lock()
 
             return res
 
