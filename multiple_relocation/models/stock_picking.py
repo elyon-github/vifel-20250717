@@ -197,7 +197,9 @@ class transfer_locations(models.Model):
         'res.partner',
         string="Documentation Staff",
         domain="[('category_id.name', 'ilike', 'documentation staff')]",
-        copy=False
+        copy=False,
+        tracking=True,
+        help="Documentation staff responsible for processing this picking. Can be set after validation to track who handled the documentation."
     )
 
     @api.depends("return_ids.state", "return_ids.return_reason")
