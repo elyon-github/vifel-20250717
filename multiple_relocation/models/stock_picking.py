@@ -558,11 +558,11 @@ class transfer_locations(models.Model):
             ('id', 'child_of', wr_source_location)
         ]).ids
         
-        # Find quants with matching pallet series in those locations
+        # Find quants with matching pallet series in those locations (include negative qty)
         quant_domain = [
             ('location_id', 'in', child_location_ids),
             ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
-            ('quantity', '>', 0),
+            ('quantity', '!=', 0),
         ]
         
         if record.partner_id:
@@ -595,7 +595,7 @@ class transfer_locations(models.Model):
             product = quant.product_id
             prod_id = product.id
             
-            if not quant.quantity or quant.quantity <= 0:
+            if not quant.quantity:
                 continue
             
             # Merge key matches the pattern used in create_transfer_stock_move
@@ -626,7 +626,7 @@ class transfer_locations(models.Model):
                     'move_line_vals': [],
                 }
             
-            grouped_data[merge_key]['total_qty'] += quant.quantity
+            grouped_data[merge_key]['total_qty'] += abs(quant.quantity)
             grouped_data[merge_key]['quant_ids'].append(quant.id)
             
             move_line_vals = {
@@ -634,7 +634,7 @@ class transfer_locations(models.Model):
                 'picking_id': picking.id,
                 'product_id': prod_id,
                 'product_uom_id': quant.product_uom_id.id,
-                'quantity': quant.quantity,
+                'quantity': abs(quant.quantity),
                 'location_id': quant.location_id.id,
                 'location_dest_id': picking.location_dest_id.id,
                 'lot_id': quant.lot_id.id if quant.lot_id else False,
@@ -764,19 +764,24 @@ class transfer_locations(models.Model):
                         ('id', 'child_of', record.location_dest_id.id)
                     ]).ids
 
+                    # Exclude the parent WR if this RR is a return (avoids circular guard rail)
+                    excluded_picking_ids = [record.id]
+                    if record.return_id:
+                        excluded_picking_ids.append(record.return_id.id)
+
                     missing_pallets = []
                     used_in_wr_pallets = []
                     for pallet_series in pallet_series_ids:
                         quant = self.env['stock.quant'].search([
                             ('x_studio_pallet_series_id', '=', pallet_series),
                             ('location_id', 'in', child_location_ids),
-                            ('quantity', '>', 0),
+                            ('quantity', '!=', 0),
                         ], limit=1)
                         if not quant:
                             # Quant is missing - check if it was used in a done WR
                             used_in_wr = self.env['stock.move.line'].search([
                                 ('x_studio_pallet_series_id', '=', pallet_series),
-                                ('picking_id', '!=', record.id),
+                                ('picking_id', 'not in', excluded_picking_ids),
                                 ('picking_id.picking_type_id.code', '=', 'outgoing'),
                                 ('picking_id.x_studio_voided', '=', False),
                                 ('state', '=', 'done'),
@@ -806,9 +811,9 @@ class transfer_locations(models.Model):
                             pallet_names=', '.join(missing_pallets),
                         ))
             else:
-                # WR/BFWR: Check if there are active (non-voided) return pickings
+                # WR/BFWR: Check if there are completed (non-voided) return pickings
                 active_returns = record.return_ids.filtered(
-                    lambda r: r.state != 'cancel' and not r.x_studio_voided
+                    lambda r: r.state == 'done' and not r.x_studio_voided
                 )
                 if active_returns:
                     return_names = ', '.join(active_returns.mapped('name'))
