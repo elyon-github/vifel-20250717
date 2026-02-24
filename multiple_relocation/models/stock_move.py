@@ -175,6 +175,16 @@ class StockMove(models.Model):
 
 
     def write(self, vals):
+        # === PRODUCT SWAP FOR INCOMING (RR/BFRR) — preserve move lines ===
+        if 'product_id' in vals:
+            incoming_moves_with_lines = self.filtered(
+                lambda m: m.picking_type_id.code == 'incoming'
+                and m.state not in ('done', 'cancel')
+                and m.move_line_ids
+            )
+            if incoming_moves_with_lines:
+                return incoming_moves_with_lines._write_swap_product(vals)
+
         # Check if we have incoming moves and need to prevent unreservation
         if 'product_uom_qty' in vals:
             has_incoming_moves = any(move.picking_type_id.code == 'incoming' for move in self)
@@ -184,6 +194,66 @@ class StockMove(models.Model):
         
         # For non-incoming moves, proceed with normal logic
         return super(StockMove, self).write(vals)
+
+    def _write_swap_product(self, vals):
+        """
+        Handle product_id change on incoming moves (RR / BFRR) without deleting
+        existing stock.move.line records.  All encoded data (qty, kg, pallet,
+        location, dates, UOMs, etc.) is preserved — only product_id and
+        product_uom_id are updated to match the new product.
+
+        This is deliberately isolated from the normal write() path so it cannot
+        affect outgoing, internal, or done moves.
+        """
+        new_product_id = vals['product_id']
+        new_product = self.env['product.product'].browse(new_product_id)
+        if not new_product.exists():
+            raise UserError(_("The selected product does not exist."))
+
+        new_uom_id = new_product.uom_id.id
+
+        for move in self:
+            # Snapshot the current move_line ids before the ORM can touch them
+            line_ids = move.move_line_ids.ids
+            if not line_ids:
+                continue
+
+            # 1) Detach move_lines from this move (prevents ORM cascade-delete)
+            self.env.cr.execute(
+                "UPDATE stock_move_line SET move_id = NULL WHERE id IN %s",
+                (tuple(line_ids),)
+            )
+            move.invalidate_recordset(['move_line_ids'])
+
+            # 2) Write all vals (including product_id) on the stock.move normally
+            super(StockMove, move).write(vals)
+
+            # Also ensure product_uom matches the new product's UOM
+            if move.product_uom.id != new_uom_id:
+                super(StockMove, move).write({'product_uom': new_uom_id})
+
+            # 3) Re-attach move_lines and update their product + UOM
+            self.env.cr.execute(
+                """UPDATE stock_move_line
+                      SET move_id = %s,
+                          product_id = %s,
+                          product_uom_id = %s
+                    WHERE id IN %s""",
+                (move.id, new_product_id, new_uom_id, tuple(line_ids))
+            )
+
+            # 4) Invalidate ORM caches so subsequent reads are fresh
+            move.invalidate_recordset(['move_line_ids'])
+            self.env['stock.move.line'].browse(line_ids).invalidate_recordset(
+                ['move_id', 'product_id', 'product_uom_id']
+            )
+
+            _logger.info(
+                "Product swapped on move %s (%s → %s), %d move_lines preserved",
+                move.id, move.name, new_product.display_name, len(line_ids),
+            )
+
+        return True
 
 
 class stock_move_line_Override(models.Model):

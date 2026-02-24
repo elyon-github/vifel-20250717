@@ -428,13 +428,14 @@ class ReturnPackageWizard(models.TransientModel):
 
     def _create_blank_return(self):
         """Create a blank return picking without any move lines"""
-        if not self.picking_type_id:
-            warehouse_id = self.picking_id.picking_type_id.warehouse_id.id
-            self.picking_type_id = self.env['stock.picking.type'].search([
-                ('code', '=', 'incoming'),
-                ('is_blast_freeze_operation', '=', self.picking_id.picking_type_id.is_blast_freeze_operation),
-                ('warehouse_id', '=', warehouse_id)
-            ], limit=1)
+        # Always force the incoming picking type — never trust pre-set values
+        # which may have leaked from the parent form's context (e.g. default_picking_type_id)
+        warehouse_id = self.picking_id.picking_type_id.warehouse_id.id
+        self.picking_type_id = self.env['stock.picking.type'].search([
+            ('code', '=', 'incoming'),
+            ('is_blast_freeze_operation', '=', self.picking_id.picking_type_id.is_blast_freeze_operation),
+            ('warehouse_id', '=', warehouse_id)
+        ], limit=1)
         
         # Create blank picking
         new_picking = self.picking_id.copy(default={
@@ -657,13 +658,14 @@ class ReturnPackageWizard(models.TransientModel):
 
     def _create_new_return_with_packages(self, selected_packages):
         """Create new return picking with selected packages (original logic)"""
-        if not self.picking_type_id:
-            warehouse_id = self.picking_id.picking_type_id.warehouse_id.id
-            self.picking_type_id = self.env['stock.picking.type'].search([
-                ('code', '=', 'incoming'),
-                ('is_blast_freeze_operation', '=', self.picking_id.picking_type_id.is_blast_freeze_operation),
-                ('warehouse_id', '=', warehouse_id)
-            ], limit=1)
+        # Always force the incoming picking type — never trust pre-set values
+        # which may have leaked from the parent form's context (e.g. default_picking_type_id)
+        warehouse_id = self.picking_id.picking_type_id.warehouse_id.id
+        self.picking_type_id = self.env['stock.picking.type'].search([
+            ('code', '=', 'incoming'),
+            ('is_blast_freeze_operation', '=', self.picking_id.picking_type_id.is_blast_freeze_operation),
+            ('warehouse_id', '=', warehouse_id)
+        ], limit=1)
 
         # Copy the picking record
         new_picking = self.picking_id.copy(default={

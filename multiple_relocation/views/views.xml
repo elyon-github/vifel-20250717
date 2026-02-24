@@ -284,7 +284,8 @@
             <field optional="show" name="x_studio_production_date" string="Prod. Date" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'" options="{'max_date': 'today'}" width="120"/>
             <field optional="show" name="x_studio_expiration_date" string="Exp. Date" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'" decoration-danger="x_studio_exp_warned" options="{'min_date': 'today'}" width="120"/>
             <field optional="show" name="x_studio_affected_2nd_uom" column_invisible="context.get('picking_code') == 'incoming'" string="Quantity (Withdraw) " width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
+            <field name="x_studio_edit_record" column_invisible="1"/>
+            <field optional="show" name="x_studio_actual_packaging" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Quantity" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
 
             <field optional="show" name="x_studio_quantity_uom_delivery" column_invisible="context.get('picking_code') == 'incoming'" string=" Quantity UOM" width="120" readonly="picking_code == 'outgoing' or state == 'done'" options="{'no_create': True, 'no_open':True}"/>
 
@@ -299,12 +300,12 @@
 
         <xpath expr="//tree//field[@name='quantity']" position="after">
                         <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs" width="120" readonly="1"/>
-            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
+            <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
             <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120" readonly="state == 'done'"/>
             <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120" options="{'no_create': True, 'no_open':True}"/>
         </xpath>
                 <xpath expr="//tree//field[@name='quantity']" position="after">
-                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done'"/>
+                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
                 </xpath>
 
 
@@ -474,6 +475,36 @@
         <!--Added Warning-->
         
         <field name="show_return_alert" invisible="1"/>
+        <field name="has_unvalidated_void_child" invisible="1"/>
+
+    <!--Void Child Not Yet Validated Banner-->
+    <div class="alert alert-danger" role="alert"
+         invisible="not has_unvalidated_void_child">
+        <b>⚠️ Void Record Not Yet Validated</b>
+        <br/><br/>
+        This transfer has been <b>voided</b>, but the corresponding <b>void record</b> has <b>not yet been validated</b>.
+        <br/>
+        Please navigate to the <b>Void Equivalent Record</b> (via the smart button) and <b>validate</b> it to complete the void process.
+        <br/><br/>
+        <b>Note:</b> If the move lines were accidentally deleted, you can <b>unvoid</b> this transfer and <b>re-void</b> it.
+        The system will reuse the existing void record and re-populate the stock moves.
+    </div>
+
+    <!--Void Child Simplified Instruction (only show for void records)-->
+    <div class="alert alert-info" role="alert"
+         invisible="not is_void_return and not is_void_wr">
+        <b>ℹ️ Void Record - Simplified Process</b>
+        <br/><br/>
+        This is a <b>void record</b>. Complete the following steps:
+        <br/>
+        1. Review and complete any <b>stock move details</b> if needed.
+        <br/>
+        2. Click <b>Validate</b> button to finalize the void process.
+        <br/><br/>
+        <b>That's all!</b> No other actions are required for void records.
+        <br/><br/>
+        <i>After validation is complete, go back to the <b>void parent equivalent record</b> — that will be your next step.</i>
+    </div>
             
     <!-- <div class="alert alert-danger" role="alert"
          invisible="not show_return_alert or state not in ['done']">
@@ -488,20 +519,20 @@
     <field name="next_step_status" invisible="1"/>
 
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Generate Pallet Lines'">
+         invisible="next_step_status != 'Generate Pallet Lines' or is_void_return or is_void_wr">
          <b>Reminder:</b> Please make sure to <b>Generate Pallet Lines</b> first using the <b>"Generate Pallet Lines"</b> button.  
          If the <b>Tally Sheet</b> is <b>Empty</b>, this is most likely the reason.
     </div>
     
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Estimate Pallet Lines'">
+         invisible="next_step_status != 'Estimate Pallet Lines' or is_void_return or is_void_wr">
           <b>Please DO NOT</b> forget to fill in the <b>No. of Pallet Lines</b> under  
          <b>Operations → Product</b> column. Unless the Product SKU's are unpredictable just like <b>FCA Assorted.</b>
          It is <b>highly recommended</b> to <b>OVERESTIMATE</b> the number of pallets per <b>Product SKU.</b>
     </div>
         
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'BF Complete Pallet Details'">
+         invisible="next_step_status != 'BF Complete Pallet Details' or is_void_return or is_void_wr">
          Please generate the <b>Tally Sheet</b> and provide it to the <b>Checker</b>.  
          Once the <b>Tally Sheet</b> has been returned, make sure to encode it under  
          <b>Pallet Breakdown</b>, located at the <b>top-center</b> of the screen.  
@@ -509,7 +540,7 @@
     </div>
     
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'RR Complete Pallet Details'">
+         invisible="next_step_status != 'RR Complete Pallet Details' or is_void_return or is_void_wr">
          Please assign the <b>Pallet Series</b> and <b>Locations</b> first inside the <b>Pallet Breakdown</b> button,  
          located at the <b>top-center</b> of the screen.  
          After that, generate the <b>Tally Sheet</b> and <b>Pallet Tag Form</b>, then provide them to the <b>Checker</b>.  
@@ -521,7 +552,7 @@
 
     
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Set Location'">
+         invisible="next_step_status != 'Set Location' or is_void_return or is_void_wr">
          <b>Reminder:</b> Please make sure to update the <b>Source Location</b> field,  
          as it determines where the <b>Pallets</b> will be picked from.  
          After setting the correct <b>Source Location</b>, a new button will appear at the <b>top-center</b>  
@@ -530,14 +561,14 @@
     </div>
 
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Select Stocks'">
+         invisible="next_step_status != 'Select Stocks' or is_void_return or is_void_wr">
          To begin picking <b>Pallets</b> from the selected <b>Location</b>,  
          click the <b>“Location Related Stocks”</b> button located at the <b>top-center</b> of the screen.  
          From there, simply <b>check</b> the <b>Pallet Lines</b> you want to include and click <b>Checkout</b> to proceed.
     </div>
     
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'To create return'">
+         invisible="next_step_status != 'To create return' or is_void_return or is_void_wr">
          Once you have finished <b>Picking</b> in the <b>Location Related Stocks</b> and need to <b>create a return</b>:  
          <br/><br/>
          1. Generate the <b>Picklist</b>.  
@@ -552,14 +583,14 @@
 
 
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Go back to wr'">
+         invisible="next_step_status != 'Go back to wr' or is_void_return or is_void_wr">
          Please generate the <b>Tally Sheet</b> if you have just arrived on this page.  
          Once printed, you may return to the <b>WR</b> by pressing <b>Alt + B</b>  
          or by clicking the <b>WR reference</b> located at the <b>top-left</b> of the screen.
     </div>
         
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Return RR Complete Pallet Details'">
+         invisible="next_step_status != 'Return RR Complete Pallet Details' or is_void_return or is_void_wr">
          ⚠️ Please <b>DOUBLE-CHECK</b> the <b>TALLY SHEET</b> carefully!  
          Make sure the <b>PALLET #</b> and <b>LOCATION</b> of all <b>RETURNED PALLETS</b>  
          are correctly updated in case any changes were made.
@@ -568,7 +599,7 @@
     
 
     <div class="alert alert-warning" role="alert"
-         invisible="next_step_status != 'Starting'">
+         invisible="next_step_status != 'Starting' or is_void_return or is_void_wr">
          Please <b>Fill</b> in all the details currently available in this window.  
          Once completed, proceed to the <b>Products/SKUs</b> section and add each product  
          based on the <b>Client’s Documents</b>.  
@@ -603,7 +634,7 @@
 <field name="next_step_status" invisible="1"/>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Generate Pallet Lines'">
+     invisible="next_step_status != 'Generate Pallet Lines' or is_void_return or is_void_wr">
      <b>⚠️ Action Required: Generate Pallet Lines</b>
      <br/><br/>
      Click the <b>"Generate Pallet Lines"</b> button to create pallet line entries based on your product estimates.
@@ -612,7 +643,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Estimate Pallet Lines'">
+     invisible="next_step_status != 'Estimate Pallet Lines' or is_void_return or is_void_wr">
       <b>Steps to Complete:</b>
       <br/>
       1. Add products in the <b>Operations → Product</b> column
@@ -628,7 +659,7 @@
 </div>
     
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'BF Complete Pallet Details'">
+     invisible="next_step_status != 'BF Complete Pallet Details' or is_void_return or is_void_wr">
      <b>Next Steps:</b>
      <br/>
      1. Generate the <b>Tally Sheet</b> and provide it to the <b>Checker</b>.
@@ -639,7 +670,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'RR Complete Pallet Details'">
+     invisible="next_step_status != 'RR Complete Pallet Details' or is_void_return or is_void_wr">
      <b>Steps to Complete:</b>
      <br/>
      <!-- 1. Assign <b>Pallet Series</b> and <b>Locations</b> inside <b>Pallet Breakdown</b> (top-center of screen). -->
@@ -661,7 +692,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Set Location'">
+     invisible="next_step_status != 'Set Location' or is_void_return or is_void_wr">
      <b>Steps to Begin:</b>
      <br/>
      1. Complete all available fields in this window form based on your client's documents.
@@ -676,7 +707,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Select Stocks'">
+     invisible="next_step_status != 'Select Stocks' or is_void_return or is_void_wr">
      <b>Steps to Pick Pallets:</b>
      <br/>
      1. Click <b>"Location Related Stocks"</b> button (top-center of screen).
@@ -687,7 +718,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'To create return'">
+     invisible="next_step_status != 'To create return' or is_void_return or is_void_wr">
     <b>Note:</b> If no return is needed, simply generate the <b>Picklist</b> and give it to the <b>Checker</b>. Wait for the picklist to return, then complete the window form details and <b>Verify</b> the transfer.     <br/><br/>
      <b>Steps to Create a Return:</b>
      <br/>
@@ -705,7 +736,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Go back to wr'">
+     invisible="next_step_status != 'Go back to wr' or is_void_return or is_void_wr">
      <b>Next Steps:</b>
      <br/>
      1. Generate the <b>Tally Sheet</b> (if just arrived on this page).
@@ -714,7 +745,7 @@
 </div>
     
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Return RR Complete Pallet Details'">
+     invisible="next_step_status != 'Return RR Complete Pallet Details' or is_void_return or is_void_wr">
      <b>⚠️ Double-Check Required:</b>
      <br/><br/>
      Verify the <b>Tally Sheet</b> carefully. Ensure the <b>Pallet #</b> and <b>Location</b> of all returned pallets are correctly updated if any changes were made.
@@ -726,7 +757,7 @@
 </div>
 
 <div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Starting'">
+     invisible="next_step_status != 'Starting' or is_void_return or is_void_wr">
      <b>Steps to Begin:</b>
      <br/>
      1. Complete all available fields in this window form based on your client's documents.
@@ -837,6 +868,7 @@
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_id']" position="attributes">
         <attribute name="domain">[("id", "=", parent.allowed_product_ids)]</attribute>
         <attribute name="options">{"no_create_edit":true,"no_create":true}</attribute>
+        <attribute name="readonly">parent.picking_type_code != 'incoming' or parent.state == 'done'</attribute>
       </xpath>
       <!-- Second Part -->
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_id']" position="after">

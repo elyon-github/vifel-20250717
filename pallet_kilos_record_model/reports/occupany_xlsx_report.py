@@ -1,348 +1,333 @@
 from odoo import models
 import datetime
-from xlsxwriter.workbook import Workbook
 import calendar
+
 
 class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.occupancy_report'
     _inherit = 'report.report_xlsx.abstract'
 
     def _define_formats(self, workbook):
-        """Define and return format objects with Excel-like design."""
-        base_font = {'font_name': 'Calibri', 'font_size': 11}
-        
-        # Main title format
-        title_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'font_size': 16,
-            'align': 'center',
-            'valign': 'vcenter',
-            'bg_color': '#305496',
-            'font_color': 'white',
-            'border': 1
+        """Define and return all format objects with a clean, modern palette."""
+        base = {'font_name': 'Aptos', 'font_size': 10}
+
+        formats = {}
+
+        # ── Title bar ──
+        formats['title'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 14,
+            'align': 'center', 'valign': 'vcenter',
+            'bg_color': '#1F3864', 'font_color': '#FFFFFF',
+            'bottom': 2, 'bottom_color': '#4472C4',
         })
 
-        # Header info format
-        header_info_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'font_size': 12,
-            'align': 'center',
-            'valign': 'vcenter',
-            'bg_color': '#B4C6E7',
-            'border': 1
+        # ── Meta row (Month / Year / Pallet Position) ──
+        formats['meta_label'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 10,
+            'align': 'right', 'valign': 'vcenter',
+            'bg_color': '#D6E4F0', 'font_color': '#1F3864',
+            'border': 1, 'border_color': '#B4C6E7',
+        })
+        formats['meta_value'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 10,
+            'align': 'left', 'valign': 'vcenter',
+            'bg_color': '#D6E4F0', 'font_color': '#1F3864',
+            'border': 1, 'border_color': '#B4C6E7',
         })
 
-        # Client header format (dark blue)
-        client_header_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'align': 'center',
-            'valign': 'vcenter',
-            'text_wrap': True,
-            'border': 1,
-            'bg_color': '#305496',
-            'font_color': 'white'
+        # ── Building label row ──
+        formats['building_label'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 11,
+            'align': 'left', 'valign': 'vcenter',
+            'bg_color': '#2F5496', 'font_color': '#FFFFFF',
+            'bottom': 2, 'bottom_color': '#4472C4',
         })
 
-        # Date header format (dark blue)
-        date_header_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'align': 'center',
-            'valign': 'vcenter',
-            'text_wrap': True,
-            'border': 1,
-            'border_color': 'white',
-            'bg_color': '#305496',
-            'font_color': 'white'
+        # ── Column headers (CLIENT / WHSE / MAX / MIN) ──
+        formats['col_header'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 10,
+            'align': 'center', 'valign': 'vcenter', 'text_wrap': True,
+            'bg_color': '#2F5496', 'font_color': '#FFFFFF',
+            'border': 1, 'border_color': '#1F3864',
         })
 
-        # Sub header format (PALLET COUNT/KILOGRAMS)
-        sub_header_format = workbook.add_format({
-            'font_name': 'Calibri', 'font_size': 9,
-            # 'bold': True,
-            'align': 'center',
-            'valign': 'vcenter',
-            'text_wrap': True,
-            'border': 1,
-            'border_color': 'white',
-            'bg_color': '#305496',
-            'font_color': 'white'
+        # ── Date header (merged top row) ──
+        formats['date_header'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 10,
+            'align': 'center', 'valign': 'vcenter',
+            'bg_color': '#2F5496', 'font_color': '#FFFFFF',
+            'border': 1, 'border_color': '#1F3864',
         })
 
-        # Normal text format
-        normal_format = workbook.add_format({
-            **base_font,
-            'align': 'left',
-            'valign': 'vcenter',
-            'border': 1
+        # ── Sub-header (PALLET COUNT / KILOGRAMS) ──
+        formats['sub_header_pallet'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 8,
+            'align': 'center', 'valign': 'vcenter', 'text_wrap': True,
+            'bg_color': '#4472C4', 'font_color': '#FFFFFF',
+            'border': 1, 'border_color': '#2F5496',
+        })
+        formats['sub_header_kilos'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 8,
+            'align': 'center', 'valign': 'vcenter', 'text_wrap': True,
+            'bg_color': '#5B9BD5', 'font_color': '#FFFFFF',
+            'border': 1, 'border_color': '#2F5496',
         })
 
-        # Number format
-        number_format = workbook.add_format({
-            **base_font,
-            'num_format': '#,##0.00',
-            'align': 'right',
-            'valign': 'vcenter',
-            'border': 1
+        # ── Data rows (two alternating stripes) ──
+        for suffix, bg in [('even', '#FFFFFF'), ('odd', '#F2F7FB')]:
+            formats[f'client_{suffix}'] = workbook.add_format({
+                **base, 'bold': True, 'align': 'left', 'valign': 'vcenter',
+                'bg_color': bg, 'border': 1, 'border_color': '#D9E2F3',
+            })
+            formats[f'whse_{suffix}'] = workbook.add_format({
+                **base, 'align': 'center', 'valign': 'vcenter',
+                'bg_color': bg, 'border': 1, 'border_color': '#D9E2F3',
+                'font_color': '#595959',
+            })
+            formats[f'pallet_{suffix}'] = workbook.add_format({
+                **base, 'num_format': '#,##0', 'align': 'center', 'valign': 'vcenter',
+                'bg_color': bg, 'border': 1, 'border_color': '#D9E2F3',
+            })
+            formats[f'kilos_{suffix}'] = workbook.add_format({
+                **base, 'num_format': '#,##0.00', 'align': 'right', 'valign': 'vcenter',
+                'bg_color': '#EAF1FA' if suffix == 'even' else '#E0EBFA',
+                'border': 1, 'border_color': '#D9E2F3',
+                'font_color': '#2F5496',
+            })
+            formats[f'maxmin_{suffix}'] = workbook.add_format({
+                **base, 'num_format': '#,##0', 'align': 'center', 'valign': 'vcenter',
+                'bg_color': bg, 'border': 1, 'border_color': '#D9E2F3',
+                'bold': True, 'font_color': '#2F5496',
+            })
+
+        # ── Total row ──
+        formats['total_label'] = workbook.add_format({
+            **base, 'bold': True, 'font_size': 10,
+            'align': 'center', 'valign': 'vcenter',
+            'bg_color': '#1F3864', 'font_color': '#FFFFFF',
+            'top': 2, 'top_color': '#4472C4',
+            'bottom': 2, 'bottom_color': '#4472C4',
+            'left': 1, 'left_color': '#1F3864',
+            'right': 1, 'right_color': '#1F3864',
         })
-        number_format_with_background = workbook.add_format({
-            **base_font,
-            'num_format': '#,##0.00',
-            'align': 'right',
-            'valign': 'vcenter',
-            'border': 1,
-            'bg_color': '#dcecf4',
+        formats['total_pallet'] = workbook.add_format({
+            **base, 'bold': True, 'num_format': '#,##0',
+            'align': 'center', 'valign': 'vcenter',
+            'bg_color': '#1F3864', 'font_color': '#FFFFFF',
+            'top': 2, 'top_color': '#4472C4',
+            'bottom': 2, 'bottom_color': '#4472C4',
+            'left': 1, 'left_color': '#1F3864',
+            'right': 1, 'right_color': '#1F3864',
         })
-        
-        # Total row format (yellow background)
-        total_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'align': 'center',
-            'valign': 'vcenter',
-            'bg_color': '#FFFF99',
-            'border': 1
+        formats['total_kilos'] = workbook.add_format({
+            **base, 'bold': True, 'num_format': '#,##0.00',
+            'align': 'right', 'valign': 'vcenter',
+            'bg_color': '#1F3864', 'font_color': '#BDD7EE',
+            'top': 2, 'top_color': '#4472C4',
+            'bottom': 2, 'bottom_color': '#4472C4',
+            'left': 1, 'left_color': '#1F3864',
+            'right': 1, 'right_color': '#1F3864',
         })
 
-        # Total number format
-        total_number_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'num_format': '#,##0.00',
-            'align': 'right',
-            'valign': 'vcenter',
-            'bg_color': '#FFFF99',
-            'border': 1
-        })
+        return formats
 
-        # Building header format
-        building_header_format = workbook.add_format({
-            **base_font,
-            'bold': True,
-            'align': 'center',
-            'valign': 'vcenter',
-            'border': 1,
-            'bg_color': '#305496',
-            'font_color': 'white'
-        })
-
-        return (title_format, header_info_format, client_header_format, date_header_format, 
-                sub_header_format, normal_format, number_format, number_format_with_background, total_format, 
-                total_number_format, building_header_format)
-
+    # ──────────────────────────────────────────────
+    #  Main report generation
+    # ──────────────────────────────────────────────
     def generate_xlsx_report(self, workbook, data, records):
-        formats = self._define_formats(workbook)
-        (title_format, header_info_format, client_header_format, date_header_format, 
-         sub_header_format, normal_format, number_format, number_format_with_background, total_format, 
-         total_number_format, building_header_format) = formats
+        fmt = self._define_formats(workbook)
 
-        # Create single sheet
         sheet = workbook.add_worksheet('Inventory Occupancy Report')
-        
-        # Set column widths
-        sheet.set_column(0, 0, 25)  # Client column
-        sheet.set_column(1, 1, 18)  # WHSE ALLOCATION column
-        sheet.set_column(2, 200, 12)  # Date columns
+        sheet.hide_gridlines(2)  # hide both screen & printed gridlines
+        sheet.set_tab_color('#2F5496')
 
-        # Sort records by date
-        sorted_records = sorted(records, key=lambda x: (x.start_time, x.id))        
+        # Column widths
+        sheet.set_column(0, 0, 28)   # Client
+        sheet.set_column(1, 1, 18)   # WHSE ALLOCATION
+
+        # ── Filter & sort records ──
+        valid_records = [r for r in records if r.start_time]
+        sorted_records = sorted(valid_records, key=lambda x: (x.start_time, x.id))
 
         if not sorted_records:
+            sheet.write(0, 0, 'No records found.', fmt['title'])
             return
 
-        # Get date range (convert to UTC+8)
-        oldest_date_utc8 = (sorted_records[0].start_time + datetime.timedelta(hours=8)).date()
-        latest_date_utc8 = (sorted_records[-1].start_time + datetime.timedelta(hours=8)).date()
-        date_list = [oldest_date_utc8 + datetime.timedelta(days=x) for x in range((latest_date_utc8 - oldest_date_utc8).days + 1)]
+        # ── Date range (UTC → UTC+8) ──
+        oldest_utc8 = (sorted_records[0].start_time + datetime.timedelta(hours=8)).date()
+        latest_utc8 = (sorted_records[-1].start_time + datetime.timedelta(hours=8)).date()
+        date_list = [
+            oldest_utc8 + datetime.timedelta(days=d)
+            for d in range((latest_utc8 - oldest_utc8).days + 1)
+        ]
 
-        # Collect all buildings and organize data by building
+        num_date_cols = len(date_list) * 2
+        total_cols = 2 + num_date_cols + 2  # Client + WHSE + dates + MAX + MIN
+
+        # Set date-column widths (pallet cols slightly narrower)
+        for i in range(len(date_list)):
+            sheet.set_column(2 + i * 2, 2 + i * 2, 11)       # pallet
+            sheet.set_column(2 + i * 2 + 1, 2 + i * 2 + 1, 13)  # kilos
+        sheet.set_column(2 + num_date_cols, 2 + num_date_cols + 1, 10)  # MAX / MIN
+
+        # ── Organise data by building ──
         building_data = {}
         all_buildings = set()
-        
-        for record in sorted_records:
-            owner_name = record.owner_id.name or 'Unknown'
-            total_balances = record.total_balances or {}
-            record_date_utc8 = (record.start_time + datetime.timedelta(hours=8)).date()
-            
-            # Process each building in total_balances
-            for building_name, building_info in total_balances.items():
-                all_buildings.add(building_name)
-                
-                if building_name not in building_data:
-                    building_data[building_name] = {}
-                    
-                if owner_name not in building_data[building_name]:
-                    building_data[building_name][owner_name] = {}
-                    
-                if record_date_utc8 not in building_data[building_name][owner_name]:
-                    building_data[building_name][owner_name][record_date_utc8] = []
-                
-                building_record = {
-                    'record': record,
-                    'pallets': building_info.get('total_balance_in_pallets', 0),
-                    'kilos': building_info.get('total_balance_in_kilos', 0)
-                }
-                building_data[building_name][owner_name][record_date_utc8].append(building_record)
 
-        # Generate header info based on start date
-        start_date = oldest_date_utc8
-        month_year = start_date.strftime('%B %Y').upper()
-        year = start_date.year
-        
-        # Get total pallet position from static variable
-        total_pallets = 0
+        for rec in sorted_records:
+            owner_name = rec.owner_id.name or 'Unknown'
+            balances = rec.total_balances or {}
+            rec_date = (rec.start_time + datetime.timedelta(hours=8)).date()
+
+            for bldg, info in balances.items():
+                all_buildings.add(bldg)
+                building_data.setdefault(bldg, {}).setdefault(owner_name, {}).setdefault(rec_date, [])
+                building_data[bldg][owner_name][rec_date].append({
+                    'record': rec,
+                    'pallets': info.get('total_balance_in_pallets', 0),
+                    'kilos': info.get('total_balance_in_kilos', 0),
+                })
+
+        # ── Header info ──
+        month_year = oldest_utc8.strftime('%B %Y').upper()
+        year = oldest_utc8.year
+
+        max_pallet_position = 0
         if records:
-            static_var = self.env['x_inventory_static_var'].search([
-                ('x_name', '=', 'Max Pallets'), 
-                ('x_studio_warehouse', '=', records[0].warehouse.id)
+            sv = self.env['x_inventory_static_var'].search([
+                ('x_name', '=', 'Max Pallets'),
+                ('x_studio_warehouse', '=', records[0].warehouse.id),
             ], limit=1)
-            if static_var:
-                total_pallets = static_var.x_studio_float_value or 0
+            if sv:
+                max_pallet_position = sv.x_studio_float_value or 0
 
-        current_row = 0
+        row = 0
 
-        # Main title
-        title_text = f'INVENTORY OCCUPANCY REPORT {year}'
-        num_date_cols = len(date_list) * 2  # Each date has 2 columns (pallet + kilos)
-        total_cols = 2 + num_date_cols + 2  # Client + WHSE ALLOCATION + Date columns + MAX + MIN
-        sheet.merge_range(current_row, 0, current_row, total_cols - 1, title_text, title_format)
-        current_row += 1
+        # Title
+        sheet.set_row(row, 30)
+        sheet.merge_range(row, 0, row, total_cols - 1,
+                          f'INVENTORY OCCUPANCY REPORT  —  {year}', fmt['title'])
+        row += 1
 
-        # Header info
-        sheet.merge_range(current_row, 0, current_row, 1, 'Month:', header_info_format)
-        sheet.write(current_row, 2, month_year, header_info_format)
-        current_row += 1
-        
-        sheet.merge_range(current_row, 0, current_row, 1, 'Year:', header_info_format)
-        sheet.write(current_row, 2, year, header_info_format)
-        current_row += 1
-        
-        sheet.merge_range(current_row, 0, current_row, 1, 'Total Pallet Position:', header_info_format)
-        sheet.write(current_row, 2, total_pallets, header_info_format)
-        current_row += 2
+        # Meta rows
+        for label, value in [('Month', month_year), ('Year', str(year)),
+                             ('Total Pallet Positions', int(max_pallet_position))]:
+            sheet.set_row(row, 20)
+            sheet.merge_range(row, 0, row, 1, f'{label}:', fmt['meta_label'])
+            sheet.write(row, 2, value, fmt['meta_value'])
+            row += 1
+        row += 1  # spacer
 
-        # Create separate table for each building
-        for building_name in sorted(all_buildings):
-            owners = building_data[building_name]
-            
-            # Table headers row 1
-            sheet.write(current_row, 0, 'CLIENT', client_header_format)
-            sheet.write(current_row, 1, 'WHSE ALLOCATION', client_header_format)
-            
+        # ── Per-building tables ──
+        for bldg_name in sorted(all_buildings):
+            owners = building_data[bldg_name]
+
+            # Building label row
+            sheet.set_row(row, 22)
+            sheet.merge_range(row, 0, row, total_cols - 1,
+                              f'  📦  {bldg_name}', fmt['building_label'])
+            row += 1
+
+            # ── Header row 1: CLIENT | WHSE | date spans | MAX | MIN ──
+            sheet.set_row(row, 24)
+            sheet.write(row, 0, 'CLIENT', fmt['col_header'])
+            sheet.write(row, 1, 'WHSE ALLOCATION', fmt['col_header'])
+
             col = 2
-            for date in date_list:
-                date_str = date.strftime('%d-%b')
-                sheet.merge_range(current_row, col, current_row, col + 1, date_str, date_header_format)
+            for dt in date_list:
+                sheet.merge_range(row, col, row, col + 1,
+                                  dt.strftime('%d-%b'), fmt['date_header'])
                 col += 2
-            
-            sheet.write(current_row, col, 'MAX', client_header_format)
-            sheet.write(current_row, col + 1, 'MIN', client_header_format)
-            current_row += 1
+            sheet.write(row, col, 'MAX', fmt['col_header'])
+            sheet.write(row, col + 1, 'MIN', fmt['col_header'])
+            row += 1
 
-            # Table headers row 2 (PALLET COUNT / KILOGRAMS)
-            sheet.write(current_row, 0, '', client_header_format)
-            sheet.write(current_row, 1, '', client_header_format)
-            
+            # ── Header row 2: sub-headers ──
+            sheet.set_row(row, 20)
+            sheet.write(row, 0, '', fmt['col_header'])
+            sheet.write(row, 1, '', fmt['col_header'])
+
             col = 2
-            for date in date_list:
-                sheet.write(current_row, col, 'PALLET COUNT', sub_header_format)
-                sheet.write(current_row, col + 1, 'KILOGRAMS', sub_header_format)
+            for _ in date_list:
+                sheet.write(row, col, 'PALLET COUNT', fmt['sub_header_pallet'])
+                sheet.write(row, col + 1, 'KILOGRAMS', fmt['sub_header_kilos'])
                 col += 2
-            
-            sheet.write(current_row, col, '', client_header_format)
-            sheet.write(current_row, col + 1, '', client_header_format)
-            current_row += 1
+            sheet.write(row, col, '', fmt['col_header'])
+            sheet.write(row, col + 1, '', fmt['col_header'])
+            row += 1
 
-            # Data rows for this building
-            building_total_pallets_by_date = {}
-            building_total_kilos_by_date = {}
-            
+            # Freeze panes (only on first building)
+            if bldg_name == sorted(all_buildings)[0]:
+                sheet.freeze_panes(row, 2)
+
+            # ── Data rows ──
+            bldg_pallet_totals = {}
+            bldg_kilos_totals = {}
+            owner_idx = 0
+
             for owner_name in sorted(owners.keys()):
+                stripe = 'even' if owner_idx % 2 == 0 else 'odd'
                 owner_dates = owners[owner_name]
-                
-                sheet.write(current_row, 0, owner_name, normal_format)
-                sheet.write(current_row, 1, building_name, normal_format)
-                
-                col = 2
-                pallet_values = []
-                last_known_pallet = 0
-                last_known_kilos = 0
-                
-                for date in date_list:
-                    pallet_count = 0
-                    kilos_count = 0
-                
-                    if date in owner_dates:
-                        day_records = owner_dates[date]
-                        if day_records:
-                            last_record = sorted(day_records, key=lambda x: (x['record'].start_time, x['record'].id))[-1]
-                            pallet_count = last_record['pallets'] or 0
-                            kilos_count = last_record['kilos'] or 0
-                            last_known_pallet = pallet_count
-                            last_known_kilos = kilos_count
-                    else:
-                        # Use last known values
-                        pallet_count = last_known_pallet
-                        kilos_count = last_known_kilos
-                
-                    # Write values
-                    sheet.write(current_row, col, pallet_count, number_format)
-                    sheet.write(current_row, col + 1, kilos_count, number_format_with_background)
-                    pallet_values.append(pallet_count)
-                
-                    # Update building totals
-                    if date not in building_total_pallets_by_date:
-                        building_total_pallets_by_date[date] = 0
-                        building_total_kilos_by_date[date] = 0
-                    building_total_pallets_by_date[date] += pallet_count
-                    building_total_kilos_by_date[date] += kilos_count
-                
-                    col += 2
-                
-                # MAX and MIN formulas
-                if pallet_values:
-                    start_col = 2
-                    end_col = start_col + (len(date_list) * 2) - 2  # Only pallet columns
-                    row_num = current_row + 1  # Excel is 1-indexed
-                    
-                    # Create range string for pallet columns only (every other column starting from C)
-                    pallet_cols = []
-                    for i in range(start_col, end_col + 1, 2):
-                        col_letter = chr(65 + i) if i < 26 else chr(65 + i // 26 - 1) + chr(65 + i % 26)
-                        pallet_cols.append(f"{col_letter}{row_num}")
-                    
-                    if pallet_cols:
-                        max_formula = f"=MAX({','.join(pallet_cols)})"
-                        min_formula = f"=MIN({','.join(pallet_cols)})"
-                        sheet.write_formula(current_row, col, max_formula, number_format)
-                        sheet.write_formula(current_row, col + 1, min_formula, number_format)
-                else:
-                    sheet.write(current_row, col, '-', normal_format)
-                    sheet.write(current_row, col + 1, '-', normal_format)
-                
-                current_row += 1
 
-            # TOTAL row for this building
-            sheet.write(current_row, 0, 'TOTAL', total_format)
-            sheet.write(current_row, 1, building_name, total_format)
-            
-            col = 2
-            for date in date_list:
-                total_pallets = building_total_pallets_by_date.get(date, 0)
-                total_kilos = building_total_kilos_by_date.get(date, 0)
-                
-                if total_pallets > 0 or total_kilos > 0:
-                    sheet.write(current_row, col, total_pallets, total_number_format)
-                    sheet.write(current_row, col + 1, total_kilos, total_number_format)
+                sheet.set_row(row, 18)
+                sheet.write(row, 0, owner_name, fmt[f'client_{stripe}'])
+                sheet.write(row, 1, bldg_name, fmt[f'whse_{stripe}'])
+
+                col = 2
+                last_pallet = 0
+                last_kilos = 0
+                row_pallet_values = []
+
+                for dt in date_list:
+                    if dt in owner_dates:
+                        day = owner_dates[dt]
+                        if day:
+                            best = sorted(day, key=lambda x: (x['record'].start_time, x['record'].id))[-1]
+                            last_pallet = best['pallets'] or 0
+                            last_kilos = best['kilos'] or 0
+
+                    pallet_count = last_pallet
+                    kilos_count = last_kilos
+                    row_pallet_values.append(pallet_count)
+
+                    sheet.write(row, col, pallet_count, fmt[f'pallet_{stripe}'])
+                    sheet.write(row, col + 1, kilos_count, fmt[f'kilos_{stripe}'])
+
+                    bldg_pallet_totals[dt] = bldg_pallet_totals.get(dt, 0) + pallet_count
+                    bldg_kilos_totals[dt] = bldg_kilos_totals.get(dt, 0) + kilos_count
+                    col += 2
+
+                # MAX / MIN computed in Python (avoids Excel formula repair issues)
+                if row_pallet_values:
+                    sheet.write(row, col, max(row_pallet_values), fmt[f'maxmin_{stripe}'])
+                    sheet.write(row, col + 1, min(row_pallet_values), fmt[f'maxmin_{stripe}'])
                 else:
-                    sheet.write(current_row, col, '-', total_format)
-                    sheet.write(current_row, col + 1, '-', total_format)
+                    sheet.write(row, col, 0, fmt[f'maxmin_{stripe}'])
+                    sheet.write(row, col + 1, 0, fmt[f'maxmin_{stripe}'])
+
+                row += 1
+                owner_idx += 1
+
+            # ── Total row ──
+            sheet.set_row(row, 22)
+            sheet.write(row, 0, 'TOTAL', fmt['total_label'])
+            sheet.write(row, 1, bldg_name, fmt['total_label'])
+
+            col = 2
+            for dt in date_list:
+                tp = bldg_pallet_totals.get(dt, 0)
+                tk = bldg_kilos_totals.get(dt, 0)
+                sheet.write(row, col, tp, fmt['total_pallet'])
+                sheet.write(row, col + 1, tk, fmt['total_kilos'])
                 col += 2
-            
-            # TOTAL MAX/MIN (empty for now)
-            sheet.write(current_row, col, '', total_format)
-            sheet.write(current_row, col + 1, '', total_format)
-            current_row += 3  # Add some space before next building table
+
+            # Total MAX / MIN computed in Python
+            total_pallet_vals = [bldg_pallet_totals.get(dt, 0) for dt in date_list]
+            if total_pallet_vals:
+                sheet.write(row, col, max(total_pallet_vals), fmt['total_pallet'])
+                sheet.write(row, col + 1, min(total_pallet_vals), fmt['total_pallet'])
+            else:
+                sheet.write(row, col, 0, fmt['total_label'])
+                sheet.write(row, col + 1, 0, fmt['total_label'])
+
+            row += 2  # spacing before next building
