@@ -172,7 +172,6 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'package_id': quant.package_id.id if quant.package_id else False,
             'owner_id': quant.owner_id.id if quant.owner_id else False,
             'location_id': quant.location_id.id,
-            'write_date': str(quant.write_date),
             'x_studio_2nd_uom': quant.x_studio_2nd_uom,
             'x_studio_total_units': quant.x_studio_total_units,
         }
@@ -1168,7 +1167,14 @@ class StockQuantAdjustmentLine(models.Model):
             
             if line.quant_snapshot:
                 current_snapshot = line._create_quant_snapshot(quant)
-                if current_snapshot != line.quant_snapshot:
+                # Strip write_date from old stored snapshots for backward compatibility
+                try:
+                    stored_data = json.loads(line.quant_snapshot)
+                    stored_data.pop('write_date', None)
+                    normalized_stored = json.dumps(stored_data, sort_keys=True)
+                except (json.JSONDecodeError, TypeError):
+                    normalized_stored = line.quant_snapshot
+                if current_snapshot != normalized_stored:
                     line.conflict_status = 'changed'
                     continue
             
@@ -1183,7 +1189,6 @@ class StockQuantAdjustmentLine(models.Model):
             'package_id': quant.package_id.id if quant.package_id else False,
             'owner_id': quant.owner_id.id if quant.owner_id else False,
             'location_id': quant.location_id.id,
-            'write_date': str(quant.write_date),
             'x_studio_2nd_uom': quant.x_studio_2nd_uom,
             'x_studio_total_units': quant.x_studio_total_units,
         }
