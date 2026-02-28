@@ -531,6 +531,251 @@ class stock_move_line_Override(models.Model):
     #     res = super(stock_move_line_Override, self).unlink()
 
 
+    def write(self, vals):
+        """Override write to handle multi-edit of result_package_id on stock.move.line.
+        
+        When users multi-edit the Pallet # in the list view, onchange is NOT triggered.
+        This override replicates the sync logic: match pallet series + location from
+        existing lines using the same pallet, and free old pallets/locations/series
+        that are no longer used by any line in the same RR.
+        """
+        # Skip when called from action_confirm (wizard already handles everything)
+        if self.env.context.get('skip_pallet_series_sync'):
+            return super().write(vals)
+        
+        # Only intercept result_package_id changes on incoming, non-return pickings
+        if 'result_package_id' not in vals:
+            return super().write(vals)
+        
+        # Check that these are incoming move lines
+        incoming_lines = self.filtered(
+            lambda r: r.picking_type_id
+                      and r.picking_id.picking_type_code == 'incoming'
+                      and r.product_id
+                      and not r.picking_id.return_id
+        )
+        if not incoming_lines:
+            return super().write(vals)
+        
+        # Snapshot old state BEFORE write for freeing logic
+        old_state = {}
+        for record in incoming_lines:
+            old_state[record.id] = {
+                'pallet_id': record.result_package_id.id if record.result_package_id else False,
+                'location_id': record.location_dest_id.id if record.location_dest_id else False,
+                'series': record.x_studio_pallet_series_id or '',
+            }
+        
+        new_pallet_id = vals.get('result_package_id')
+        picking_id = incoming_lines[0].picking_id.id
+        owner = incoming_lines[0].owner_id
+        
+        # Perform the base write first
+        res = super().write(vals)
+        
+        if not new_pallet_id:
+            # ── Pallet cleared: restore original if in pool, else flag needs_new ──
+            for record in incoming_lines:
+                old = old_state[record.id]
+                write_vals = {}
+                
+                if record.original_pallet_series_id and owner:
+                    # Push old series back if different from original and unused by others
+                    if old['series'] and old['series'] != record.original_pallet_series_id:
+                        other_using = self.env['stock.move.line'].search([
+                            ('picking_id', '=', picking_id),
+                            ('x_studio_pallet_series_id', '=', old['series']),
+                            ('id', '!=', record.id)
+                        ], limit=1)
+                        if not other_using:
+                            owner.push_unused_pallet(old['series'])
+                    
+                    if record.original_pallet_series_id == old['series']:
+                        # This line's original IS the series it was already using — keep it
+                        write_vals['x_studio_pallet_series_id'] = record.original_pallet_series_id
+                    else:
+                        # Original differs from current — try to restore from pool, else counter
+                        try:
+                            orig_int = int(record.original_pallet_series_id.split('-')[-1])
+                            pool = owner.unused_pallet_series_ids or []
+                            if orig_int in pool:
+                                # Original is in pool — consume it
+                                restored = owner.get_pallet_series_by_id(record.original_pallet_series_id)
+                                if restored:
+                                    write_vals['x_studio_pallet_series_id'] = restored[0]
+                                else:
+                                    write_vals['x_studio_pallet_series_id'] = record.original_pallet_series_id
+                            else:
+                                # Original was consumed — generate new one
+                                write_vals['x_studio_pallet_series_id'] = owner.generate_new_pallet_series_id()
+                        except (ValueError, IndexError):
+                            # Can't parse original — generate new
+                            write_vals['x_studio_pallet_series_id'] = owner.generate_new_pallet_series_id()
+                
+                if write_vals:
+                    super(stock_move_line_Override, record).write(write_vals)
+                
+                # Restore original location from x_studio_initial_location
+                restored_loc_id = None
+                if record.x_studio_initial_location:
+                    initial_loc = self.env['stock.location'].browse(record.x_studio_initial_location)
+                    if initial_loc.exists():
+                        restored_loc_id = initial_loc.id
+                else:
+                    restored_loc_id = 7
+                
+                if restored_loc_id:
+                    super(stock_move_line_Override, record).write({'location_dest_id': restored_loc_id})
+                    # Reserve the restored location
+                    restored_loc = self.env['stock.location'].browse(restored_loc_id)
+                    if restored_loc.exists() and not restored_loc.x_studio_is_reserved:
+                        restored_loc.write({
+                            'x_studio_is_reserved': True,
+                            'x_studio_receiving_report_id': picking_id,
+                        })
+                
+                # Free old pallet if no longer used
+                self._free_pallet_if_unused(picking_id, old['pallet_id'], incoming_lines.ids)
+                # Free old location if no longer used
+                self._free_location_if_unused(picking_id, old['location_id'], incoming_lines.ids)
+        
+        else:
+            # ── Pallet set: find existing match and sync series + location ──
+            # Search for an existing move line (outside our set) already using this pallet
+            match = self.env['stock.move.line'].search([
+                ('picking_id', '=', picking_id),
+                ('result_package_id', '=', new_pallet_id),
+                ('x_studio_pallet_series_id', '!=', False),
+                ('id', 'not in', incoming_lines.ids),
+            ], limit=1)
+            
+            if match:
+                # Sync pallet series + location from the matched line
+                sync_vals = {
+                    'x_studio_pallet_series_id': match.x_studio_pallet_series_id,
+                    'location_dest_id': match.location_dest_id.id if match.location_dest_id else False,
+                }
+                
+                for record in incoming_lines:
+                    old = old_state[record.id]
+                    
+                    # Push old series back if it differs and is unused by others
+                    if owner and old['series'] and old['series'] != match.x_studio_pallet_series_id:
+                        other_using = self.env['stock.move.line'].search([
+                            ('picking_id', '=', picking_id),
+                            ('x_studio_pallet_series_id', '=', old['series']),
+                            ('id', '!=', record.id)
+                        ], limit=1)
+                        if not other_using:
+                            owner.push_unused_pallet(old['series'])
+                    
+                    super(stock_move_line_Override, record).write(sync_vals)
+                    
+                    # Free old pallet if no longer used
+                    self._free_pallet_if_unused(picking_id, old['pallet_id'], incoming_lines.ids)
+                    # Free old location if no longer used
+                    self._free_location_if_unused(picking_id, old['location_id'], incoming_lines.ids)
+                    
+                    # Reserve the new location
+                    if match.location_dest_id and not match.location_dest_id.x_studio_is_reserved:
+                        match.location_dest_id.write({
+                            'x_studio_is_reserved': True,
+                            'x_studio_receiving_report_id': picking_id,
+                        })
+            else:
+                # No external match — check if any line WITHIN our set already had this pallet
+                # (they'd keep their series). If multiple, pick smallest original as winner.
+                # Also check sibling lines outside our set but in the same picking.
+                sibling = self.env['stock.move.line'].search([
+                    ('picking_id', '=', picking_id),
+                    ('result_package_id', '=', new_pallet_id),
+                    ('x_studio_pallet_series_id', '!=', False),
+                    ('id', 'not in', incoming_lines.ids),
+                ], limit=1)
+                
+                if sibling:
+                    # Another line in this RR (not in our selection) already uses this pallet
+                    winning_series = sibling.x_studio_pallet_series_id
+                    winning_location = sibling.location_dest_id.id if sibling.location_dest_id else False
+                else:
+                    # Pick the smallest original_pallet_series_id among selected lines as winner
+                    sorted_lines = sorted(incoming_lines, key=lambda r: r.original_pallet_series_id or r.x_studio_pallet_series_id or '')
+                    winner = sorted_lines[0]
+                    winning_series = winner.original_pallet_series_id or winner.x_studio_pallet_series_id
+                    winning_location = winner.location_dest_id.id if winner.location_dest_id else False
+                    
+                    # Note: we do NOT consume from pool here. The winning series
+                    # is assigned directly. Pool cleanup happens via push_unused_pallet
+                    # for the old series that are freed below.
+                
+                sync_vals = {'x_studio_pallet_series_id': winning_series}
+                if winning_location:
+                    sync_vals['location_dest_id'] = winning_location
+                
+                for record in incoming_lines:
+                    old = old_state[record.id]
+                    
+                    # Push old series back if it differs and is unused by others
+                    if owner and old['series'] and old['series'] != winning_series:
+                        other_using = self.env['stock.move.line'].search([
+                            ('picking_id', '=', picking_id),
+                            ('x_studio_pallet_series_id', '=', old['series']),
+                            ('id', '!=', record.id)
+                        ], limit=1)
+                        if not other_using:
+                            owner.push_unused_pallet(old['series'])
+                    
+                    super(stock_move_line_Override, record).write(sync_vals)
+                    
+                    # Free old pallet if no longer used
+                    self._free_pallet_if_unused(picking_id, old['pallet_id'], incoming_lines.ids)
+                    # Free old location if no longer used
+                    self._free_location_if_unused(picking_id, old['location_id'], incoming_lines.ids)
+            
+            # Reserve the new pallet if not already reserved
+            new_pallet = self.env['stock.quant.package'].browse(new_pallet_id)
+            if new_pallet.exists() and not new_pallet.x_studio_is_reserved:
+                new_pallet.write({
+                    'x_studio_is_reserved': True,
+                    'x_studio_receiving_report_id': picking_id,
+                })
+        
+        return res
+    
+    def _free_pallet_if_unused(self, picking_id, pallet_id, exclude_ids=None):
+        """Free (unreserve) a pallet if no lines in the RR still use it."""
+        if not pallet_id:
+            return
+        other_usage = self.env['stock.move.line'].search([
+            ('picking_id', '=', picking_id),
+            ('result_package_id', '=', pallet_id),
+            ('id', 'not in', exclude_ids or []),
+        ], limit=1)
+        if not other_usage:
+            pallet = self.env['stock.quant.package'].browse(pallet_id)
+            if pallet.exists():
+                pallet.write({
+                    'x_studio_is_reserved': False,
+                    'x_studio_receiving_report_id': False,
+                })
+    
+    def _free_location_if_unused(self, picking_id, location_id, exclude_ids=None):
+        """Free (unreserve) a location if no lines in the RR still use it."""
+        if not location_id:
+            return
+        other_usage = self.env['stock.move.line'].search([
+            ('picking_id', '=', picking_id),
+            ('location_dest_id', '=', location_id),
+            ('id', 'not in', exclude_ids or []),
+        ], limit=1)
+        if not other_usage:
+            location = self.env['stock.location'].browse(location_id)
+            if location.exists():
+                location.write({
+                    'x_studio_is_reserved': False,
+                    'x_studio_receiving_report_id': False,
+                })
+
 
     
     
@@ -541,6 +786,30 @@ class stock_move_line_Override(models.Model):
         
         for record in self:
             if record.picking_type_id and record.picking_id.picking_type_code == 'incoming' and record.product_id and not record.picking_id.return_id:
+                
+                # Handle clearing the pallet # - revert to original series
+                if not record.result_package_id:
+                    if record.original_pallet_series_id and record.owner_id:
+                        # Push current series back to unused (if different from original and not used by others)
+                        self_id = self.extract_id_from_newid(record.id)
+                        if record._origin.x_studio_pallet_series_id and record._origin.x_studio_pallet_series_id != record.original_pallet_series_id:
+                            other_lines_using = self.env['stock.move.line'].search([
+                                ('picking_id', '=', record.picking_id.id),
+                                ('x_studio_pallet_series_id', '=', record._origin.x_studio_pallet_series_id),
+                                ('id', '!=', self_id)
+                            ], limit=1)
+                            if not other_lines_using:
+                                record.owner_id.push_unused_pallet(record._origin.x_studio_pallet_series_id)
+                        
+                        # Try to pull original from unused pool
+                        restored = record.owner_id.get_pallet_series_by_id(record.original_pallet_series_id)
+                        if restored:
+                            record.x_studio_pallet_series_id = restored[0]
+                        else:
+                            # Original not in pool — just assign it directly (it was this line's own series)
+                            record.x_studio_pallet_series_id = record.original_pallet_series_id
+                    continue
+                
                 # Exclude the current record ID to avoid self-inclusion in search results
                 self_id = self.extract_id_from_newid(record.id)
                 previous_location = record._origin.location_dest_id
@@ -556,8 +825,28 @@ class stock_move_line_Override(models.Model):
                 unmatched_package = self._get_unmatched_ids(picking_id, 'result_package_id')
                 unmatched_pallet_series = self._get_unmatched_ids(picking_id, 'x_studio_pallet_series_id')
                 
+                # Handle unique pallet case — restore original series and manage pool
+                if record.result_package_id and not move_line_ids:
+                    if record.original_pallet_series_id and record.owner_id:
+                        # Push the current series back to unused if it differs and no one else uses it
+                        if record._origin.x_studio_pallet_series_id and record._origin.x_studio_pallet_series_id != record.original_pallet_series_id:
+                            other_lines_using = self.env['stock.move.line'].search([
+                                ('picking_id', '=', record.picking_id.id),
+                                ('x_studio_pallet_series_id', '=', record._origin.x_studio_pallet_series_id),
+                                ('id', '!=', self_id)
+                            ], limit=1)
+                            if not other_lines_using:
+                                record.owner_id.push_unused_pallet(record._origin.x_studio_pallet_series_id)
+                        
+                        # Try to restore original from unused pool
+                        restored = record.owner_id.get_pallet_series_by_id(record.original_pallet_series_id)
+                        if restored:
+                            record.x_studio_pallet_series_id = restored[0]
+                        else:
+                            # Original not in pool — just assign it directly
+                            record.x_studio_pallet_series_id = record.original_pallet_series_id
                 
-                if unmatched_package and (not unmatched_pallet_series or False in unmatched_pallet_series):
+                elif unmatched_package and (not unmatched_pallet_series or False in unmatched_pallet_series):
                     reuse_recycle = record.owner_id.get_pallet_series_by_id(record.original_pallet_series_id)
                     if reuse_recycle and not unmatched_pallet_series:
                         for pallet_id in reuse_recycle:
@@ -1054,8 +1343,9 @@ class stock_move_line_Override(models.Model):
                 'expiration_date': line.x_studio_expiration_date,
                 'quantity_uom': line.x_studio_quantity_uom.id if line.x_studio_quantity_uom else False,
                 'packs_uom': line.x_studio_min_quantity_uom.id if line.x_studio_min_quantity_uom else False,
-                'original_pallet_series_id': line.x_studio_pallet_series_id or '',
-                'original_location_dest_id': line.location_dest_id.id,
+                'pre_wizard_pallet_series_id': line.x_studio_pallet_series_id or '',
+                'original_pallet_series_id': line.original_pallet_series_id or line.x_studio_pallet_series_id or '',
+                'original_location_dest_id': line.x_studio_initial_location if line.x_studio_initial_location else 7,
                 'original_container_number': line.x_studio_container_number or '',
                 'original_production_date': line.x_studio_production_date,
                 'original_expiration_date': line.x_studio_expiration_date,
