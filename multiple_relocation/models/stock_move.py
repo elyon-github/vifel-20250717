@@ -570,9 +570,11 @@ class stock_move_line_Override(models.Model):
                     else:
   
                         if not unmatched_pallet_series or (not unmatched_pallet_series or False in unmatched_pallet_series):
-                            record.x_studio_pallet_series_id = record.owner_id.get_smallest_pallet_series_ids(1)[0]
-                            temp_series_id = int(record.owner_id.x_studio_pallet_series_id) + 1
-                            record.owner_id.x_studio_pallet_series_id = temp_series_id
+                            new_series = record.owner_id.get_smallest_pallet_series_ids(1)
+                            if new_series:
+                                record.x_studio_pallet_series_id = new_series[0]
+                                temp_series_id = int(record.owner_id.x_studio_pallet_series_id) + 1
+                                record.owner_id.x_studio_pallet_series_id = temp_series_id
 
     
 
