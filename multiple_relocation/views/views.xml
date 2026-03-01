@@ -271,6 +271,7 @@
             <field name="is_blast_freeze" column_invisible="1"/>
             <field name="is_package_multiple_withdraw" column_invisible="1"/>
             <field name="bf_pallet_char" column_invisible="not context.get('is_blast_freeze')" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" readonly="picking_code == 'outgoing' or state == 'done'"/>
+            <field optional="hide" name="original_pallet_series_id" groups="base.group_erp_manager"/>
             <field optional="show" name="x_studio_pallet_series_display" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="1"/>   
             <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="package_level_id and parent.picking_type_entire_packs or context.get('is_blast_freeze') or state == 'done'" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
 

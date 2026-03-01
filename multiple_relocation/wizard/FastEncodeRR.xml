@@ -2,6 +2,19 @@
 <odoo>
 
     <!-- Line Search View -->
+    <record id="view_fast_encode_rr_line_search" model="ir.ui.view">
+        <field name="name">stock.move.line.fast_encode_rr.line.search</field>
+        <field name="model">stock.move.line.fast_encode_rr.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <filter name="group_by_product" string="Product" context="{'group_by': 'product_id'}"/>
+                <filter name="group_by_pallet_series" string="Pallet Series ID" context="{'group_by': 'pallet_series_id'}"/>
+                <filter name="group_by_location" string="Location" context="{'group_by': 'location_dest_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- Line Tree View -->
     <record id="view_fast_encode_rr_line_list" model="ir.ui.view">
         <field name="name">stock.move.line.fast_encode_rr.line.list</field>
         <field name="model">stock.move.line.fast_encode_rr.line</field>
@@ -11,9 +24,9 @@
                 <field name="needs_new_pallet_series" column_invisible="1"/>
                 <field name="transfer_id" column_invisible="1"/>
                 <field name="product_id"/>
-                <field name="original_pallet_series_id" readonly="1"/>
-                <field name="needs_new_pallet_series" readonly="1"/>
-                <field name="original_location_dest_id" readonly="1"/>
+                <field name="original_pallet_series_id" readonly="1" groups="base.group_erp_manager"/>
+                <field name="needs_new_pallet_series" readonly="1" groups="base.group_erp_manager"/>
+                <field name="original_location_dest_id" readonly="1" groups="base.group_erp_manager"/>
                 <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')" force_save="1" decoration-success="needs_new_pallet_series"/>
                 <field name="result_package_id" string="RR Pallet #" groups="stock.group_tracking_lot" 
                     domain="[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'), '|', ('x_studio_receiving_report_id', '=', False),
