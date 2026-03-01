@@ -540,11 +540,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
             return {
                 'pallet_series_id': source_line.pallet_series_id,
                 'location_dest_id': source_line.location_dest_id.id if source_line.location_dest_id else False,
-                'container_number': source_line.container_number,
-                'production_date': source_line.production_date,
-                'expiration_date': source_line.expiration_date,
-                'quantity_uom': source_line.quantity_uom.id if source_line.quantity_uom else False,
-                'packs_uom': source_line.packs_uom.id if source_line.packs_uom else False,
             }
         
         # No sibling found in wizard - check actual stock.move.line records
@@ -559,11 +554,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
             return {
                 'pallet_series_id': existing_move_line.x_studio_pallet_series_id,
                 'location_dest_id': existing_move_line.location_dest_id.id if existing_move_line.location_dest_id else False,
-                'container_number': existing_move_line.x_studio_container_number or '',
-                'production_date': existing_move_line.x_studio_production_date,
-                'expiration_date': existing_move_line.x_studio_expiration_date,
-                'quantity_uom': existing_move_line.x_studio_quantity_uom.id if existing_move_line.x_studio_quantity_uom else False,
-                'packs_uom': existing_move_line.x_studio_min_quantity_uom.id if existing_move_line.x_studio_min_quantity_uom else False,
             }
         
         return None
@@ -582,19 +572,10 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 record.pallet_series_id = series
                 record.needs_new_pallet_series = needs_new
                 
-                # Restore all original field values
+                # Restore original location (skip if current is an aisle and original has children)
                 if record.original_location_dest_id:
-                    record.location_dest_id = record.original_location_dest_id
-                if record.original_container_number:
-                    record.container_number = record.original_container_number
-                if record.original_production_date:
-                    record.production_date = record.original_production_date
-                if record.original_expiration_date:
-                    record.expiration_date = record.original_expiration_date
-                if record.original_quantity_uom:
-                    record.quantity_uom = record.original_quantity_uom
-                if record.original_packs_uom:
-                    record.packs_uom = record.original_packs_uom
+                    if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
+                        record.location_dest_id = record.original_location_dest_id
                 continue
             
             sync_vals = record._sync_pallet_series_and_location(record.result_package_id.id)
@@ -603,11 +584,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 record.pallet_series_id = sync_vals['pallet_series_id']
                 record.needs_new_pallet_series = False
                 record.location_dest_id = sync_vals['location_dest_id']
-                record.container_number = sync_vals['container_number']
-                record.production_date = sync_vals['production_date']
-                record.expiration_date = sync_vals['expiration_date']
-                record.quantity_uom = sync_vals['quantity_uom']
-                record.packs_uom = sync_vals['packs_uom']
             else:
                 # No match anywhere — this pallet is unique
                 # Try to restore original, or flag for NEW
@@ -615,19 +591,10 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 record.pallet_series_id = series
                 record.needs_new_pallet_series = needs_new
                 
-                # Restore original field values
+                # Restore original location (skip if current is an aisle and original has children)
                 if record.original_location_dest_id:
-                    record.location_dest_id = record.original_location_dest_id
-                if record.original_container_number:
-                    record.container_number = record.original_container_number
-                if record.original_production_date:
-                    record.production_date = record.original_production_date
-                if record.original_expiration_date:
-                    record.expiration_date = record.original_expiration_date
-                if record.original_quantity_uom:
-                    record.quantity_uom = record.original_quantity_uom
-                if record.original_packs_uom:
-                    record.packs_uom = record.original_packs_uom
+                    if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
+                        record.location_dest_id = record.original_location_dest_id
 
     def write(self, vals):
         """Override write to handle multi-edit sync (onchange is bypassed during multi-edit)."""
@@ -648,18 +615,10 @@ class FastEncodeRRWizardLine(models.TransientModel):
                         'pallet_series_id': series,
                         'needs_new_pallet_series': needs_new,
                     }
+                    # Skip restore if current is an aisle and original has children
                     if record.original_location_dest_id:
-                        update_vals['location_dest_id'] = record.original_location_dest_id.id
-                    if record.original_container_number:
-                        update_vals['container_number'] = record.original_container_number
-                    if record.original_production_date:
-                        update_vals['production_date'] = record.original_production_date
-                    if record.original_expiration_date:
-                        update_vals['expiration_date'] = record.original_expiration_date
-                    if record.original_quantity_uom:
-                        update_vals['quantity_uom'] = record.original_quantity_uom.id
-                    if record.original_packs_uom:
-                        update_vals['packs_uom'] = record.original_packs_uom.id
+                        if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
+                            update_vals['location_dest_id'] = record.original_location_dest_id.id
                     super(FastEncodeRRWizardLine, record).write(update_vals)
             
             elif len(self) > 1:
@@ -679,11 +638,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
                         'pallet_series_id': existing_move_line.x_studio_pallet_series_id,
                         'needs_new_pallet_series': False,
                         'location_dest_id': existing_move_line.location_dest_id.id if existing_move_line.location_dest_id else False,
-                        'container_number': existing_move_line.x_studio_container_number or '',
-                        'production_date': existing_move_line.x_studio_production_date,
-                        'expiration_date': existing_move_line.x_studio_expiration_date,
-                        'quantity_uom': existing_move_line.x_studio_quantity_uom.id if existing_move_line.x_studio_quantity_uom else False,
-                        'packs_uom': existing_move_line.x_studio_min_quantity_uom.id if existing_move_line.x_studio_min_quantity_uom else False,
                     }
                     for record in self:
                         super(FastEncodeRRWizardLine, record).write(sync_vals)
@@ -700,11 +654,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
                             'pallet_series_id': source.pallet_series_id,
                             'needs_new_pallet_series': False,
                             'location_dest_id': source.location_dest_id.id if source.location_dest_id else False,
-                            'container_number': source.container_number,
-                            'production_date': source.production_date,
-                            'expiration_date': source.expiration_date,
-                            'quantity_uom': source.quantity_uom.id if source.quantity_uom else False,
-                            'packs_uom': source.packs_uom.id if source.packs_uom else False,
                         }
                         for record in self:
                             super(FastEncodeRRWizardLine, record).write(sync_vals)
@@ -720,16 +669,15 @@ class FastEncodeRRWizardLine(models.TransientModel):
                         winning_vals = {
                             'pallet_series_id': series,
                             'needs_new_pallet_series': needs_new,
-                            'location_dest_id': winner.original_location_dest_id.id if winner.original_location_dest_id else False,
-                            'container_number': winner.original_container_number or '',
-                            'production_date': winner.original_production_date,
-                            'expiration_date': winner.original_expiration_date,
-                            'quantity_uom': winner.original_quantity_uom.id if winner.original_quantity_uom else False,
-                            'packs_uom': winner.original_packs_uom.id if winner.original_packs_uom else False,
                         }
                         # Write to ALL lines including the winner (winner needs series/needs_new updated too)
                         for record in self:
-                            super(FastEncodeRRWizardLine, record).write(winning_vals)
+                            record_vals = dict(winning_vals)
+                            # Skip location restore if current is an aisle and winner's original has children
+                            if winner.original_location_dest_id:
+                                if not (record.location_dest_id.x_studio_is_an_aisle and winner.original_location_dest_id.child_ids):
+                                    record_vals['location_dest_id'] = winner.original_location_dest_id.id
+                            super(FastEncodeRRWizardLine, record).write(record_vals)
             
             else:
                 # Single edit — existing logic with restoration enhancement
@@ -746,20 +694,10 @@ class FastEncodeRRWizardLine(models.TransientModel):
                             'pallet_series_id': series,
                             'needs_new_pallet_series': needs_new,
                         }
-                        
+                        # Skip restore if current is an aisle and original has children
                         if record.original_location_dest_id:
-                            update_vals['location_dest_id'] = record.original_location_dest_id.id
-                        if record.original_container_number:
-                            update_vals['container_number'] = record.original_container_number
-                        if record.original_production_date:
-                            update_vals['production_date'] = record.original_production_date
-                        if record.original_expiration_date:
-                            update_vals['expiration_date'] = record.original_expiration_date
-                        if record.original_quantity_uom:
-                            update_vals['quantity_uom'] = record.original_quantity_uom.id
-                        if record.original_packs_uom:
-                            update_vals['packs_uom'] = record.original_packs_uom.id
-                        if update_vals:
-                            super(FastEncodeRRWizardLine, record).write(update_vals)
+                            if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
+                                update_vals['location_dest_id'] = record.original_location_dest_id.id
+                        super(FastEncodeRRWizardLine, record).write(update_vals)
         
         return res
