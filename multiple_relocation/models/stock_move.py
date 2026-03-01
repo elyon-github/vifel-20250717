@@ -624,7 +624,9 @@ class stock_move_line_Override(models.Model):
                 else:
                     restored_loc_id = 7
                 
-                if restored_loc_id:
+                # Skip restore if current location is already an aisle and original is a parent (has children)
+                restored_loc_obj = self.env['stock.location'].browse(restored_loc_id) if restored_loc_id else None
+                if restored_loc_id and not (record.location_dest_id.x_studio_is_an_aisle and restored_loc_obj and restored_loc_obj.child_ids):
                     super(stock_move_line_Override, record).write({'location_dest_id': restored_loc_id})
                     # Reserve the restored location
                     restored_loc = self.env['stock.location'].browse(restored_loc_id)
@@ -1263,7 +1265,7 @@ class stock_move_line_Override(models.Model):
                 'packs_uom': line.x_studio_min_quantity_uom.id if line.x_studio_min_quantity_uom else False,
                 'pre_wizard_pallet_series_id': line.x_studio_pallet_series_id or '',
                 'original_pallet_series_id': line.original_pallet_series_id or line.x_studio_pallet_series_id or '',
-                'original_location_dest_id': line.x_studio_initial_location if line.x_studio_initial_location else 7,
+                'original_location_dest_id': line.location_dest_id.id if line.location_dest_id.x_studio_is_an_aisle else (line.x_studio_initial_location if line.x_studio_initial_location else 7),
                 'original_container_number': line.x_studio_container_number or '',
                 'original_production_date': line.x_studio_production_date,
                 'original_expiration_date': line.x_studio_expiration_date,
@@ -1273,8 +1275,12 @@ class stock_move_line_Override(models.Model):
         
         # Raise error if there are invalid lines
         if invalid_lines:
-            pallet_series_list = ', '.join([str(ps) for ps in invalid_lines])
-            raise UserError(f"Please set pallet series ID and location first for the following Pallet lines: \n{pallet_series_list}")
+            raise UserError(
+                "⚠️  Some lines are missing required data:\n\n"
+                "• Pallet Series ID - Please assign a pallet series for each line\n"
+                "• Location - Please set a location (or mark it as an AISLE)\n\n"
+                "Please complete these fields before opening the Magic Wizard."
+            )
         
         # Create wizard with lines
         wizard = self.env['stock.move.line.fast_encode_rr'].create({
