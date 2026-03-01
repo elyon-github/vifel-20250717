@@ -61,6 +61,19 @@ class ResPartner(models.Model):
 
         return formatted_ids
 
+    def generate_new_pallet_series_id(self):
+        """Generate a brand new pallet series ID from the client's counter.
+        Increments the counter on res.partner after generating.
+        Returns the new series ID string (e.g. 'BGZ-000042').
+        """
+        if not self.x_studio_client_unique_code_1:
+            raise UserError(f"\nIt seems like Client: {self.name} does NOT have a client unique code set. \n\nPlease set it first before we can generate Pallet Series ID.")
+        
+        current_counter = int(self.x_studio_pallet_series_id or 0)
+        new_series = f"{self.x_studio_client_unique_code_1}-{str(current_counter).zfill(6)}"
+        self.x_studio_pallet_series_id = current_counter + 1
+        return new_series
+
     def get_pallet_series_by_id(self, pallet_series_id):
         """
         Search for a specific pallet series ID in unused pallets.

@@ -59,32 +59,33 @@ class FastEncodeRRWizard(models.TransientModel):
         # First pass: Build mappings of pallet_id -> first pallet_series_id and first location
         pallet_to_first_series = {}
         pallet_to_first_location = {}
-        wizard_series_to_recycle = set()  # Track which series will be replaced
         current_pallets = set()  # Track pallets being used after wizard changes
         current_locations = set()  # Track locations being used after wizard changes
         
+        # Group lines by pallet, then pick the smallest original_pallet_series_id
+        # as the winning series for each pallet (consistent with wizard multi-edit logic).
+        pallet_lines = {}  # pallet_id -> list of wizard lines
         for line in self.line_ids:
             if line.result_package_id:
                 pallet_id = line.result_package_id.id
                 current_pallets.add(pallet_id)
-                
-                # Only store the first series and location for each pallet
-                if pallet_id not in pallet_to_first_series:
-                    pallet_to_first_series[pallet_id] = line.pallet_series_id
-                    pallet_to_first_location[pallet_id] = line.location_dest_id.id if line.location_dest_id else False
-                    if line.location_dest_id:
-                        current_locations.add(line.location_dest_id.id)
-                else:
-                    # This line's series will be replaced, mark it for recycling
-                    wizard_series_to_recycle.add(line.pallet_series_id)
+                pallet_lines.setdefault(pallet_id, []).append(line)
             
-            # Track locations even if no pallet is set
             if line.location_dest_id:
                 current_locations.add(line.location_dest_id.id)
         
+        for pallet_id, lines in pallet_lines.items():
+            # Sort by original_pallet_series_id — smallest wins
+            sorted_lines = sorted(lines, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+            winner = sorted_lines[0]
+            pallet_to_first_series[pallet_id] = winner.pallet_series_id
+            pallet_to_first_location[pallet_id] = winner.location_dest_id.id if winner.location_dest_id else False
+            if winner.location_dest_id:
+                current_locations.add(winner.location_dest_id.id)
+        
         # Second pass: Check if pallets are already used by OTHER existing move lines
-        # If so, prioritize their existing series and location, recycle wizard series accordingly
-        for pallet_id, wizard_series in pallet_to_first_series.items():
+        # If so, prioritize their existing series and location
+        for pallet_id, wizard_series in list(pallet_to_first_series.items()):
             existing_line = self.env['stock.move.line'].search([
                 ('picking_id', '=', transfer_id),
                 ('result_package_id', '=', pallet_id),
@@ -93,13 +94,96 @@ class FastEncodeRRWizard(models.TransientModel):
             ], limit=1)
             
             if existing_line:
-                # Existing line found - use its series and location instead
-                # Mark the wizard's first series for this pallet as unused too
-                wizard_series_to_recycle.add(wizard_series)
                 pallet_to_first_series[pallet_id] = existing_line.x_studio_pallet_series_id
                 pallet_to_first_location[pallet_id] = existing_line.location_dest_id.id if existing_line.location_dest_id else False
         
-        # Third pass: Apply changes to stock.move.line
+        # ── Comparison pass: determine which pre_wizard series are freed ──
+        # Build the set of series that will be used in the FINAL state (excluding NEW placeholders).
+        final_series_set = set()
+        new_lines = []  # Lines that need a fresh series from pool/counter
+        
+        for line in self.line_ids:
+            if line.needs_new_pallet_series:
+                new_lines.append(line)
+                continue
+            
+            if line.result_package_id:
+                final = pallet_to_first_series.get(line.result_package_id.id, line.pallet_series_id)
+            else:
+                final = line.pallet_series_id
+            if final:
+                final_series_set.add(final)
+        
+        # Also include series from external move lines (not in wizard) — they must not be recycled.
+        external_ml_ids = self.line_ids.mapped('stock_move_line')
+        external_lines = self.env['stock.move.line'].search([
+            ('picking_id', '=', transfer_id),
+            ('id', 'not in', external_ml_ids),
+            ('x_studio_pallet_series_id', '!=', False),
+        ])
+        for ml in external_lines:
+            final_series_set.add(ml.x_studio_pallet_series_id)
+        
+        # A pre_wizard series gets recycled if it's NOT in any final line's resolved series.
+        wizard_series_to_recycle = set()
+        for line in self.line_ids:
+            pre_wizard = line.pre_wizard_pallet_series_id
+            if pre_wizard and pre_wizard not in final_series_set:
+                wizard_series_to_recycle.add(pre_wizard)
+        
+        # ── Recycle pass: push freed series back to owner's pool BEFORE pulling new ones ──
+        owner = None
+        for wl in self.line_ids:
+            if wl.stock_move_line:
+                ml = self.env['stock.move.line'].browse(wl.stock_move_line)
+                if ml.owner_id:
+                    owner = ml.owner_id
+                    break
+        
+        if owner and wizard_series_to_recycle:
+            for series_id in wizard_series_to_recycle:
+                owner.push_unused_pallet(series_id)
+        
+        # ── Restore originals pass: consume originals from pool for unique/cleared lines ──
+        # Only applies to lines that are NOT part of a multi-line pallet group.
+        # Grouped lines get their series from pallet_to_first_series, not from the pool.
+        if owner:
+            # Build set of pallet IDs that have multiple lines (grouped pallets)
+            grouped_pallets = set()
+            for pid, lines in pallet_lines.items():
+                if len(lines) > 1:
+                    grouped_pallets.add(pid)
+            
+            for line in self.line_ids:
+                if line.needs_new_pallet_series:
+                    continue
+                # Skip lines that are in a multi-line pallet group
+                if line.result_package_id and line.result_package_id.id in grouped_pallets:
+                    continue
+                if line.pallet_series_id and line.pallet_series_id != line.pre_wizard_pallet_series_id:
+                    # This line is restoring its original — consume it from the pool
+                    owner.get_pallet_series_by_id(line.pallet_series_id)
+        
+        # ── Resolve NEW pass: pull real series for lines flagged needs_new_pallet_series ──
+        if owner and new_lines:
+            for line in new_lines:
+                new_series = owner.get_smallest_pallet_series_ids(1)
+                if new_series:
+                    resolved = new_series[0]
+                else:
+                    resolved = owner.generate_new_pallet_series_id()
+                
+                # Update the wizard line with the resolved series
+                super(FastEncodeRRWizardLine, line).write({
+                    'pallet_series_id': resolved,
+                    'needs_new_pallet_series': False,
+                })
+                
+                # Update pallet mapping if this line has a pallet
+                if line.result_package_id and line.result_package_id.id in pallet_to_first_series:
+                    pallet_to_first_series[line.result_package_id.id] = resolved
+        
+        # ── Third pass: Apply changes to stock.move.line ──
         for line in self.line_ids:
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
@@ -132,8 +216,9 @@ class FastEncodeRRWizard(models.TransientModel):
                 if location_dest_to_use:
                     write_vals['location_dest_id'] = location_dest_to_use
                 
-                # Write all the values
-                move_line.write(write_vals)
+                # Write all the values — skip the stock.move.line write override
+                # since action_confirm already handles all pallet series logic.
+                move_line.with_context(skip_pallet_series_sync=True).write(write_vals)
                 
                 # Reserve the pallet if it's not already reserved
                 if line.result_package_id and not line.result_package_id.x_studio_is_reserved:
@@ -182,9 +267,6 @@ class FastEncodeRRWizard(models.TransientModel):
                 location = self.env['stock.location'].browse(location_id)
                 if location.exists():
                     location.remove_reservation()
-        
-        # Sixth pass: Push unused pallet series back to owner
-        self._recycle_unused_pallet_series(wizard_series_to_recycle)
         
         return {'type': 'ir.actions.act_window_close'}
     
@@ -247,6 +329,10 @@ class FastEncodeRRWizardLine(models.TransientModel):
     quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM')
     packs_uom = fields.Many2one('uom.uom', string='Packs UOM')
     
+    # Snapshot of the pallet series from the DB when wizard opened — NEVER changes during wizard session.
+    # Used at confirm time to compare with the final pallet_series_id and determine what needs recycling.
+    pre_wizard_pallet_series_id = fields.Char(string='Pre-Wizard Pallet Series ID', readonly=True)
+    
     # Hidden fallback fields - stores the original values before auto-sync
     original_pallet_series_id = fields.Char(string='Original Pallet Series ID', readonly=True)
     original_location_dest_id = fields.Many2one('stock.location', string='Original Location', readonly=True)
@@ -255,6 +341,10 @@ class FastEncodeRRWizardLine(models.TransientModel):
     original_expiration_date = fields.Date(string='Original Expiration Date', readonly=True)
     original_quantity_uom = fields.Many2one('uom.uom', string='Original Quantity UOM', readonly=True)
     original_packs_uom = fields.Many2one('uom.uom', string='Original Packs UOM', readonly=True)
+    
+    # Flag: if True, this line needs a NEW pallet series pulled from pool/counter at confirm time.
+    # Displayed with green text in the wizard to indicate a pending new assignment.
+    needs_new_pallet_series = fields.Boolean(string='Needs New Pallet Series', default=False)
     
     has_duplicate_pallet = fields.Boolean(
         string='Has Duplicate Pallet',
@@ -278,6 +368,156 @@ class FastEncodeRRWizardLine(models.TransientModel):
             
             # If more than 1, then this pallet is duplicated
             record.has_duplicate_pallet = duplicate_count > 1
+
+    def _get_wizard_owner(self):
+        """Return the res.partner owner from any move line in this wizard, or None."""
+        for wl in self.wizard_id.line_ids:
+            if wl.stock_move_line:
+                ml = self.env['stock.move.line'].browse(wl.stock_move_line)
+                if ml.owner_id:
+                    return ml.owner_id
+        return None
+
+    def _resolve_series_for_unique_line(self):
+        """Determine what pallet series ID to DISPLAY for a line being made unique.
+        
+        Logic:
+        1. If original_pallet_series_id is claimed as the WINNING series for any
+           other pallet group in this wizard, it's taken → preview new.
+        2. If original_pallet_series_id is in the owner's unused pool, it can be
+           restored → return it directly.
+        3. If original equals the line's pre_wizard (current DB) series, it's
+           still assigned to this line → return it directly.
+        4. Otherwise the original was consumed elsewhere → preview new.
+        
+        Returns:
+            tuple: (series_id_string, needs_new_bool)
+        """
+        self.ensure_one()
+        if not self.original_pallet_series_id:
+            # No original at all — get a preview of new series
+            series, _ = self._preview_next_series()
+            return (series, True)  # Always new when no original
+        
+        # Build pallet groups and determine the TRUE winner per group using smallest
+        # original_pallet_series_id (mirrors action_confirm first-pass logic).
+        # Using line.pallet_series_id would be wrong after a multi-edit grouped all
+        # lines to the same series — it would falsely claim the winner's original.
+        pallet_groups = {}  # pallet_id -> list of original_pallet_series_id
+        exclude_ids = {self.id}
+        if hasattr(self, '_origin') and self._origin:
+            exclude_ids.add(self._origin.id)
+        
+        for line in self.wizard_id.line_ids:
+            if line.id in exclude_ids:
+                continue
+            if line.result_package_id:
+                pid = line.result_package_id.id
+                orig = line.original_pallet_series_id or line.pallet_series_id or ''
+                if pid not in pallet_groups:
+                    pallet_groups[pid] = []
+                pallet_groups[pid].append(orig)
+        
+        # Determine actual winner for each pallet group (smallest original wins)
+        pallet_winner_series = set()
+        for pid, originals in pallet_groups.items():
+            if originals:
+                pallet_winner_series.add(min(originals))
+        
+        # If our original is claimed as the winner for ANY pallet group, it's taken → need new
+        if self.original_pallet_series_id in pallet_winner_series:
+            series, _ = self._preview_next_series()
+            return (series, True)  # Always new when original is taken
+        
+        # If the original is what the line currently has in DB, it's still ours → restore it
+        if self.original_pallet_series_id == self.pre_wizard_pallet_series_id:
+            return (self.original_pallet_series_id, False)  # Not new, restore original
+        
+        # Check if the original is available in the owner's unused pool → restore it
+        owner = self._get_wizard_owner()
+        if owner:
+            pool = owner.unused_pallet_series_ids or []
+            try:
+                orig_int = int(self.original_pallet_series_id.split('-')[-1])
+                if orig_int in pool:
+                    return (self.original_pallet_series_id, False)  # Not new, restore from pool
+            except (ValueError, IndexError):
+                pass
+        
+        # Original was consumed elsewhere → need a new one (from pool or counter)
+        series, _ = self._preview_next_series()
+        return (series, True)  # Always new when original was consumed
+
+    def _preview_next_series(self):
+        """Peek at the owner's unused pool + counter to preview the next series ID
+        that would be assigned — WITHOUT consuming anything.
+        
+        Also accounts for how many other wizard lines already need_new before this one.
+        
+        Returns:
+            tuple: (preview_series_string, True)
+        """
+        self.ensure_one()
+        owner = self._get_wizard_owner()
+        if not owner or not owner.x_studio_client_unique_code_1:
+            return ('NEW', True)
+        
+        prefix = owner.x_studio_client_unique_code_1
+        
+        # Build a simulated pool from the actual unused pool only.
+        # Do NOT add "freed" series here — those depend on confirm-time logic
+        # and could collide with series still in use by other pallet groups.
+        sim_pool = sorted(list(owner.unused_pallet_series_ids or []))
+        
+        # Remove pool entries that are reserved by "restore" lines — either already
+        # resolved (pallet_series != pre_wizard) OR about to be resolved (original is in pool).
+        for line in self.wizard_id.line_ids:
+            if line.id == self.id:
+                continue
+            
+            # Case 1: Line already resolved — its pallet_series differs from pre_wizard
+            if not line.needs_new_pallet_series and line.pallet_series_id and line.pallet_series_id != line.pre_wizard_pallet_series_id:
+                try:
+                    restore_int = int(line.pallet_series_id.split('-')[-1])
+                    if restore_int in sim_pool:
+                        sim_pool.remove(restore_int)
+                except (ValueError, IndexError):
+                    pass
+            
+            # Case 2: Line not yet resolved — but its original IS in pool, so it WILL claim it
+            if line.original_pallet_series_id and line.original_pallet_series_id != line.pallet_series_id:
+                try:
+                    orig_int = int(line.original_pallet_series_id.split('-')[-1])
+                    if orig_int in sim_pool:
+                        sim_pool.remove(orig_int)
+                except (ValueError, IndexError):
+                    pass
+        
+        # Simulated counter
+        sim_counter = int(owner.x_studio_pallet_series_id or 0)
+        
+        # Count how many NEW lines come BEFORE this line in wizard order
+        # (they would consume from the pool first)
+        lines_before = 0
+        for line in self.wizard_id.line_ids:
+            if line.id == self.id:
+                break
+            if line.needs_new_pallet_series:
+                lines_before += 1
+        
+        # Simulate pulling `lines_before + 1` series
+        from_counter = False
+        for i in range(lines_before + 1):
+            if sim_pool:
+                picked = sim_pool.pop(0)
+                from_counter = False
+            else:
+                picked = sim_counter
+                sim_counter += 1
+                from_counter = True
+        
+        preview = f"{prefix}-{str(picked).zfill(6)}"
+        return (preview, from_counter)
 
     def _sync_pallet_series_and_location(self, result_package_id):
         """Core sync logic: find the PSI, location, and other fields for a given pallet.
@@ -337,16 +577,31 @@ class FastEncodeRRWizardLine(models.TransientModel):
         """
         for record in self:
             if not record.result_package_id:
-                # Pallet cleared - revert to original values if available
-                if record.original_pallet_series_id:
-                    record.pallet_series_id = record.original_pallet_series_id
+                # Pallet cleared — try to restore original, or flag for NEW
+                series, needs_new = record._resolve_series_for_unique_line()
+                record.pallet_series_id = series
+                record.needs_new_pallet_series = needs_new
+                
+                # Restore all original field values
                 if record.original_location_dest_id:
                     record.location_dest_id = record.original_location_dest_id
+                if record.original_container_number:
+                    record.container_number = record.original_container_number
+                if record.original_production_date:
+                    record.production_date = record.original_production_date
+                if record.original_expiration_date:
+                    record.expiration_date = record.original_expiration_date
+                if record.original_quantity_uom:
+                    record.quantity_uom = record.original_quantity_uom
+                if record.original_packs_uom:
+                    record.packs_uom = record.original_packs_uom
                 continue
             
             sync_vals = record._sync_pallet_series_and_location(record.result_package_id.id)
             if sync_vals:
+                # Found match (existing move line or sibling)
                 record.pallet_series_id = sync_vals['pallet_series_id']
+                record.needs_new_pallet_series = False
                 record.location_dest_id = sync_vals['location_dest_id']
                 record.container_number = sync_vals['container_number']
                 record.production_date = sync_vals['production_date']
@@ -354,9 +609,13 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 record.quantity_uom = sync_vals['quantity_uom']
                 record.packs_uom = sync_vals['packs_uom']
             else:
-                # No match anywhere - revert to original if user changed to isolated pallet
-                if record.original_pallet_series_id:
-                    record.pallet_series_id = record.original_pallet_series_id
+                # No match anywhere — this pallet is unique
+                # Try to restore original, or flag for NEW
+                series, needs_new = record._resolve_series_for_unique_line()
+                record.pallet_series_id = series
+                record.needs_new_pallet_series = needs_new
+                
+                # Restore original field values
                 if record.original_location_dest_id:
                     record.location_dest_id = record.original_location_dest_id
                 if record.original_container_number:
@@ -375,13 +634,20 @@ class FastEncodeRRWizardLine(models.TransientModel):
         res = super().write(vals)
         
         if 'result_package_id' in vals:
-            for record in self:
-                new_pallet_id = vals.get('result_package_id')
-                if not new_pallet_id:
-                    # Pallet cleared - revert to originals
-                    update_vals = {}
-                    if record.original_pallet_series_id:
-                        update_vals['pallet_series_id'] = record.original_pallet_series_id
+            new_pallet_id = vals.get('result_package_id')
+            
+            if not new_pallet_id:
+                # Pallet cleared — use _resolve which checks:
+                # 1. Is original claimed by another pallet group? → needs_new
+                # 2. Is original == pre_wizard (still ours in DB)? → restore directly
+                # 3. Is original in the unused pool? → restore directly
+                # 4. Otherwise consumed → needs_new
+                for record in self:
+                    series, needs_new = record._resolve_series_for_unique_line()
+                    update_vals = {
+                        'pallet_series_id': series,
+                        'needs_new_pallet_series': needs_new,
+                    }
                     if record.original_location_dest_id:
                         update_vals['location_dest_id'] = record.original_location_dest_id.id
                     if record.original_container_number:
@@ -394,17 +660,93 @@ class FastEncodeRRWizardLine(models.TransientModel):
                         update_vals['quantity_uom'] = record.original_quantity_uom.id
                     if record.original_packs_uom:
                         update_vals['packs_uom'] = record.original_packs_uom.id
-                    if update_vals:
-                        super(FastEncodeRRWizardLine, record).write(update_vals)
+                    super(FastEncodeRRWizardLine, record).write(update_vals)
+            
+            elif len(self) > 1:
+                # Multi-edit: determine the winning series UPFRONT before per-record mutations
+                any_record = self[0]
+                
+                # 1. Check for existing move line (outside wizard) already using this pallet
+                existing_move_line = self.env['stock.move.line'].search([
+                    ('picking_id', '=', any_record.transfer_id),
+                    ('result_package_id', '=', new_pallet_id),
+                    ('x_studio_pallet_series_id', '!=', False),
+                    ('id', 'not in', self.mapped('stock_move_line')),
+                ], limit=1)
+                
+                if existing_move_line:
+                    sync_vals = {
+                        'pallet_series_id': existing_move_line.x_studio_pallet_series_id,
+                        'needs_new_pallet_series': False,
+                        'location_dest_id': existing_move_line.location_dest_id.id if existing_move_line.location_dest_id else False,
+                        'container_number': existing_move_line.x_studio_container_number or '',
+                        'production_date': existing_move_line.x_studio_production_date,
+                        'expiration_date': existing_move_line.x_studio_expiration_date,
+                        'quantity_uom': existing_move_line.x_studio_quantity_uom.id if existing_move_line.x_studio_quantity_uom else False,
+                        'packs_uom': existing_move_line.x_studio_min_quantity_uom.id if existing_move_line.x_studio_min_quantity_uom else False,
+                    }
+                    for record in self:
+                        super(FastEncodeRRWizardLine, record).write(sync_vals)
                 else:
+                    # 2. Check for sibling wizard line (not in self) already using this pallet
+                    sibling = any_record.wizard_id.line_ids.filtered(
+                        lambda l: l.result_package_id.id == new_pallet_id
+                                  and l.id not in self.ids
+                                  and l.pallet_series_id
+                    )
+                    if sibling:
+                        source = sibling[0]
+                        sync_vals = {
+                            'pallet_series_id': source.pallet_series_id,
+                            'needs_new_pallet_series': False,
+                            'location_dest_id': source.location_dest_id.id if source.location_dest_id else False,
+                            'container_number': source.container_number,
+                            'production_date': source.production_date,
+                            'expiration_date': source.expiration_date,
+                            'quantity_uom': source.quantity_uom.id if source.quantity_uom else False,
+                            'packs_uom': source.packs_uom.id if source.packs_uom else False,
+                        }
+                        for record in self:
+                            super(FastEncodeRRWizardLine, record).write(sync_vals)
+                    else:
+                        # 3. No external match — pick the lowest original_pallet_series_id as winner
+                        sorted_lines = sorted(self, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+                        winner = sorted_lines[0]
+                        
+                        # Check if winner's original is available
+                        series, needs_new = winner._resolve_series_for_unique_line()
+                        
+                        # Use ORIGINAL values (not current) — current may have been overwritten by previous grouping
+                        winning_vals = {
+                            'pallet_series_id': series,
+                            'needs_new_pallet_series': needs_new,
+                            'location_dest_id': winner.original_location_dest_id.id if winner.original_location_dest_id else False,
+                            'container_number': winner.original_container_number or '',
+                            'production_date': winner.original_production_date,
+                            'expiration_date': winner.original_expiration_date,
+                            'quantity_uom': winner.original_quantity_uom.id if winner.original_quantity_uom else False,
+                            'packs_uom': winner.original_packs_uom.id if winner.original_packs_uom else False,
+                        }
+                        # Write to ALL lines including the winner (winner needs series/needs_new updated too)
+                        for record in self:
+                            super(FastEncodeRRWizardLine, record).write(winning_vals)
+            
+            else:
+                # Single edit — existing logic with restoration enhancement
+                for record in self:
                     sync_vals = record._sync_pallet_series_and_location(new_pallet_id)
                     if sync_vals:
+                        sync_vals['needs_new_pallet_series'] = False
                         super(FastEncodeRRWizardLine, record).write(sync_vals)
                     else:
-                        # No match - revert to originals
-                        update_vals = {}
-                        if record.original_pallet_series_id:
-                            update_vals['pallet_series_id'] = record.original_pallet_series_id
+                        # No match — this pallet is unique
+                        # Try to restore original, or flag for NEW
+                        series, needs_new = record._resolve_series_for_unique_line()
+                        update_vals = {
+                            'pallet_series_id': series,
+                            'needs_new_pallet_series': needs_new,
+                        }
+                        
                         if record.original_location_dest_id:
                             update_vals['location_dest_id'] = record.original_location_dest_id.id
                         if record.original_container_number:
