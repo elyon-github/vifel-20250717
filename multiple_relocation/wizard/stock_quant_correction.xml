@@ -260,6 +260,14 @@ else:
                                 string="Reset to Draft" 
                                 type="object" 
                                 invisible="state != 'cancelled'"/>
+
+                        <!-- Print Move Lines Report -->
+                        <button name="action_print_move_lines" 
+                                string="Print Adjustment Form" 
+                                type="object" 
+                                class="btn-primary"
+                                icon="fa-print"
+                                invisible="state not in ['approved', 'partial'] or not batch_number"/>
                         
                         <field name="state" widget="statusbar" 
                                statusbar_visible="draft,pending,approved"/>

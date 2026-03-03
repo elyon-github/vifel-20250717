@@ -982,6 +982,23 @@ class StockQuantAdjustmentRequest(models.Model):
                 )
             )
 
+    def action_print_move_lines(self):
+        """Print the Product Moves report for all done stock.move.line records matching this request's batch number."""
+        self.ensure_one()
+        if not self.batch_number:
+            raise UserError(_("No batch number has been assigned to this request yet."))
+
+        move_lines = self.env['stock.move.line'].search([
+            ('state', '=', 'done'),
+            ('adjustment_batch_number', '=', self.batch_number),
+        ])
+
+        if not move_lines:
+            raise UserError(_("No completed move lines found for batch number %s.") % self.batch_number)
+
+        report = self.env.ref('studio_customization.product_moves_stock__a6544825-9fe6-4d28-abca-85579916c823')
+        return report.report_action(move_lines)
+
 
 class StockQuantAdjustmentLine(models.Model):
     _name = 'stock.quant.adjustment.line'
