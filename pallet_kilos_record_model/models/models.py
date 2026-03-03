@@ -1,7 +1,6 @@
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError, UserError
 from datetime import datetime, timedelta
-from collections import defaultdict
 import logging
 import json
 
@@ -321,71 +320,6 @@ class PalletKilosRecordModel(models.Model):
         
         if not records_to_update:
             return
-
-        # ── Fetch relocation moves for this warehouse ──
-        # Relocations are stock.move.line with is_relocation=True, no picking.
-        # They transfer pallets between buildings but don't create pallet_kilos_records.
-        reloc_domain = [
-            ('is_relocation', '=', True),
-            ('state', '=', 'done'),
-        ]
-        if from_datetime:
-            reloc_domain.append(('date', '>=', from_datetime))
-
-        all_reloc_lines = self.env['stock.move.line'].search(reloc_domain)
-        # Filter to relevant warehouse by location
-        reloc_lines = all_reloc_lines.filtered(
-            lambda l: (l.location_id.warehouse_id.id == warehouse_id or
-                       l.location_dest_id.warehouse_id.id == warehouse_id)
-        )
-
-        # Group relocations by owner_id → sorted list of events
-        relocation_by_owner = defaultdict(list)
-        # Track unique pallets per relocation batch to avoid double-counting
-        reloc_pallet_tracker = {}  # (owner_id, date, src_building, dst_building, package_id) → True
-
-        for line in reloc_lines:
-            owner_id = line.owner_id.id if line.owner_id else (
-                line.move_id.restrict_partner_id.id if line.move_id.restrict_partner_id else False
-            )
-            if not owner_id:
-                continue
-
-            src_building = self._get_building_name(
-                line.location_id.x_studio_building if line.location_id else None
-            )
-            dst_building = self._get_building_name(
-                line.location_dest_id.x_studio_building if line.location_dest_id else None
-            )
-
-            if src_building == dst_building:
-                continue  # Same building, no impact
-
-            # Determine pallet key for unique counting
-            pkg_id = (line.result_package_id.id if line.result_package_id
-                      else line.package_id.id if line.package_id else None)
-            pallet_key = (owner_id, line.date, src_building, dst_building, pkg_id)
-
-            is_new_pallet = pkg_id and pallet_key not in reloc_pallet_tracker
-            if is_new_pallet:
-                reloc_pallet_tracker[pallet_key] = True
-
-            relocation_by_owner[owner_id].append({
-                'date': line.date,
-                'source_building': src_building,
-                'dest_building': dst_building,
-                'kilos': line.quantity or 0,
-                'pallets': 1 if is_new_pallet else 0,
-                'units': getattr(line, 'x_studio_total_units', 0) or 0,
-                'packaging': getattr(line, 'x_studio_2nd_uom', 0) or 0,
-            })
-
-        # Sort relocations by date for each owner
-        for oid in relocation_by_owner:
-            relocation_by_owner[oid].sort(key=lambda x: x['date'])
-
-        # Track last processed time per owner for relocation application
-        owner_last_reloc_idx = defaultdict(int)  # index into relocation_by_owner[owner_id]
     
         # Get the previous warehouse-wide balance (for overall_* fields)
         if from_datetime:
@@ -508,39 +442,6 @@ class PalletKilosRecordModel(models.Model):
     
             # Start with the building balances BEFORE this operation (i.e., the beginning balances)
             record_building_balances = dict(building_beginning_balances)  # Copy beginning balances
-
-            # ── Apply pending relocations that happened BEFORE this record ──
-            if owner_id in relocation_by_owner:
-                reloc_list = relocation_by_owner[owner_id]
-                idx = owner_last_reloc_idx[owner_id]
-                while idx < len(reloc_list) and reloc_list[idx]['date'] and record.start_time and reloc_list[idx]['date'] <= record.start_time:
-                    reloc = reloc_list[idx]
-                    src = reloc['source_building']
-                    dst = reloc['dest_building']
-
-                    # Subtract from source building
-                    if src in record_building_balances:
-                        record_building_balances[src]['total_balance_in_pallets'] -= reloc['pallets']
-                        record_building_balances[src]['total_balance_in_kilos'] -= reloc['kilos']
-                        record_building_balances[src]['total_balance_in_units'] -= reloc['units']
-                        record_building_balances[src]['total_balance_in_packaging'] -= reloc['packaging']
-
-                    # Add to destination building
-                    if dst not in record_building_balances:
-                        record_building_balances[dst] = {
-                            'total_balance_in_units': 0,
-                            'total_balance_in_packaging': 0,
-                            'total_balance_in_kilos': 0,
-                            'total_balance_in_pallets': 0,
-                            'beginning_balance_in_pallets': 0,
-                            'beginning_balance_in_kilos': 0,
-                        }
-                    record_building_balances[dst]['total_balance_in_pallets'] += reloc['pallets']
-                    record_building_balances[dst]['total_balance_in_kilos'] += reloc['kilos']
-                    record_building_balances[dst]['total_balance_in_units'] += reloc['units']
-                    record_building_balances[dst]['total_balance_in_packaging'] += reloc['packaging']
-                    idx += 1
-                owner_last_reloc_idx[owner_id] = idx
             
             # Get building operations for this record
             current_building_ops = getattr(record, 'building_operations_temp', {})
@@ -550,32 +451,26 @@ class PalletKilosRecordModel(models.Model):
     
             # Handle opening balance records
             if not record.effective_document and record.remarks == 'imported via opening balance':
-                # Use building_operations_temp if available, otherwise extract from
-                # the record's stored total_balances (which hasn't been overwritten yet)
-                ob_building_data = record.building_operations_temp or record.total_balances or {}
-
-                for building_name, bdata in ob_building_data.items():
-                    if building_name not in record_building_balances:
-                        record_building_balances[building_name] = {
-                            'total_balance_in_units': 0,
-                            'total_balance_in_packaging': 0,
-                            'total_balance_in_kilos': 0,
-                            'total_balance_in_pallets': 0,
-                            'beginning_balance_in_pallets': 0,
-                            'beginning_balance_in_kilos': 0,
-                        }
-
-                    # Set beginning balance (before this operation) for this building
-                    record_building_balances[building_name]['beginning_balance_in_pallets'] = record_building_balances[building_name].get('total_balance_in_pallets', 0)
-                    record_building_balances[building_name]['beginning_balance_in_kilos'] = record_building_balances[building_name].get('total_balance_in_kilos', 0)
-
-                    # Apply opening balance operation
-                    # building_operations_temp stores raw ops; total_balances stores computed totals
-                    # For OB records, both represent the initial received amounts (beginning was 0)
-                    record_building_balances[building_name]['total_balance_in_units'] += bdata.get('total_balance_in_units', bdata.get('units', 0))
-                    record_building_balances[building_name]['total_balance_in_packaging'] += bdata.get('total_balance_in_packaging', bdata.get('packaging', 0))
-                    record_building_balances[building_name]['total_balance_in_kilos'] += bdata.get('total_balance_in_kilos', bdata.get('kilos', 0))
-                    record_building_balances[building_name]['total_balance_in_pallets'] += bdata.get('total_balance_in_pallets', bdata.get('pallets', 0))
+                building_name = "EXPANSION"
+                if building_name not in record_building_balances:
+                    record_building_balances[building_name] = {
+                        'total_balance_in_units': 0,
+                        'total_balance_in_packaging': 0,
+                        'total_balance_in_kilos': 0,
+                        'total_balance_in_pallets': 0,
+                        'beginning_balance_in_pallets': 0,  # FIXED: Will be set below
+                        'beginning_balance_in_kilos': 0,    # FIXED: Will be set below
+                    }
+                
+                # FIXED: Set beginning balance (before this operation) for this building
+                record_building_balances[building_name]['beginning_balance_in_pallets'] = record_building_balances[building_name].get('total_balance_in_pallets', 0)
+                record_building_balances[building_name]['beginning_balance_in_kilos'] = record_building_balances[building_name].get('total_balance_in_kilos', 0)
+                
+                # Apply opening balance operation
+                record_building_balances[building_name]['total_balance_in_units'] += record.units_received
+                record_building_balances[building_name]['total_balance_in_packaging'] += record.packaging_received
+                record_building_balances[building_name]['total_balance_in_kilos'] += record.kilos_received
+                record_building_balances[building_name]['total_balance_in_pallets'] += record.pallets_received
             
             # Process building operations for regular documents
             elif current_building_ops:
@@ -1053,10 +948,6 @@ class PalletKilosRecordModel(models.Model):
 
                 # Building-level balances
                 'total_balances': data['buildings'],
-
-                # Building operations for recalculation (so _recalculate_running_balances
-                # knows per-building breakdown without hard-coding)
-                'building_operations_temp': data['buildings'],
 
                 # Special remarks
                 'remarks': 'imported via opening balance',

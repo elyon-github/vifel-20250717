@@ -1,7 +1,6 @@
 from odoo import models
 import datetime
 import calendar
-from collections import defaultdict
 
 
 class PalletKilosXlsx(models.AbstractModel):
@@ -189,66 +188,6 @@ class PalletKilosXlsx(models.AbstractModel):
                     'kilos': info.get('total_balance_in_kilos', 0),
                 })
 
-        # ── Fetch relocation moves in the date range ──
-        # Relocations move pallets between buildings but don't create pallet_kilos_records,
-        # so the report must account for them separately.
-        oldest_utc = sorted_records[0].start_time
-        latest_utc = sorted_records[-1].start_time
-        reloc_lines = self.env['stock.move.line'].search([
-            ('is_relocation', '=', True),
-            ('state', '=', 'done'),
-            ('date', '>=', oldest_utc),
-            ('date', '<=', latest_utc + datetime.timedelta(days=1)),
-        ])
-
-        # Build relocation deltas per (owner_name, date) → {building → {pallets, kilos}}
-        # Each relocation: subtract from source building, add to dest building
-        reloc_deltas = defaultdict(lambda: defaultdict(lambda: {'pallets': 0, 'kilos': 0}))
-        reloc_pallet_seen = set()  # Track unique (owner, date, src, dst, package) for pallet counting
-
-        def _get_building_name(location):
-            if location and location.x_studio_building and location.x_studio_building.x_name:
-                return location.x_studio_building.x_name
-            return "MAIN"
-
-        for line in reloc_lines:
-            owner_name = (line.owner_id.name if line.owner_id
-                          else line.move_id.restrict_partner_id.name if line.move_id.restrict_partner_id
-                          else None)
-            if not owner_name:
-                continue
-
-            src_bldg = _get_building_name(line.location_id)
-            dst_bldg = _get_building_name(line.location_dest_id)
-            if src_bldg == dst_bldg:
-                continue
-
-            reloc_date = (line.date + datetime.timedelta(hours=8)).date()
-            kilos = line.quantity or 0
-
-            pkg_id = (line.result_package_id.id if line.result_package_id
-                      else line.package_id.id if line.package_id else None)
-            pallet_key = (owner_name, reloc_date, src_bldg, dst_bldg, pkg_id)
-            is_new_pallet = pkg_id and pallet_key not in reloc_pallet_seen
-            if is_new_pallet:
-                reloc_pallet_seen.add(pallet_key)
-            pallet_delta = 1 if is_new_pallet else 0
-
-            key = (owner_name, reloc_date)
-            reloc_deltas[key][src_bldg]['pallets'] -= pallet_delta
-            reloc_deltas[key][src_bldg]['kilos'] -= kilos
-            reloc_deltas[key][dst_bldg]['pallets'] += pallet_delta
-            reloc_deltas[key][dst_bldg]['kilos'] += kilos
-
-            # Ensure buildings appear in the report
-            all_buildings.add(src_bldg)
-            all_buildings.add(dst_bldg)
-
-        # Ensure owners affected by relocations appear in building_data
-        for (owner_name_r, reloc_dt), bldg_deltas in reloc_deltas.items():
-            for bldg_r in bldg_deltas:
-                building_data.setdefault(bldg_r, {}).setdefault(owner_name_r, {})
-
         # ── Header info ──
         month_year = oldest_utc8.strftime('%B %Y').upper()
         year = oldest_utc8.year
@@ -337,9 +276,6 @@ class PalletKilosXlsx(models.AbstractModel):
                 col = 2
                 last_pallet = 0
                 last_kilos = 0
-                cumulative_reloc_pallets = 0
-                cumulative_reloc_kilos = 0
-                last_record_date = None  # Track when the last record snapshot was taken
                 row_pallet_values = []
 
                 for dt in date_list:
@@ -349,21 +285,9 @@ class PalletKilosXlsx(models.AbstractModel):
                             best = sorted(day, key=lambda x: (x['record'].start_time, x['record'].id))[-1]
                             last_pallet = best['pallets'] or 0
                             last_kilos = best['kilos'] or 0
-                            # Reset cumulative relocation delta when we get a fresh record snapshot
-                            # because the record's total_balances already accounts for relocations
-                            # that happened before its start_time (if _recalculate was run)
-                            cumulative_reloc_pallets = 0
-                            cumulative_reloc_kilos = 0
-                            last_record_date = dt
 
-                    # Apply relocation deltas for this date on top of carried-forward values
-                    reloc_key = (owner_name, dt)
-                    if reloc_key in reloc_deltas and bldg_name in reloc_deltas[reloc_key]:
-                        cumulative_reloc_pallets += reloc_deltas[reloc_key][bldg_name]['pallets']
-                        cumulative_reloc_kilos += reloc_deltas[reloc_key][bldg_name]['kilos']
-
-                    pallet_count = last_pallet + cumulative_reloc_pallets
-                    kilos_count = last_kilos + cumulative_reloc_kilos
+                    pallet_count = last_pallet
+                    kilos_count = last_kilos
                     row_pallet_values.append(pallet_count)
 
                     sheet.write(row, col, pallet_count, fmt[f'pallet_{stripe}'])
