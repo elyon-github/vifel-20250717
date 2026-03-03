@@ -706,9 +706,16 @@ class stock_move_line_Override(models.Model):
                     winning_series = winner.original_pallet_series_id or winner.x_studio_pallet_series_id
                     winning_location = winner.location_dest_id.id if winner.location_dest_id else False
                     
-                    # Note: we do NOT consume from pool here. The winning series
-                    # is assigned directly. Pool cleanup happens via push_unused_pallet
-                    # for the old series that are freed below.
+                    # Consume winning series from pool if it's there
+                    # (it may have been pushed when the line synced to a different series)
+                    if owner and winning_series:
+                        try:
+                            win_int = int(winning_series.split('-')[-1])
+                            pool = owner.unused_pallet_series_ids or []
+                            if win_int in pool:
+                                owner.get_pallet_series_by_id(winning_series)
+                        except (ValueError, IndexError):
+                            pass
                 
                 sync_vals = {'x_studio_pallet_series_id': winning_series}
                 if winning_location:
