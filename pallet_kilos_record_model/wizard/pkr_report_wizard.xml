@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Wizard Form View -->
+    <record id="view_pkr_report_wizard_form" model="ir.ui.view">
+        <field name="name">pallet_kilos_record_model.report.wizard.form</field>
+        <field name="model">pallet_kilos_record_model.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Generate Report">
+                <div class="alert alert-info text-center" role="alert">
+                    <i class="fa fa-file-excel-o"/>
+                    Select a <strong>report type</strong>, filter by client and date range, then click <strong>Generate</strong>.
+                </div>
+                <group>
+                    <group string="Customer / Client">
+                        <field name="partner_ids" widget="many2many_tags"
+                               options="{'no_create': True}"
+                               placeholder="All clients (leave empty for all)"
+                               string="Customers"
+                               colspan="2"/>
+                    </group>
+                    <group string="Date Range">
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+                </group>
+                <group>
+                    <group string="Report">
+                        <field name="report_type" widget="selection"/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_generate_report"
+                            string="Generate"
+                            type="object"
+                            class="btn-primary"
+                            icon="fa-file-excel-o"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Wizard Action -->
+    <record id="action_pkr_report_wizard" model="ir.actions.act_window">
+        <field name="name">Generate Report</field>
+        <field name="res_model">pallet_kilos_record_model.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

@@ -127,7 +127,7 @@ class PalletKilosXlsx(models.AbstractModel):
             owner_name = record.owner_id.name or 'Unknown'
             records_by_owner.setdefault(owner_name, []).append(record)
 
-        for owner_name, owner_records in records_by_owner.items():
+        for owner_name, owner_records in sorted(records_by_owner.items()):
             sheet = workbook.add_worksheet(owner_name[:31])  # Excel sheet name limit
             sheet.set_column(0, 11, 20)
             row_index = 5
@@ -378,7 +378,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
             owner_name = record.owner_id.name or 'Unknown'
             records_by_owner.setdefault(owner_name, []).append(record)
 
-        for owner_name, owner_records in records_by_owner.items():
+        for owner_name, owner_records in sorted(records_by_owner.items()):
             sheet = workbook.add_worksheet(owner_name[:31])  # Excel sheet name limit
             sheet.set_column(0, 11, 20)
             row_index = 5

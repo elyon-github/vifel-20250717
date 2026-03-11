@@ -29,7 +29,7 @@
     <field name="name">pallet.kilos.record.tree</field>
     <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
     <field name="arch" type="xml">
-        <tree string="Pallet and Kilos Records"  default_order="start_time desc" create="0">
+        <tree string="Pallet and Kilos Records"  default_order="start_time desc" create="0" js_class="pkr_list_report_button">
             <field name="active" optional="hide" string="Active"/>
             <field name="create_date" optional="hide"/>
             <field name="owner_id"/>

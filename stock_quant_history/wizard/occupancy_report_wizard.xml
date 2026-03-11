@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Wizard Form View -->
+    <record id="view_occupancy_report_wizard_form" model="ir.ui.view">
+        <field name="name">stock.quant.history.occupancy.wizard.form</field>
+        <field name="model">stock.quant.history.occupancy.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Occupancy Report">
+                <div class="alert alert-info text-center" role="alert">
+                    <i class="fa fa-info-circle"/> Generate an <strong>Inventory Occupancy Report</strong> (XLSX) for the selected date range and clients.
+                </div>
+                <group>
+                    <group string="Customer / Client">
+                        <field name="partner_ids" widget="many2many_tags"
+                               options="{'no_create': True}"
+                               placeholder="All clients (leave empty for all)"
+                               string="Customers"
+                               colspan="2"/>
+                    </group>
+                    <group string="Date Range">
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+                </group>
+                <group groups="base.group_erp_manager">
+                    <field name="computation_method" widget="radio"/>
+                </group>
+                <footer>
+                    <button name="action_generate_report" 
+                            string="Generate Report" 
+                            type="object" 
+                            class="btn-primary"
+                            icon="fa-file-excel-o"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Wizard Action -->
+    <record id="action_occupancy_report_wizard" model="ir.actions.act_window">
+        <field name="name">Occupancy Report</field>
+        <field name="res_model">stock.quant.history.occupancy.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

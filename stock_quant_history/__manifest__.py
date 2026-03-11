@@ -15,8 +15,17 @@
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/ir_cron.xml",
+        "wizard/occupancy_report_wizard.xml",
         "views/stock-quant-history-snapshot.xml",
         "views/stock-quant-history.xml",
         "reports/inventory_summary_view.xml",
+        "reports/occupancy_report_view.xml",
     ],
+    'assets': {
+        'web.assets_backend': [
+            'stock_quant_history/static/src/js/occupancy_report_button.js',
+            'stock_quant_history/static/src/js/occupancy_report_button.xml',
+        ],
+    },
 }

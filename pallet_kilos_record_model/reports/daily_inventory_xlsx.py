@@ -258,7 +258,7 @@ class DailyInventoryXlsx(models.AbstractModel):
         for ln in lines: 
             by_w.setdefault(ln.warehouse.name, []).append(ln)
         
-        for wh, recs in by_w.items():
+        for wh, recs in sorted(by_w.items()):
             sheet = workbook.add_worksheet(wh[:31])
             
             # Set column widths for better readability
