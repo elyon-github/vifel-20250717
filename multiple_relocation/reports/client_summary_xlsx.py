@@ -104,7 +104,7 @@ class InventorySummary(models.AbstractModel):
             sheet.write(5, 2, 'Total Heads:', right_text_format)
             sheet.write(5, 3, sum(m.x_studio_total_units for m in sorted_moves), summary_format)
             sheet.write(5, 4, 'Total Weight (KG):', right_text_format)
-            sheet.write(5, 5, sum(m.available_quantity for m in sorted_moves), summary_format)
+            sheet.write(5, 5, sum(m.quantity for m in sorted_moves), summary_format)
             sheet.write(5, 6, '', summary_format)  # Extra cell for alignment
             
             # Add a blank row for spacing
@@ -131,7 +131,7 @@ class InventorySummary(models.AbstractModel):
                     grouped_data[key] = {'quantity': 0, 'pcs': 0, 'weight': 0}
                 grouped_data[key]['quantity'] += move.x_studio_2nd_uom
                 grouped_data[key]['pcs'] += move.x_studio_total_units
-                grouped_data[key]['weight'] += move.available_quantity
+                grouped_data[key]['weight'] += move.quantity
 
             # Sort by product name alphabetically
             sorted_keys = sorted(grouped_data.keys(), key=lambda k: k[0].lower())
