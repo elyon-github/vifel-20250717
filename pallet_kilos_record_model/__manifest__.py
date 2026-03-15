@@ -23,9 +23,16 @@ Long description of module's purpose
     # always loaded
     'data': [
         'security/ir.model.access.csv',
+        'wizard/pkr_report_wizard.xml',
         'views/views.xml',
         'reports/pallet_kilos_xlsx_report.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'pallet_kilos_record_model/static/src/js/pkr_report_button.js',
+            'pallet_kilos_record_model/static/src/js/pkr_report_button.xml',
+        ],
+    },
     # only loaded in demonstration mode
     'demo': [
         'demo/demo.xml',

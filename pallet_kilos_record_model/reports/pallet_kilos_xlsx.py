@@ -569,7 +569,7 @@ class PalletKilosXlsx(models.AbstractModel):
                 records_by_owner[owner_name] = []
             records_by_owner[owner_name].append(record)
 
-        for owner_name, owner_records in records_by_owner.items():
+        for owner_name, owner_records in sorted(records_by_owner.items()):
             sheet = workbook.add_worksheet(owner_name[:31])
 
             # Set optimized column widths for better text visibility - Updated for new columns

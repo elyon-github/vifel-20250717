@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- XLSX Report Action -->
+    <record id="action_report_occupancy_xlsx" model="ir.actions.report">
+        <field name="name">Occupancy Report (XLSX)</field>
+        <field name="model">stock.quant.history</field>
+        <field name="report_type">xlsx</field>
+        <field name="report_name">stock_quant_history.occupancy_xlsx</field>
+        <field name="report_file">stock_quant_history.occupancy_xlsx</field>
+        <field name="print_report_name">'Occupancy_Report_%s_to_%s' % (data.get('date_from', 'report') if data else 'report', data.get('date_to', '') if data else '')</field>
+        <field name="binding_type">report</field>
+    </record>
+
+</odoo>

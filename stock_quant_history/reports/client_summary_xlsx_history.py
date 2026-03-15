@@ -68,7 +68,7 @@ class InventorySummary(models.AbstractModel):
                 grouped_records[customer_name] = []
             grouped_records[customer_name].append(record)
 
-        for customer_name, moves in grouped_records.items():
+        for customer_name, moves in sorted(grouped_records.items()):
             sorted_moves = sorted(moves, key=lambda move: move.x_studio_expiration_date or date.max)
             sheet = workbook.add_worksheet(customer_name[:31])
             
