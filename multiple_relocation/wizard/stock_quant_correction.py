@@ -1293,6 +1293,7 @@ class StockQuantAdjustmentLine(models.Model):
             'x_studio_total_units': self.new_x_studio_total_units if self.new_x_studio_total_units else quant.x_studio_total_units,
             'x_studio_quantity_uom': self.new_x_studio_quantity_uom.id if self.new_x_studio_quantity_uom else (quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False),
             'x_studio_min_quantity_uom': self.new_x_studio_min_quantity_uom.id if self.new_x_studio_min_quantity_uom else (quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False),
+            'x_studio_return_count': quant.x_studio_return_count if quant.x_studio_return_count else 0,
         }
         
         correction_line = self.env['stock.quant.correction.line'].create(line_vals)
