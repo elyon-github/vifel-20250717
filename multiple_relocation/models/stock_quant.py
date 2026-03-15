@@ -821,18 +821,18 @@ class OverrideStockQuant(models.Model):
         for quant in records:
             if not quant.available_quantity:
                 continue
-            package_name = quant.package_id.name
-            if package_name:
-                selected_packages.setdefault(package_name, set()).add(quant.id)
+            pkg_id = quant.package_id.id
+            if pkg_id:
+                selected_packages.setdefault(pkg_id, set()).add(quant.id)
     
         # For each package, check for missing quants
         all_missing_quants = self.env['stock.quant']
         Quant = self.env['stock.quant']
         
-        for package_name, selected_quant_ids in selected_packages.items():
+        for pkg_id, selected_quant_ids in selected_packages.items():
             # Get all quants for this package
             all_package_quants = Quant.search([
-                ('package_id', '=', package_name),
+                ('package_id', '=', pkg_id),
                 ('x_studio_pallet_series_id', '!=', False),
                 ("quantity", ">", 0)
             ])
