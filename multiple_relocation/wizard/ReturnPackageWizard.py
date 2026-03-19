@@ -155,6 +155,7 @@ class ReturnPackageWizard(models.TransientModel):
                     location_dest_id = False
                     pallet_result_id = False
                     owner_id = self.picking_id.partner_id.id
+                    package_occupying_owners = []
                     if not move_line.location_id.x_studio_is_reserved:
                         occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
                         package_occupying_owners = (move_line.package_id.quant_ids.mapped('x_studio_pallet_series_id') if move_line.package_id else [])
