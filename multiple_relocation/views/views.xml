@@ -210,7 +210,7 @@
         <!-- Set Tree View Editable Mode -->
         <xpath expr="//tree" position="attributes">
             <attribute name="editable">bottom</attribute>
-            <attribute name="default_order">x_studio_pallet_series_id asc, product_id, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id</attribute>
+            <attribute name="default_order">x_studio_, x_studio_pallet_series_id asc, product_id, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id</attribute>
             <attribute name="js_class">magic_wizard_list_view</attribute>
         </xpath>
 
@@ -675,13 +675,13 @@
      <b>Steps to Complete:</b>
      <br/>
      <!-- 1. Assign <b>Pallet Series</b> and <b>Locations</b> inside <b>Pallet Breakdown</b> (top-center of screen). -->
-     1. Assign <b>Pallet Series</b> inside <b>Pallet Breakdown</b> (top-center of screen).
+     1. Assign <b>Pallet Series and set all Location to an Aisle (Temporary)</b> inside <b>Pallet Breakdown</b> (top-center of screen).
      <br/>
      2. Generate the <b>Tally Sheet</b> and <b>Pallet Tag Form</b>.
      <br/>
      3. Provide both documents to the <b>Checker</b>.
      <br/>
-     4. Once returned, encode the data again under <b>Pallet Breakdown</b> (top-center of screen). 
+     4. Once returned, encode the data again under <b>Pallet Breakdown</b> using the Magic Wizard inside (top-center of screen). 
      <br/>
      5. Ensure all required <b>columns</b> are properly completed.
      <br/>

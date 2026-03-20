@@ -163,6 +163,21 @@ class FastEncodeRRWizard(models.TransientModel):
                 if line.pallet_series_id and line.pallet_series_id != line.pre_wizard_pallet_series_id:
                     # This line is restoring its original — consume it from the pool
                     owner.get_pallet_series_by_id(line.pallet_series_id)
+            
+            # Consume the winning series for each pallet group from the pool.
+            # After cascade, the group may use a different winner's OG PSI that
+            # wasn't the pre_wizard series — it still needs to be pulled from the pool.
+            for pid in grouped_pallets:
+                group_series = pallet_to_first_series.get(pid)
+                if not group_series:
+                    continue
+                # Check if any line in the group already had this as pre_wizard (no pull needed)
+                already_owned = any(
+                    l.pre_wizard_pallet_series_id == group_series
+                    for l in pallet_lines.get(pid, [])
+                )
+                if not already_owned:
+                    owner.get_pallet_series_by_id(group_series)
         
         # ── Resolve NEW pass: pull real series for lines flagged needs_new_pallet_series ──
         if owner and new_lines:
@@ -308,7 +323,7 @@ class FastEncodeRRWizard(models.TransientModel):
 class FastEncodeRRWizardLine(models.TransientModel):
     _name = 'stock.move.line.fast_encode_rr.line'
     _description = 'Stock Move Line Fast Encode RR Line'
-    _order = 'pallet_series_id asc'
+    _order = 'x_studio_ asc'
     
     wizard_id = fields.Many2one('stock.move.line.fast_encode_rr', string="Wizard", ondelete='cascade')
     transfer_id = fields.Integer(string="Transfer ID", related='wizard_id.transfer_id', store=True)
@@ -352,7 +367,17 @@ class FastEncodeRRWizardLine(models.TransientModel):
     pending_resync_pallet_id = fields.Many2one('stock.quant.package', string='Pending Resync Pallet')
     pending_resync_old_series = fields.Char(string='Pending Resync Old Series')
     pending_resync_new_series = fields.Char(string='Pending Resync New Series')
-    
+    pending_resync_type = fields.Char(string='Pending Resync Type')
+
+    # Winner identifier: True when this line's OG PSI is the one used by the pallet group.
+    # Auto-computed from original vs current series; used to detect when cascade is needed.
+    is_pallet_series_winner = fields.Boolean(
+        string='Is a Pallet Group Lead',
+        compute='_compute_is_pallet_series_winner',
+        store=True,
+        help='Checked when this line\'s Original Pallet Series is used by the entire pallet group. If removed from the group, other lines will be re-adjusted to the next group lead.',
+    )
+
     has_duplicate_pallet = fields.Boolean(
         string='Has Duplicate Pallet',
         compute='_compute_has_duplicate_pallet',
@@ -412,8 +437,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
         # lines to the same series — it would falsely claim the winner's original.
         pallet_groups = {}  # pallet_id -> list of original_pallet_series_id
         exclude_ids = {self.id}
-        if hasattr(self, '_origin') and self._origin:
-            exclude_ids.add(self._origin.id)
         
         for line in self.wizard_id.line_ids:
             if line.id in exclude_ids:
@@ -573,16 +596,20 @@ class FastEncodeRRWizardLine(models.TransientModel):
         
         Mirrors the behavior of assign_pallet_series_on_already_used_pallets 
         in stock.move.line but operates within the wizard context.
+        
+        NOTE: Cascade detection is NOT done here — onchange on transient models
+        is unreliable for cross-record writes. Cascade is handled in write() override.
         """
         for record in self:
             if not record.result_package_id:
                 # Pallet cleared — try to restore original, or flag for NEW
                 series, needs_new = record._resolve_series_for_unique_line()
                 record.pallet_series_id = series
-                record.needs_new_pallet_series = needs_new
+                record.needs_new_pallet_series = False  # Don't flash; write() sets correct value
                 record.pending_resync_pallet_id = False
                 record.pending_resync_old_series = False
                 record.pending_resync_new_series = False
+                record.pending_resync_type = False
                 
                 # Restore original location (skip if current is an aisle and original has children)
                 if record.original_location_dest_id:
@@ -596,12 +623,12 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 new_series = sync_vals['pallet_series_id']
                 # If series will change (recycled), defer to JS confirmation
                 if old_series and new_series and old_series != new_series:
-                    pending_pallet = record.result_package_id
-                    # Revert pallet selection — don't apply yet
-                    record.result_package_id = record._origin.result_package_id if record._origin else False
-                    record.pending_resync_pallet_id = pending_pallet
+                    # Cannot revert pallet reliably in onchange on transient model.
+                    # Instead, set pending fields so write() and JS can handle it.
+                    record.pending_resync_pallet_id = record.result_package_id
                     record.pending_resync_old_series = old_series
                     record.pending_resync_new_series = new_series
+                    record.pending_resync_type = 'resync'
                 else:
                     # Same series or no old series — apply directly
                     record.pallet_series_id = new_series
@@ -610,55 +637,226 @@ class FastEncodeRRWizardLine(models.TransientModel):
                     record.pending_resync_pallet_id = False
                     record.pending_resync_old_series = False
                     record.pending_resync_new_series = False
+                    record.pending_resync_type = False
             else:
                 # No match anywhere — this pallet is unique
                 # Try to restore original, or flag for NEW
                 series, needs_new = record._resolve_series_for_unique_line()
                 record.pallet_series_id = series
-                record.needs_new_pallet_series = needs_new
+                record.needs_new_pallet_series = False  # Don't flash; write() sets correct value
                 record.pending_resync_pallet_id = False
                 record.pending_resync_old_series = False
                 record.pending_resync_new_series = False
+                record.pending_resync_type = False
                 
                 # Restore original location (skip if current is an aisle and original has children)
                 if record.original_location_dest_id:
                     if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
                         record.location_dest_id = record.original_location_dest_id
 
+    @api.depends('original_pallet_series_id', 'pallet_series_id', 'result_package_id')
+    def _compute_is_pallet_series_winner(self):
+        for record in self:
+            if record.result_package_id and record.pallet_series_id and record.original_pallet_series_id:
+                record.is_pallet_series_winner = (record.original_pallet_series_id == record.pallet_series_id)
+            else:
+                record.is_pallet_series_winner = False
+
+    @api.model
+    def detect_cascade(self, wizard_id):
+        """Scan all wizard lines and flag cascade if a pallet group's winner left.
+        
+        Called from JS polling. Operates entirely on real DB records.
+        Returns True if any cascade was flagged.
+        """
+        lines = self.search([('wizard_id', '=', wizard_id)])
+        
+        # If any line already has pending flags (set by write() cascade), tell JS to reload
+        if any(l.pending_resync_pallet_id for l in lines):
+            logger.info('detect_cascade: found existing pending flags, returning True')
+            return True
+        
+        # Group by pallet
+        pallet_groups = {}  # pallet_id -> [line records]
+        for line in lines:
+            if line.result_package_id:
+                pid = line.result_package_id.id
+                pallet_groups.setdefault(pid, []).append(line)
+        
+        flagged = False
+        for pid, group_lines in pallet_groups.items():
+            
+            current_series = group_lines[0].pallet_series_id
+            if not current_series:
+                continue
+            # All lines in the group should share the same series
+            if not all(l.pallet_series_id == current_series for l in group_lines):
+                continue
+            
+            # Check: is the current series the OG PSI of any member still in the group?
+            winner_in_group = any(
+                l.original_pallet_series_id == current_series for l in group_lines
+            )
+            if winner_in_group:
+                continue  # Winner is still here, no cascade needed
+            
+            # Winner left! Find the new expected series (smallest OG PSI in group)
+            expected_series = min(
+                l.original_pallet_series_id for l in group_lines
+                if l.original_pallet_series_id
+            )
+            if not expected_series or expected_series == current_series:
+                continue
+            
+            logger.info('detect_cascade: pallet %s group needs cascade %s -> %s (%d lines)',
+                        pid, current_series, expected_series, len(group_lines))
+            # Flag all lines for cascade
+            for line in group_lines:
+                super(FastEncodeRRWizardLine, line).write({
+                    'pending_resync_pallet_id': pid,
+                    'pending_resync_old_series': current_series,
+                    'pending_resync_new_series': expected_series,
+                    'pending_resync_type': 'cascade',
+                })
+            flagged = True
+        
+        return flagged
+
+    def _check_and_cascade_siblings(self, old_pallet_id, old_series):
+        """Check if removing this line from a pallet group requires cascading the winner.
+        
+        When the 'winner' line (smallest OG PSI) leaves a pallet group, remaining
+        siblings need their series updated to the next smallest OG PSI.
+        
+        MUST be called from write() context only — not from onchange.
+        Uses self (real DB record) directly, no _origin.
+        """
+        if not old_pallet_id or not old_series:
+            return
+        # The departing line was the winner if its OG PSI equals the old group series.
+        # original_pallet_series_id is immutable (set at creation), so always reliable.
+        if self.original_pallet_series_id != old_series:
+            logger.info('Cascade skip: OG PSI %s != old_series %s for line %s',
+                        self.original_pallet_series_id, old_series, self.id)
+            return  # Not the winner, no cascade needed
+        # Direct DB search — the only reliable approach in transient models.
+        wizard_id = self.wizard_id.id
+        if not wizard_id:
+            return
+        logger.info('Cascade check: line %s was winner (OG PSI=%s) on pallet %s, searching wizard %s',
+                    self.id, self.original_pallet_series_id, old_pallet_id, wizard_id)
+        siblings = self.env['stock.move.line.fast_encode_rr.line'].search([
+            ('wizard_id', '=', wizard_id),
+            ('result_package_id', '=', old_pallet_id),
+            ('id', '!=', self.id),
+            ('pallet_series_id', '!=', False),
+        ])
+        if not siblings:
+            logger.info('Cascade skip: no siblings found on pallet %s', old_pallet_id)
+            return
+        # Check if siblings still use the old series
+        affected = siblings.filtered(lambda l: l.pallet_series_id == old_series)
+        if not affected:
+            logger.info('Cascade skip: siblings exist but none use series %s', old_series)
+            return
+        # Find new winner among remaining siblings (smallest OG PSI)
+        sorted_siblings = sorted(siblings, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+        new_winner = sorted_siblings[0]
+        new_series = new_winner.original_pallet_series_id or new_winner.pallet_series_id
+        if new_series == old_series:
+            return  # Same series, no change needed
+        logger.info('Cascade: %d siblings will change from %s to %s', len(affected), old_series, new_series)
+        # REVERT the departing line back to old pallet + old series (ask first, act later)
+        revert_vals = {
+            'result_package_id': old_pallet_id,
+            'pallet_series_id': old_series,
+            'needs_new_pallet_series': False,
+            'pending_resync_pallet_id': old_pallet_id,
+            'pending_resync_old_series': old_series,
+            'pending_resync_new_series': new_series,
+            'pending_resync_type': 'cascade',
+        }
+        super(FastEncodeRRWizardLine, self).write(revert_vals)
+        logger.info('Cascade: reverted line %s back to pallet %s, flagged for confirmation', self.id, old_pallet_id)
+
     def action_apply_resync(self, pallet_id):
-        """Called from JS when user confirms the re-sync dialog.
+        """Called from JS when user confirms the re-sync or cascade dialog.
         
         Args:
-            pallet_id: ID of the pallet to apply (passed from JS since
-                       onchange values aren't persisted to DB).
+            pallet_id: ID of the pallet to apply (passed from JS).
         """
-        self.ensure_one()
-        if not pallet_id:
-            return
-        # First set the pallet so sibling detection works
-        super(FastEncodeRRWizardLine, self).write({
-            'result_package_id': pallet_id,
-            'pending_resync_pallet_id': False,
-            'pending_resync_old_series': False,
-            'pending_resync_new_series': False,
-        })
-        # Now sync series and location from sibling/existing line
-        sync_vals = self._sync_pallet_series_and_location(pallet_id)
-        if sync_vals:
-            sync_vals['needs_new_pallet_series'] = False
-            super(FastEncodeRRWizardLine, self).write(sync_vals)
+        for record in self:
+            if not pallet_id:
+                return
+            resync_type = record.pending_resync_type
+            new_series = record.pending_resync_new_series
+            clear_vals = {
+                'pallet_series_id': new_series,
+                'needs_new_pallet_series': False,
+                'pending_resync_pallet_id': False,
+                'pending_resync_old_series': False,
+                'pending_resync_new_series': False,
+                'pending_resync_type': False,
+            }
+            if resync_type == 'cascade':
+                # Cascade confirmed: the departing line was reverted, now actually remove it
+                # and update siblings' series.
+                old_pallet_id = record.result_package_id.id if record.result_package_id else False
+                # 1. Clear the departing line's pallet and restore its solo series
+                series, needs_new = record._resolve_series_for_unique_line()
+                depart_vals = {
+                    'result_package_id': False,
+                    'pallet_series_id': series,
+                    'needs_new_pallet_series': needs_new,
+                    'pending_resync_pallet_id': False,
+                    'pending_resync_old_series': False,
+                    'pending_resync_new_series': False,
+                    'pending_resync_type': False,
+                }
+                if record.original_location_dest_id:
+                    if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
+                        depart_vals['location_dest_id'] = record.original_location_dest_id.id
+                super(FastEncodeRRWizardLine, record).write(depart_vals)
+                # 2. Update siblings on the old pallet to the new winner series
+                if old_pallet_id and new_series:
+                    siblings = self.env['stock.move.line.fast_encode_rr.line'].search([
+                        ('wizard_id', '=', record.wizard_id.id),
+                        ('result_package_id', '=', old_pallet_id),
+                        ('id', '!=', record.id),
+                    ])
+                    for sib in siblings:
+                        super(FastEncodeRRWizardLine, sib).write({
+                            'pallet_series_id': new_series,
+                            'needs_new_pallet_series': False,
+                        })
+            else:
+                # Resync: line gets the new pallet + series
+                # Get sync series DIRECTLY from siblings — don't rely on pending field
+                sync_vals = record._sync_pallet_series_and_location(pallet_id)
+                if sync_vals:
+                    clear_vals['pallet_series_id'] = sync_vals['pallet_series_id']
+                    if sync_vals.get('location_dest_id'):
+                        clear_vals['location_dest_id'] = sync_vals['location_dest_id']
+                clear_vals['result_package_id'] = pallet_id
+                super(FastEncodeRRWizardLine, record).write(clear_vals)
+                # NOTE: Do NOT call _check_and_cascade_siblings here.
+                # That method reverts the departing line, which would undo the resync.
+                # detect_cascade polling will pick up any cascade needs on the old pallet.
 
     def action_cancel_resync(self):
-        """Called from JS when user declines the re-sync dialog."""
+        """Called from JS when user declines the re-sync or cascade dialog."""
         for record in self:
             super(FastEncodeRRWizardLine, record).write({
                 'pending_resync_pallet_id': False,
                 'pending_resync_old_series': False,
                 'pending_resync_new_series': False,
+                'pending_resync_type': False,
             })
 
     def write(self, vals):
         """Override write to handle multi-edit sync (onchange is bypassed during multi-edit)."""
+        logger.info('=== WRITE called on %s with keys: %s, result_package_id in vals: %s',
+                    self.ids, list(vals.keys()), 'result_package_id' in vals)
         # Capture old pallet/series before super changes them
         old_vals_by_id = {}
         if 'result_package_id' in vals:
@@ -667,6 +865,11 @@ class FastEncodeRRWizardLine(models.TransientModel):
                     'result_package_id': record.result_package_id.id if record.result_package_id else False,
                     'pallet_series_id': record.pallet_series_id,
                 }
+                logger.info('=== WRITE old vals for line %s: pallet=%s, series=%s, OG=%s',
+                            record.id,
+                            old_vals_by_id[record.id]['result_package_id'],
+                            old_vals_by_id[record.id]['pallet_series_id'],
+                            record.original_pallet_series_id)
 
         res = super().write(vals)
         
@@ -690,6 +893,9 @@ class FastEncodeRRWizardLine(models.TransientModel):
                         if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
                             update_vals['location_dest_id'] = record.original_location_dest_id.id
                     super(FastEncodeRRWizardLine, record).write(update_vals)
+                    # Check if leaving this pallet group requires cascading the winner
+                    old = old_vals_by_id.get(record.id, {})
+                    record._check_and_cascade_siblings(old.get('result_package_id'), old.get('pallet_series_id'))
             
             elif len(self) > 1:
                 # Multi-edit: determine the winning series UPFRONT before per-record mutations
@@ -738,7 +944,14 @@ class FastEncodeRRWizardLine(models.TransientModel):
                                 'pending_resync_pallet_id': new_pallet_id,
                                 'pending_resync_old_series': old.get('pallet_series_id', '?'),
                                 'pending_resync_new_series': sync_series,
+                                'pending_resync_type': 'resync',
                             })
+                        # Check if leaving old pallet groups requires cascading
+                        for record in self:
+                            old = old_vals_by_id.get(record.id, {})
+                            old_pid = old.get('result_package_id')
+                            if old_pid and old_pid != new_pallet_id:
+                                record._check_and_cascade_siblings(old_pid, old.get('pallet_series_id'))
                     else:
                         sync_vals = {
                             'pallet_series_id': sync_series,
@@ -778,13 +991,18 @@ class FastEncodeRRWizardLine(models.TransientModel):
                             # Re-sync detected — defer to JS confirmation
                             super(FastEncodeRRWizardLine, record).write({
                                 'result_package_id': old_pallet,
+                                'pallet_series_id': old_series,
                                 'pending_resync_pallet_id': new_pallet_id,
                                 'pending_resync_old_series': old_series,
                                 'pending_resync_new_series': new_series,
+                                'pending_resync_type': 'resync',
                             })
                         else:
                             sync_vals['needs_new_pallet_series'] = False
                             super(FastEncodeRRWizardLine, record).write(sync_vals)
+                        # Check if leaving old pallet group requires cascade
+                        if old_pallet and old_pallet != new_pallet_id:
+                            record._check_and_cascade_siblings(old_pallet, old.get('pallet_series_id'))
                     else:
                         # No match — this pallet is unique
                         series, needs_new = record._resolve_series_for_unique_line()
@@ -796,5 +1014,9 @@ class FastEncodeRRWizardLine(models.TransientModel):
                             if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
                                 update_vals['location_dest_id'] = record.original_location_dest_id.id
                         super(FastEncodeRRWizardLine, record).write(update_vals)
+                        # Check if leaving old pallet group requires cascade
+                        old_pallet = old.get('result_package_id', False)
+                        if old_pallet and old_pallet != new_pallet_id:
+                            record._check_and_cascade_siblings(old_pallet, old.get('pallet_series_id'))
         
         return res

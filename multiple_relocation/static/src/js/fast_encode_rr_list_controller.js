@@ -48,8 +48,52 @@ export class FastEncodeRRListController extends ListController {
     /**
      * Check if any record has a pending_resync_pallet_id set and show confirmation.
      */
-    _checkPendingResync() {
-        if (this._resyncDialogOpen || this._confirmOpen) return;
+    async _checkPendingResync() {
+        if (this._resyncDialogOpen || this._confirmOpen || this._checkingResync) return;
+        this._checkingResync = true;
+        try {
+            await this._doCheckPendingResync();
+        } finally {
+            this._checkingResync = false;
+        }
+    }
+
+    async _doCheckPendingResync() {
+
+        // Periodically ask server to detect cascade needs (every 2s)
+        const now = Date.now();
+        if (!this._lastCascadeCheck || now - this._lastCascadeCheck > 2000) {
+            this._lastCascadeCheck = now;
+            // Get wizard_id from the first record (reliable) or fallback to context
+            let wizardId = null;
+            const recs = this.model.root.records || [];
+            for (const r of recs) {
+                const wid = r.data.wizard_id;
+                if (wid && wid[0]) {
+                    wizardId = wid[0];
+                    break;
+                }
+            }
+            if (!wizardId) {
+                wizardId = this.model.root.context?.default_wizard_id;
+            }
+            if (wizardId) {
+                try {
+                    const flagged = await this.orm.call(
+                        "stock.move.line.fast_encode_rr.line",
+                        "detect_cascade",
+                        [wizardId]
+                    );
+                    if (flagged) {
+                        await this.model.root.load();
+                        this.render(true);
+                    }
+                } catch (e) {
+                    // Silently ignore — will retry next poll
+                }
+            }
+        }
+
         const records = this.model.root.records || [];
         const pendingLines = [];
         for (const rec of records) {
@@ -60,11 +104,16 @@ export class FastEncodeRRListController extends ListController {
                     palletId: pendingPallet[0],
                     oldSeries: rec.data.pending_resync_old_series || "?",
                     newSeries: rec.data.pending_resync_new_series || "?",
+                    resyncType: rec.data.pending_resync_type || "resync",
                 });
             }
         }
         if (pendingLines.length === 0) return;
         this._resyncDialogOpen = true;
+
+        // Separate cascade vs resync lines
+        const cascadeLines = pendingLines.filter(l => l.resyncType === "cascade");
+        const resyncLines = pendingLines.filter(l => l.resyncType !== "cascade");
 
         // Build a rich HTML body listing all affected lines
         const esc = (s) => {
@@ -72,23 +121,57 @@ export class FastEncodeRRListController extends ListController {
             d.textContent = s;
             return d.innerHTML;
         };
-        let html = "<p><strong>This pallet is already in use.</strong> The following pallet series will be recycled back to the pool and can be used for future pallets:</p>";
-        html += "<ul style='margin:8px 0;padding-left:20px;color:#666;'>";
-        for (const line of pendingLines) {
-            html += `<li><strong style='color:#d9534f;'>${esc(line.oldSeries)}</strong> will be recycled (originally assigned to this line)</li>`;
-        }
-        html += "</ul>";
-        const newSeries = pendingLines[0].newSeries;
-        html += `<p style='margin:8px 0;'>All lines will be assigned to series <strong style='color:#5cb85c;'>${esc(newSeries)}</strong>.</p>`;
-        html += "<p style='color:#666;font-size:0.95em;'><em>💡 If you clear the pallet or revert this line to a unique pallet later, the original series will be restored.</em></p>";
-        if (pendingLines.length > 1) {
-            html += `<p style='margin-top:12px;'><strong>${pendingLines.length} lines</strong> will be affected by this change.</p>`;
+
+        let html = "";
+        let title = "";
+        let confirmLabel = "";
+
+        if (cascadeLines.length > 0 && resyncLines.length === 0) {
+            // Pure cascade
+            title = "Pallet Group Series Update";
+            confirmLabel = "Yes, Update Series";
+            const oldS = esc(cascadeLines[0].oldSeries);
+            const newS = esc(cascadeLines[0].newSeries);
+            html += `<p>The line with series <strong style='color:#d9534f;'>${oldS}</strong> was also used as the pallet series for other lines on this pallet. Since it has been removed, the lines that depend on it will be re-adjusted.</p>`;
+            html += `<p style='margin:8px 0;'>Series will change from <strong style='color:#d9534f;'>${oldS}</strong> &rarr; <strong style='color:#5cb85c;'>${newS}</strong></p>`;
+            if (cascadeLines.length > 1) {
+                html += `<p><strong>${cascadeLines.length} lines</strong> will be affected.</p>`;
+            }
+        } else if (resyncLines.length > 0 && cascadeLines.length === 0) {
+            // Pure resync
+            title = "Pallet Series Will Be Re-Synced";
+            confirmLabel = "Yes, Re-Sync";
+            html += "<p><strong>This pallet is already in use.</strong> The following pallet series will be recycled back to the pool and can be used for future pallets:</p>";
+            html += "<ul style='margin:8px 0;padding-left:20px;color:#666;'>";
+            for (const line of resyncLines) {
+                html += `<li><strong style='color:#d9534f;'>${esc(line.oldSeries)}</strong> will be recycled (originally assigned to this line)</li>`;
+            }
+            html += "</ul>";
+            const newSeries = resyncLines[0].newSeries;
+            html += `<p style='margin:8px 0;'>All lines will be assigned to series <strong style='color:#5cb85c;'>${esc(newSeries)}</strong>.</p>`;
+            html += "<p style='color:#666;font-size:0.95em;'><em>\uD83D\uDCA1 If you clear the pallet or revert this line to a unique pallet later, the original series will be restored.</em></p>";
+            if (resyncLines.length > 1) {
+                html += `<p style='margin-top:12px;'><strong>${resyncLines.length} lines</strong> will be affected by this change.</p>`;
+            }
+        } else {
+            // Mixed — show both
+            title = "Pallet Series Changes Required";
+            confirmLabel = "Yes, Apply Changes";
+            html += "<p>Multiple pallet series changes are needed:</p>";
+            if (resyncLines.length > 0) {
+                html += `<p><strong>Re-sync (${resyncLines.length} line${resyncLines.length > 1 ? 's' : ''}):</strong> Series will be recycled.</p>`;
+            }
+            if (cascadeLines.length > 0) {
+                const oldS = esc(cascadeLines[0].oldSeries);
+                const newS = esc(cascadeLines[0].newSeries);
+                html += `<p><strong>Cascade (${cascadeLines.length} line${cascadeLines.length > 1 ? 's' : ''}):</strong> ${oldS} &rarr; ${newS}</p>`;
+            }
         }
 
         this.dialogService.add(ConfirmationDialog, {
-            title: "Pallet Series Will Be Re-Synced",
+            title: title,
             body: markup(html),
-            confirmLabel: "Yes, Re-Sync",
+            confirmLabel: confirmLabel,
             cancelLabel: "No, Cancel",
             confirm: async () => {
                 for (const { lineId, palletId } of pendingLines) {
