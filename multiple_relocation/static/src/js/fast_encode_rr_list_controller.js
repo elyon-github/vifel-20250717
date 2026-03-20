@@ -60,40 +60,8 @@ export class FastEncodeRRListController extends ListController {
 
     async _doCheckPendingResync() {
 
-        // Periodically ask server to detect cascade needs (every 2s)
-        const now = Date.now();
-        if (!this._lastCascadeCheck || now - this._lastCascadeCheck > 2000) {
-            this._lastCascadeCheck = now;
-            // Get wizard_id from the first record (reliable) or fallback to context
-            let wizardId = null;
-            const recs = this.model.root.records || [];
-            for (const r of recs) {
-                const wid = r.data.wizard_id;
-                if (wid && wid[0]) {
-                    wizardId = wid[0];
-                    break;
-                }
-            }
-            if (!wizardId) {
-                wizardId = this.model.root.context?.default_wizard_id;
-            }
-            if (wizardId) {
-                try {
-                    const flagged = await this.orm.call(
-                        "stock.move.line.fast_encode_rr.line",
-                        "detect_cascade",
-                        [wizardId]
-                    );
-                    if (flagged) {
-                        await this.model.root.load();
-                        this.render(true);
-                    }
-                } catch (e) {
-                    // Silently ignore — will retry next poll
-                }
-            }
-        }
-
+        // Check local pending fields for dialogs to show.
+        // Cascade detected by write() and flagged immediately; no need to re-poll server every 2s.
         const records = this.model.root.records || [];
         const pendingLines = [];
         for (const rec of records) {
