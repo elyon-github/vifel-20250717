@@ -1257,6 +1257,7 @@ class stock_move_line_Override(models.Model):
             
             line_vals.append((0, 0, {
                 'stock_move_line': line.id,
+                'x_studio_': line.x_studio_ or 0,
                 'product_id': line.product_id.id,
                 'pallet_series_id': line.x_studio_pallet_series_id or '',
                 'bf_pallet_char': line.bf_pallet_char or '',

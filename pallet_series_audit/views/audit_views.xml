@@ -1,0 +1,364 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Audit Line — Search View                                      -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_line_search" model="ir.ui.view">
+        <field name="name">pallet.series.audit.line.search</field>
+        <field name="model">pallet.series.audit.line</field>
+        <field name="arch" type="xml">
+            <search string="Search Audit Events">
+                <field name="pallet_series_id" string="Pallet Series"/>
+                <field name="picking_id" string="RR Transfer"/>
+                <separator/>
+                <filter name="assigned" string="Assigned" domain="[('event_type','=','assigned')]"/>
+                <filter name="reassigned" string="Reassigned" domain="[('event_type','=','reassigned')]"/>
+                <filter name="cleared" string="Cleared" domain="[('event_type','=','cleared')]"/>
+                <filter name="synced" string="Synced" domain="[('event_type','=','synced')]"/>
+                <filter name="line_deleted" string="Line Deleted" domain="[('event_type','=','line_deleted')]"/>
+                <filter name="pool_push" string="Pushed to Pool" domain="[('event_type','=','pushed_to_pool')]"/>
+                <filter name="pool_pull" string="Pulled from Pool" domain="[('event_type','=','pulled_from_pool')]"/>
+                <filter name="generated" string="Generated New" domain="[('event_type','=','generated_new')]"/>
+                <filter name="pallet_change" string="Pallet Changed" domain="[('event_type','=','pallet_assigned')]"/>
+                <separator/>
+                <filter name="group_event" string="Event Type" context="{'group_by':'event_type'}"/>
+                <filter name="group_source" string="Source" context="{'group_by':'source'}"/>
+                <filter name="group_series" string="Pallet Series" context="{'group_by':'pallet_series_id'}"/>
+                <filter name="group_picking" string="RR Transfer" context="{'group_by':'picking_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Audit Line — Kanban View (Visual Timeline)                    -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_line_kanban" model="ir.ui.view">
+        <field name="name">pallet.series.audit.line.kanban</field>
+        <field name="model">pallet.series.audit.line</field>
+        <field name="arch" type="xml">
+            <kanban create="false" edit="false" default_order="event_date asc, id asc"
+                    class="o_kanban_small_column o_kanban_mobile">
+                <field name="event_type"/>
+                <field name="source"/>
+                <field name="pallet_series_id"/>
+                <field name="previous_series"/>
+                <field name="new_series"/>
+                <field name="series_display"/>
+                <field name="event_label"/>
+                <field name="line_number"/>
+                <field name="result_package_name"/>
+                <field name="pool_delta"/>
+                <field name="pool_size_after"/>
+                <field name="user_id"/>
+                <field name="event_date"/>
+                <field name="notes"/>
+                <field name="kanban_color"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div t-attf-class="oe_kanban_card oe_kanban_global_click oe_kanban_color_#{kanban_getcolor(record.kanban_color.raw_value)}"
+                             style="min-height: 140px; margin-bottom: 4px;">
+                            <div class="oe_kanban_content" style="padding: 8px;">
+                                <!-- Header: Event badge + timestamp -->
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span t-attf-class="badge rounded-pill #{
+                                        record.event_type.raw_value == 'assigned' ? 'text-bg-success' :
+                                        record.event_type.raw_value == 'pulled_from_pool' ? 'text-bg-success' :
+                                        record.event_type.raw_value == 'generated_new' ? 'text-bg-success' :
+                                        record.event_type.raw_value == 'cleared' ? 'text-bg-danger' :
+                                        record.event_type.raw_value == 'line_deleted' ? 'text-bg-danger' :
+                                        record.event_type.raw_value == 'pushed_to_pool' ? 'text-bg-warning' :
+                                        'text-bg-info'
+                                    }" style="font-size: 12px; padding: 4px 10px;">
+                                        <t t-esc="record.event_label.value"/>
+                                    </span>
+                                    <small class="text-muted">
+                                        <i class="fa fa-clock-o"/> <t t-esc="record.event_date.value"/>
+                                    </small>
+                                </div>
+
+                                <!-- Series info -->
+                                <div class="mb-1" style="font-size: 14px;">
+                                    <t t-if="record.series_display.value">
+                                        <strong>
+                                            <i class="fa fa-barcode text-muted me-1"/>
+                                            <t t-esc="record.series_display.value"/>
+                                        </strong>
+                                    </t>
+                                </div>
+
+                                <!-- Details row -->
+                                <div class="d-flex flex-wrap gap-2 mb-1" style="font-size: 12px;">
+                                    <t t-if="record.line_number.raw_value">
+                                        <span class="badge text-bg-secondary">
+                                            Line #<t t-esc="record.line_number.value"/>
+                                        </span>
+                                    </t>
+                                    <t t-if="record.result_package_name.value">
+                                        <span class="badge text-bg-light border">
+                                            <i class="fa fa-cube me-1"/>
+                                            <t t-esc="record.result_package_name.value"/>
+                                        </span>
+                                    </t>
+                                    <t t-if="record.source.value">
+                                        <span class="badge text-bg-light border">
+                                            <i class="fa fa-cog me-1"/>
+                                            <t t-esc="record.source.value"/>
+                                        </span>
+                                    </t>
+                                </div>
+
+                                <!-- Pool info -->
+                                <t t-if="record.pool_delta.value">
+                                    <div class="mb-1" style="font-size: 12px;">
+                                        <i class="fa fa-database text-muted me-1"/>
+                                        Pool: <strong><t t-esc="record.pool_delta.value"/></strong>
+                                        <t t-if="record.pool_size_after.raw_value">
+                                            (size: <t t-esc="record.pool_size_after.value"/>)
+                                        </t>
+                                    </div>
+                                </t>
+
+                                <!-- Notes -->
+                                <t t-if="record.notes.value">
+                                    <div class="text-muted fst-italic" style="font-size: 11px; max-height: 40px; overflow: hidden;">
+                                        <i class="fa fa-sticky-note-o me-1"/>
+                                        <t t-esc="record.notes.value"/>
+                                    </div>
+                                </t>
+
+                                <!-- Footer: user -->
+                                <div class="d-flex justify-content-end mt-2">
+                                    <img t-att-src="kanban_image('res.users', 'avatar_128', record.user_id.raw_value)"
+                                         class="oe_kanban_avatar rounded-circle" width="24" height="24"
+                                         t-att-title="record.user_id.value"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Audit Line — Tree View (standalone, for "Trace Series")       -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_line_tree" model="ir.ui.view">
+        <field name="name">pallet.series.audit.line.tree</field>
+        <field name="model">pallet.series.audit.line</field>
+        <field name="arch" type="xml">
+            <tree string="Pallet Audit Events" create="false" edit="false" default_order="event_date desc, id desc"
+                  decoration-success="event_type in ('assigned','pulled_from_pool','generated_new')"
+                  decoration-danger="event_type in ('cleared','line_deleted')"
+                  decoration-info="event_type in ('synced','restored','reassigned','recycled')"
+                  decoration-warning="event_type in ('pushed_to_pool','pallet_assigned')">
+                <field name="event_date" string="When"/>
+                <field name="picking_id" string="RR"/>
+                <field name="line_number" string="#"/>
+                <field name="pallet_series_id" string="Series"/>
+                <field name="event_type" string="Event"/>
+                <field name="source"/>
+                <field name="previous_series"/>
+                <field name="new_series"/>
+                <field name="result_package_name" string="Pallet"/>
+                <field name="pool_delta" string="Pool"/>
+                <field name="user_id" string="By" widget="many2one_avatar_user"/>
+                <field name="notes" optional="hide"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Audit Line — Form View (read-only detail)                     -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_line_form" model="ir.ui.view">
+        <field name="name">pallet.series.audit.line.form</field>
+        <field name="model">pallet.series.audit.line</field>
+        <field name="arch" type="xml">
+            <form string="Audit Event" create="false" edit="false">
+                <sheet>
+                    <group>
+                        <group string="Event">
+                            <field name="event_date"/>
+                            <field name="event_type"/>
+                            <field name="source"/>
+                            <field name="user_id"/>
+                        </group>
+                        <group string="Details">
+                            <field name="pallet_series_id"/>
+                            <field name="previous_series"/>
+                            <field name="new_series"/>
+                            <field name="line_number"/>
+                            <field name="move_line_id"/>
+                            <field name="result_package_name"/>
+                        </group>
+                    </group>
+                    <group string="Pool">
+                        <field name="pool_delta"/>
+                        <field name="pool_size_after"/>
+                    </group>
+                    <group string="Notes">
+                        <field name="notes" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Audit Header — Search View                                    -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_search" model="ir.ui.view">
+        <field name="name">pallet.series.audit.search</field>
+        <field name="model">pallet.series.audit</field>
+        <field name="arch" type="xml">
+            <search string="Search Audits">
+                <field name="picking_name" string="RR Name"/>
+                <field name="partner_id" string="Client"/>
+                <separator/>
+                <filter name="has_events" string="Has Events" domain="[('event_count','>',0)]"/>
+                <separator/>
+                <filter name="group_partner" string="Client" context="{'group_by':'partner_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Audit Header — Tree View                                      -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_tree" model="ir.ui.view">
+        <field name="name">pallet.series.audit.tree</field>
+        <field name="model">pallet.series.audit</field>
+        <field name="arch" type="xml">
+            <tree string="Pallet Series Audits" create="false" edit="false">
+                <field name="picking_name" string="RR"/>
+                <field name="partner_id" string="Client"/>
+                <field name="picking_state" string="Status" widget="badge"
+                       decoration-success="picking_state == 'done'"
+                       decoration-info="picking_state == 'assigned'"
+                       decoration-warning="picking_state in ('confirmed','waiting')"/>
+                <field name="event_count" string="Events"/>
+                <field name="unique_series_count" string="Series"/>
+                <field name="last_event_date" string="Last Event"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Audit Header — Form View                                      -->
+    <!-- ============================================================ -->
+    <record id="view_pallet_series_audit_form" model="ir.ui.view">
+        <field name="name">pallet.series.audit.form</field>
+        <field name="model">pallet.series.audit</field>
+        <field name="arch" type="xml">
+            <form string="Pallet Series Audit" create="false" edit="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="picking_name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="picking_id"/>
+                            <field name="partner_id"/>
+                        </group>
+                        <group>
+                            <field name="picking_state" widget="badge"/>
+                            <field name="event_count"/>
+                            <field name="unique_series_count"/>
+                            <field name="last_event_date"/>
+                        </group>
+                    </group>
+
+                    <div class="d-flex align-items-center gap-2 mb-3 mt-2">
+                        <h3 class="mb-0">Event Log</h3>
+                        <button name="action_view_timeline" type="object"
+                                string="Open Visual Timeline"
+                                class="btn btn-primary"
+                                icon="fa-th-large"/>
+                    </div>
+                    <field name="line_ids" nolabel="1">
+                        <tree create="false" edit="false" default_order="event_date asc, id asc"
+                              decoration-success="event_type in ('assigned','pulled_from_pool','generated_new')"
+                              decoration-danger="event_type in ('cleared','line_deleted')"
+                              decoration-info="event_type in ('synced','restored','reassigned','recycled')"
+                              decoration-warning="event_type in ('pushed_to_pool','pallet_assigned')">
+                            <field name="event_date" string="When" width="140px"/>
+                            <field name="line_number" string="#" width="40px"/>
+                            <field name="pallet_series_id" string="Series"/>
+                            <field name="event_type" string="Event"/>
+                            <field name="source"/>
+                            <field name="previous_series"/>
+                            <field name="new_series"/>
+                            <field name="result_package_name" string="Pallet"/>
+                            <field name="pool_delta" string="Pool"/>
+                            <field name="user_id" string="By" widget="many2one_avatar_user"/>
+                            <field name="notes" optional="show"/>
+                        </tree>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Actions                                                       -->
+    <!-- ============================================================ -->
+    <record id="action_pallet_series_audit" model="ir.actions.act_window">
+        <field name="name">Pallet Series Audits</field>
+        <field name="res_model">pallet.series.audit</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_pallet_series_audit_search"/>
+        <field name="context">{}</field>
+    </record>
+
+    <!-- Kanban action for visual timeline of a single audit record -->
+    <record id="action_pallet_series_audit_line_kanban" model="ir.actions.act_window">
+        <field name="name">Visual Timeline</field>
+        <field name="res_model">pallet.series.audit.line</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_pallet_series_audit_line_search"/>
+        <field name="context">{}</field>
+    </record>
+
+    <record id="action_pallet_series_audit_all_events" model="ir.actions.act_window">
+        <field name="name">Trace Pallet Series</field>
+        <field name="res_model">pallet.series.audit.line</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_pallet_series_audit_line_search"/>
+        <field name="context">{}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No pallet series events found.
+            </p>
+            <p>
+                Use the search bar to look up a specific pallet series ID
+                (e.g. <b>BGZ-000042</b>) and see its full lifecycle across all RR transfers.
+            </p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Menu Items                                                    -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_pallet_audit_root"
+              name="Pallet Audit"
+              parent="stock.menu_stock_warehouse_mgmt"
+              groups="pallet_series_audit.group_pallet_audit"
+              sequence="99"/>
+
+    <menuitem id="menu_pallet_audit_list"
+              name="Audit Records"
+              parent="menu_pallet_audit_root"
+              action="action_pallet_series_audit"
+              sequence="10"/>
+
+    <menuitem id="menu_pallet_audit_trace"
+              name="Trace Series"
+              parent="menu_pallet_audit_root"
+              action="action_pallet_series_audit_all_events"
+              sequence="20"/>
+
+</odoo>

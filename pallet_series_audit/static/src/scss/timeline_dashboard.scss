@@ -1,0 +1,387 @@
+/* ================================================================== */
+/*  Pallet Series Audit – Visual Timeline Dashboard                   */
+/* ================================================================== */
+
+.psa-timeline-dashboard {
+    background: #f8f9fa;
+    padding: 16px 24px;
+
+    // Make the main area a flex column so the event list fills remaining space
+    .psa-main {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 46px);
+    }
+
+    .psa-events-scroll {
+        flex: 1 1 0;
+        overflow-y: auto;
+        min-height: 0;
+    }
+}
+
+/* ---------- Loading / empty ---------- */
+.psa-loading,
+.psa-empty,
+.psa-empty-filtered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 60px 0;
+    color: #6c757d;
+    font-size: 16px;
+}
+
+/* ======================== HEADER ======================== */
+.psa-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 16px 20px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.psa-header-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.psa-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #343a40;
+}
+.psa-header-stats {
+    display: flex;
+    gap: 24px;
+}
+.psa-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.psa-stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #495057;
+}
+.psa-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #868e96;
+    letter-spacing: .5px;
+}
+
+/* ================ QUICK STATS BAR ================ */
+.psa-quick-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 16px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.psa-quick-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .1s, box-shadow .15s;
+}
+.psa-quick-badge:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+}
+.psa-quick-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    background: rgba(255,255,255,.3);
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+.psa-quick-clear {
+    background: #6c757d !important;
+    color: #fff !important;
+}
+
+/* ======================== TOOLBAR ======================== */
+.psa-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.psa-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.psa-toolbar-right {
+    display: flex;
+    align-items: center;
+}
+.psa-filter-select { width: 170px !important; }
+.psa-search-box    { width: 280px !important; }
+
+/* ======================== LEGEND ======================== */
+.psa-legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: #6c757d;
+}
+.psa-legend-item i {
+    color: var(--dot-color);
+    margin-right: 4px;
+    font-size: 10px;
+}
+.psa-legend-tz {
+    margin-left: auto;
+    font-size: 11px;
+    color: #adb5bd;
+    font-style: italic;
+}
+
+/* ================ ACTIVE FILTER BAR ================ */
+.psa-active-filter {
+    padding: 6px 14px;
+    margin-bottom: 10px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #664d03;
+}
+
+/* ======================================================== */
+/*  TIMELINE VIEW                                           */
+/* ======================================================== */
+.psa-timeline {
+    position: relative;
+    padding-left: 0;
+}
+
+.psa-tl-row {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 0;
+    min-height: 80px;
+}
+
+/* Left timestamp */
+.psa-tl-time {
+    width: 130px;
+    min-width: 130px;
+    text-align: right;
+    padding-right: 16px;
+    padding-top: 10px;
+    font-family: monospace;
+}
+.psa-tl-date {
+    font-size: 12px;
+    color: #495057;
+    font-weight: 600;
+}
+.psa-tl-clock {
+    font-size: 14px;
+    color: #343a40;
+    font-weight: 700;
+}
+
+/* Centre dot column */
+.psa-tl-dot-col {
+    position: relative;
+    width: 32px;
+    min-width: 32px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 10px;
+}
+.psa-tl-line {
+    position: absolute;
+    top: 0;
+    bottom: -1px;
+    left: 50%;
+    width: 2px;
+    background: #dee2e6;
+    transform: translateX(-50%);
+}
+.psa-tl-dot {
+    position: relative;
+    z-index: 1;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 3px #fff, 0 0 0 5px #dee2e6;
+}
+
+/* Right card */
+.psa-tl-card {
+    flex: 1;
+    background: #fff;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-left: 16px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    transition: box-shadow .15s;
+}
+.psa-tl-card:hover {
+    box-shadow: 0 3px 10px rgba(0,0,0,.12);
+}
+.psa-tl-card-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+.psa-tl-card-body { font-size: 14px; }
+.psa-tl-series {
+    font-size: 15px;
+    margin-bottom: 4px;
+}
+.psa-tl-details {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 2px;
+}
+.psa-tl-notes {
+    font-size: 12px;
+    color: #6c757d;
+    margin-top: 4px;
+    max-height: 60px;
+    overflow: hidden;
+}
+
+/* First & last row: hide line overflow */
+.psa-tl-row:first-child .psa-tl-line { top: 16px; }
+.psa-tl-row:last-child  .psa-tl-line { bottom: calc(100% - 32px); }
+
+/* ======================================================== */
+/*  GROUPED VIEW (series / line / pallet)                   */
+/* ======================================================== */
+.psa-grouped {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.psa-group-card {
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.psa-group-header {
+    padding: 10px 16px;
+    background: #e9ecef;
+    font-size: 15px;
+    border-bottom: 1px solid #dee2e6;
+}
+.psa-group-toggle {
+    cursor: pointer;
+    user-select: none;
+    transition: background .1s;
+}
+.psa-group-toggle:hover {
+    background: #dee2e6;
+}
+.psa-group-events {
+    padding: 4px 0;
+}
+
+.psa-mini-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px;
+    font-size: 13px;
+    transition: background .1s;
+}
+.psa-mini-row:hover { background: #f8f9fa; }
+
+.psa-mini-badge {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 11px;
+}
+.psa-mini-label {
+    width: 120px;
+    min-width: 120px;
+    font-weight: 600;
+}
+.psa-mini-arrow {
+    flex: 1;
+    font-family: monospace;
+    font-size: 13px;
+    color: #495057;
+}
+.psa-mini-series {
+    width: 120px;
+    min-width: 120px;
+    font-family: monospace;
+    font-size: 13px;
+    color: #495057;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.psa-mini-pallet {
+    color: #6c757d;
+    font-size: 12px;
+}
+.psa-mini-time {
+    width: 150px;
+    min-width: 150px;
+    text-align: right;
+    color: #868e96;
+    font-family: monospace;
+    font-size: 12px;
+}
+.psa-mini-user {
+    width: 100px;
+    min-width: 100px;
+    text-align: right;
+    color: #6c757d;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

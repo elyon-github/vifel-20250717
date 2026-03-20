@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Smart Button + SA 347 context on stock.picking form           -->
+    <!-- ============================================================ -->
+    <record id="view_picking_form_pallet_audit" model="ir.ui.view">
+        <field name="name">stock.picking.form.pallet.audit</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+
+            <!-- Smart button: Pallet Audit -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_pallet_audit"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-history"
+                        groups="pallet_series_audit.group_pallet_audit"
+                        invisible="picking_type_code != 'incoming'">
+                    <field name="pallet_audit_count" widget="statinfo" string="Pallet Audit"/>
+                </button>
+            </xpath>
+
+            <!-- Inject audit context into the Assign Pallet Series button (SA 347) -->
+            <xpath expr="//button[@name='347']" position="attributes">
+                <attribute name="context">{'audit_source': 'server_action', 'audit_picking_id': id}</attribute>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

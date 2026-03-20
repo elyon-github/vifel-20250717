@@ -161,8 +161,8 @@ class ReturnPackageWizard(models.TransientModel):
                         package_occupying_owners = (move_line.package_id.quant_ids.mapped('x_studio_pallet_series_id') if move_line.package_id else [])
                         if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
                             location_dest_id = move_line.location_id.id
-                    if (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners) or not move_line.package_id.location_id.id: 
-                        pallet_result_id = move_line.package_id.id
+                        if location_dest_id and (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners):
+                            pallet_result_id = move_line.package_id.id
                     if self.return_reason != 'Partial Withdraw':
 
                                 

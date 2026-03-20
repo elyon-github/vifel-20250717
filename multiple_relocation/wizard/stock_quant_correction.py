@@ -855,6 +855,9 @@ class StockQuantAdjustmentRequest(models.Model):
         if not self.approved_by:
             self.write({'approved_by': self.env.user.id, 'approved_date': fields.Datetime.now()})
         
+        # Mark approval activities as done
+        self._mark_approval_activities_done()
+        
         # return {
         #     'type': 'ir.actions.client',
         #     'tag': 'display_notification',
@@ -916,6 +919,8 @@ class StockQuantAdjustmentRequest(models.Model):
                 'approved_date': fields.Datetime.now()
             })
 
+        # Mark approval activities as done
+        self._mark_approval_activities_done()
         
         # return {
         #     'type': 'ir.actions.client',
@@ -981,6 +986,15 @@ class StockQuantAdjustmentRequest(models.Model):
                     self.name, self.requested_by.name, self.reason_for_adjustment, self.line_count
                 )
             )
+
+    def _mark_approval_activities_done(self):
+        """Mark all pending approval activities as done."""
+        activities = self.env['mail.activity'].search([
+            ('res_model', '=', self._name),
+            ('res_id', '=', self.id),
+        ])
+        if activities:
+            activities.action_done()
 
     def action_print_move_lines(self):
         """Print the Product Moves report for all done stock.move.line records matching this request's batch number."""
