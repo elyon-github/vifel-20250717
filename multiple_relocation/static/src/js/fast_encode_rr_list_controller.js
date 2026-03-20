@@ -148,7 +148,7 @@ export class FastEncodeRRListController extends ListController {
             }
             html += "</ul>";
             const newSeries = resyncLines[0].newSeries;
-            html += `<p style='margin:8px 0;'>All lines will be assigned to series <strong style='color:#5cb85c;'>${esc(newSeries)}</strong>.</p>`;
+            html += `<p style='margin:8px 0;'>Current lines will be assigned to series <strong style='color:#5cb85c;'>${esc(newSeries)}</strong>.</p>`;
             html += "<p style='color:#666;font-size:0.95em;'><em>\uD83D\uDCA1 If you clear the pallet or revert this line to a unique pallet later, the original series will be restored.</em></p>";
             if (resyncLines.length > 1) {
                 html += `<p style='margin-top:12px;'><strong>${resyncLines.length} lines</strong> will be affected by this change.</p>`;
