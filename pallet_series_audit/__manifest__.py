@@ -15,6 +15,7 @@
     'data': [
         'security/security.xml',
         'security/ir.model.access.csv',
+        'data/cron.xml',
         'views/audit_views.xml',
         'views/stock_picking_views.xml',
     ],

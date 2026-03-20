@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from odoo import models, fields, api
+from datetime import timedelta
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -94,6 +95,29 @@ class PalletSeriesAudit(models.Model):
             },
             'target': 'current',
         }
+
+    # ------------------------------------------------------------------
+    # Scheduled Cleanup
+    # ------------------------------------------------------------------
+    @api.model
+    def _cron_cleanup_old_audits(self, months=3):
+        """Delete audit records older than `months` months.
+
+        Called by the ir.cron scheduled action.  Deleting the header
+        cascades to all related audit lines automatically.
+        """
+        cutoff = fields.Datetime.now() - timedelta(days=months * 30)
+        old_audits = self.search([
+            ('last_event_date', '!=', False),
+            ('last_event_date', '<', cutoff),
+        ])
+        if old_audits:
+            count = len(old_audits)
+            old_audits.unlink()
+            _logger.info(
+                "Pallet Series Audit cleanup: removed %d audit records older than %s.",
+                count, cutoff,
+            )
 
     # ------------------------------------------------------------------
     # Central logging API
