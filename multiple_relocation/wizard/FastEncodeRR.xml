@@ -28,7 +28,7 @@
                 <field name="pending_resync_new_series" column_invisible="1"/>
                 <field name="pending_resync_type" column_invisible="1"/>
                 <field name="wizard_id" column_invisible="1"/>
-                <field name="is_pallet_series_winner" column_invisible="1"/>
+                <field name="is_pallet_series_winner" readonly="1"/>
                 <field name="x_studio_" string="#" readonly="1"/>
                 <field name="product_id"/>
                 <field name="original_pallet_series_id" readonly="1" groups="base.group_erp_manager"/>
