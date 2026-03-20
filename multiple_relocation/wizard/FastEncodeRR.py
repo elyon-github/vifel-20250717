@@ -1,4 +1,4 @@
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 import logging
 
@@ -346,6 +346,12 @@ class FastEncodeRRWizardLine(models.TransientModel):
     # Flag: if True, this line needs a NEW pallet series pulled from pool/counter at confirm time.
     # Displayed with green text in the wizard to indicate a pending new assignment.
     needs_new_pallet_series = fields.Boolean(string='Needs New Pallet Series', default=False)
+
+    # Pending re-sync: stores the pallet the user tried to select that would cause a re-sync.
+    # The JS confirmation dialog reads this to ask the user before applying.
+    pending_resync_pallet_id = fields.Many2one('stock.quant.package', string='Pending Resync Pallet')
+    pending_resync_old_series = fields.Char(string='Pending Resync Old Series')
+    pending_resync_new_series = fields.Char(string='Pending Resync New Series')
     
     has_duplicate_pallet = fields.Boolean(
         string='Has Duplicate Pallet',
@@ -544,11 +550,13 @@ class FastEncodeRRWizardLine(models.TransientModel):
             }
         
         # No sibling found in wizard - check actual stock.move.line records
+        # Exclude ALL wizard lines' ML IDs — wizard state takes priority over DB
+        all_wizard_ml_ids = self.wizard_id.line_ids.mapped('stock_move_line')
         existing_move_line = self.env['stock.move.line'].search([
             ('picking_id', '=', self.transfer_id),
             ('result_package_id', '=', result_package_id),
             ('x_studio_pallet_series_id', '!=', False),
-            ('id', '!=', self.stock_move_line),
+            ('id', 'not in', all_wizard_ml_ids),
         ], limit=1)
         
         if existing_move_line:
@@ -572,6 +580,9 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 series, needs_new = record._resolve_series_for_unique_line()
                 record.pallet_series_id = series
                 record.needs_new_pallet_series = needs_new
+                record.pending_resync_pallet_id = False
+                record.pending_resync_old_series = False
+                record.pending_resync_new_series = False
                 
                 # Restore original location (skip if current is an aisle and original has children)
                 if record.original_location_dest_id:
@@ -581,24 +592,82 @@ class FastEncodeRRWizardLine(models.TransientModel):
             
             sync_vals = record._sync_pallet_series_and_location(record.result_package_id.id)
             if sync_vals:
-                # Found match (existing move line or sibling)
-                record.pallet_series_id = sync_vals['pallet_series_id']
-                record.needs_new_pallet_series = False
-                record.location_dest_id = sync_vals['location_dest_id']
+                old_series = record.pallet_series_id
+                new_series = sync_vals['pallet_series_id']
+                # If series will change (recycled), defer to JS confirmation
+                if old_series and new_series and old_series != new_series:
+                    pending_pallet = record.result_package_id
+                    # Revert pallet selection — don't apply yet
+                    record.result_package_id = record._origin.result_package_id if record._origin else False
+                    record.pending_resync_pallet_id = pending_pallet
+                    record.pending_resync_old_series = old_series
+                    record.pending_resync_new_series = new_series
+                else:
+                    # Same series or no old series — apply directly
+                    record.pallet_series_id = new_series
+                    record.needs_new_pallet_series = False
+                    record.location_dest_id = sync_vals['location_dest_id']
+                    record.pending_resync_pallet_id = False
+                    record.pending_resync_old_series = False
+                    record.pending_resync_new_series = False
             else:
                 # No match anywhere — this pallet is unique
                 # Try to restore original, or flag for NEW
                 series, needs_new = record._resolve_series_for_unique_line()
                 record.pallet_series_id = series
                 record.needs_new_pallet_series = needs_new
+                record.pending_resync_pallet_id = False
+                record.pending_resync_old_series = False
+                record.pending_resync_new_series = False
                 
                 # Restore original location (skip if current is an aisle and original has children)
                 if record.original_location_dest_id:
                     if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
                         record.location_dest_id = record.original_location_dest_id
 
+    def action_apply_resync(self, pallet_id):
+        """Called from JS when user confirms the re-sync dialog.
+        
+        Args:
+            pallet_id: ID of the pallet to apply (passed from JS since
+                       onchange values aren't persisted to DB).
+        """
+        self.ensure_one()
+        if not pallet_id:
+            return
+        # First set the pallet so sibling detection works
+        super(FastEncodeRRWizardLine, self).write({
+            'result_package_id': pallet_id,
+            'pending_resync_pallet_id': False,
+            'pending_resync_old_series': False,
+            'pending_resync_new_series': False,
+        })
+        # Now sync series and location from sibling/existing line
+        sync_vals = self._sync_pallet_series_and_location(pallet_id)
+        if sync_vals:
+            sync_vals['needs_new_pallet_series'] = False
+            super(FastEncodeRRWizardLine, self).write(sync_vals)
+
+    def action_cancel_resync(self):
+        """Called from JS when user declines the re-sync dialog."""
+        for record in self:
+            super(FastEncodeRRWizardLine, record).write({
+                'pending_resync_pallet_id': False,
+                'pending_resync_old_series': False,
+                'pending_resync_new_series': False,
+            })
+
     def write(self, vals):
         """Override write to handle multi-edit sync (onchange is bypassed during multi-edit)."""
+        # Capture old pallet/series before super changes them
+        old_vals_by_id = {}
+        if 'result_package_id' in vals:
+            for record in self:
+                old_vals_by_id[record.id] = {
+                    'result_package_id': record.result_package_id.id if record.result_package_id else False,
+                    'pallet_series_id': record.pallet_series_id,
+                }
+
         res = super().write(vals)
         
         if 'result_package_id' in vals:
@@ -627,75 +696,102 @@ class FastEncodeRRWizardLine(models.TransientModel):
                 any_record = self[0]
                 
                 # 1. Check for existing move line (outside wizard) already using this pallet
+                # Exclude ALL wizard lines' ML IDs — wizard state takes priority over DB
+                all_wizard_ml_ids = any_record.wizard_id.line_ids.mapped('stock_move_line')
                 existing_move_line = self.env['stock.move.line'].search([
                     ('picking_id', '=', any_record.transfer_id),
                     ('result_package_id', '=', new_pallet_id),
                     ('x_studio_pallet_series_id', '!=', False),
-                    ('id', 'not in', self.mapped('stock_move_line')),
+                    ('id', 'not in', all_wizard_ml_ids),
                 ], limit=1)
-                
+
+                # Determine sync series from existing move line or sibling
+                sync_series = None
+                sync_location = None
                 if existing_move_line:
-                    sync_vals = {
-                        'pallet_series_id': existing_move_line.x_studio_pallet_series_id,
-                        'needs_new_pallet_series': False,
-                        'location_dest_id': existing_move_line.location_dest_id.id if existing_move_line.location_dest_id else False,
-                    }
-                    for record in self:
-                        super(FastEncodeRRWizardLine, record).write(sync_vals)
+                    sync_series = existing_move_line.x_studio_pallet_series_id
+                    sync_location = existing_move_line.location_dest_id.id if existing_move_line.location_dest_id else False
                 else:
-                    # 2. Check for sibling wizard line (not in self) already using this pallet
                     sibling = any_record.wizard_id.line_ids.filtered(
                         lambda l: l.result_package_id.id == new_pallet_id
                                   and l.id not in self.ids
                                   and l.pallet_series_id
                     )
                     if sibling:
-                        source = sibling[0]
+                        sync_series = sibling[0].pallet_series_id
+                        sync_location = sibling[0].location_dest_id.id if sibling[0].location_dest_id else False
+
+                if sync_series:
+                    # Check if any line would have its series changed (re-sync)
+                    needs_confirm = any(
+                        old_vals_by_id.get(r.id, {}).get('pallet_series_id')
+                        and old_vals_by_id[r.id]['pallet_series_id'] != sync_series
+                        for r in self
+                    )
+                    if needs_confirm:
+                        # Defer to JS confirmation — revert all lines
+                        first_old = old_vals_by_id.get(self[0].id, {}).get('pallet_series_id', '?')
+                        for record in self:
+                            old = old_vals_by_id.get(record.id, {})
+                            super(FastEncodeRRWizardLine, record).write({
+                                'result_package_id': old.get('result_package_id', False),
+                                'pending_resync_pallet_id': new_pallet_id,
+                                'pending_resync_old_series': old.get('pallet_series_id', '?'),
+                                'pending_resync_new_series': sync_series,
+                            })
+                    else:
                         sync_vals = {
-                            'pallet_series_id': source.pallet_series_id,
+                            'pallet_series_id': sync_series,
                             'needs_new_pallet_series': False,
-                            'location_dest_id': source.location_dest_id.id if source.location_dest_id else False,
+                            'location_dest_id': sync_location,
                         }
                         for record in self:
                             super(FastEncodeRRWizardLine, record).write(sync_vals)
-                    else:
-                        # 3. No external match — pick the lowest original_pallet_series_id as winner
-                        sorted_lines = sorted(self, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
-                        winner = sorted_lines[0]
-                        
-                        # Check if winner's original is available
-                        series, needs_new = winner._resolve_series_for_unique_line()
-                        
-                        # Use ORIGINAL values (not current) — current may have been overwritten by previous grouping
-                        winning_vals = {
-                            'pallet_series_id': series,
-                            'needs_new_pallet_series': needs_new,
-                        }
-                        # Write to ALL lines including the winner (winner needs series/needs_new updated too)
-                        for record in self:
-                            record_vals = dict(winning_vals)
-                            # Skip location restore if current is an aisle and winner's original has children
-                            if winner.original_location_dest_id:
-                                if not (record.location_dest_id.x_studio_is_an_aisle and winner.original_location_dest_id.child_ids):
-                                    record_vals['location_dest_id'] = winner.original_location_dest_id.id
-                            super(FastEncodeRRWizardLine, record).write(record_vals)
+                else:
+                    # No external match — pick the lowest original_pallet_series_id as winner
+                    sorted_lines = sorted(self, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+                    winner = sorted_lines[0]
+                    
+                    series, needs_new = winner._resolve_series_for_unique_line()
+                    
+                    winning_vals = {
+                        'pallet_series_id': series,
+                        'needs_new_pallet_series': needs_new,
+                    }
+                    for record in self:
+                        record_vals = dict(winning_vals)
+                        if winner.original_location_dest_id:
+                            if not (record.location_dest_id.x_studio_is_an_aisle and winner.original_location_dest_id.child_ids):
+                                record_vals['location_dest_id'] = winner.original_location_dest_id.id
+                        super(FastEncodeRRWizardLine, record).write(record_vals)
             
             else:
-                # Single edit — existing logic with restoration enhancement
+                # Single edit — check for re-sync scenario
                 for record in self:
+                    old = old_vals_by_id.get(record.id, {})
                     sync_vals = record._sync_pallet_series_and_location(new_pallet_id)
                     if sync_vals:
-                        sync_vals['needs_new_pallet_series'] = False
-                        super(FastEncodeRRWizardLine, record).write(sync_vals)
+                        old_series = old.get('pallet_series_id', '')
+                        new_series = sync_vals.get('pallet_series_id')
+                        old_pallet = old.get('result_package_id', False)
+                        if old_series and new_series and old_series != new_series:
+                            # Re-sync detected — defer to JS confirmation
+                            super(FastEncodeRRWizardLine, record).write({
+                                'result_package_id': old_pallet,
+                                'pending_resync_pallet_id': new_pallet_id,
+                                'pending_resync_old_series': old_series,
+                                'pending_resync_new_series': new_series,
+                            })
+                        else:
+                            sync_vals['needs_new_pallet_series'] = False
+                            super(FastEncodeRRWizardLine, record).write(sync_vals)
                     else:
                         # No match — this pallet is unique
-                        # Try to restore original, or flag for NEW
                         series, needs_new = record._resolve_series_for_unique_line()
                         update_vals = {
                             'pallet_series_id': series,
                             'needs_new_pallet_series': needs_new,
                         }
-                        # Skip restore if current is an aisle and original has children
                         if record.original_location_dest_id:
                             if not (record.location_dest_id.x_studio_is_an_aisle and record.original_location_dest_id.child_ids):
                                 update_vals['location_dest_id'] = record.original_location_dest_id.id

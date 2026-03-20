@@ -4,7 +4,7 @@ import { registry } from '@web/core/registry';
 import { listView } from '@web/views/list/list_view';
 import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
-import { onMounted, onWillUnmount } from "@odoo/owl";
+import { onMounted, onWillUnmount, markup } from "@odoo/owl";
 
 export class FastEncodeRRListController extends ListController {
     setup() {
@@ -17,6 +17,7 @@ export class FastEncodeRRListController extends ListController {
         // Close-confirmation state
         this._isClosing = false;
         this._confirmOpen = false;
+        this._resyncDialogOpen = false;
 
         // Bind handlers once so we can remove them later
         this._boundKeyDown = this._onKeyDown.bind(this);
@@ -28,6 +29,9 @@ export class FastEncodeRRListController extends ListController {
 
             // Find the parent dialog's X/close button and intercept it
             this._attachCloseBtnListener();
+
+            // Poll for pending resync flags on records
+            this._resyncInterval = setInterval(() => this._checkPendingResync(), 500);
         });
 
         onWillUnmount(() => {
@@ -35,6 +39,82 @@ export class FastEncodeRRListController extends ListController {
             if (this._closeBtn) {
                 this._closeBtn.removeEventListener("click", this._boundCloseClick, true);
             }
+            if (this._resyncInterval) {
+                clearInterval(this._resyncInterval);
+            }
+        });
+    }
+
+    /**
+     * Check if any record has a pending_resync_pallet_id set and show confirmation.
+     */
+    _checkPendingResync() {
+        if (this._resyncDialogOpen || this._confirmOpen) return;
+        const records = this.model.root.records || [];
+        const pendingLines = [];
+        for (const rec of records) {
+            const pendingPallet = rec.data.pending_resync_pallet_id;
+            if (pendingPallet && pendingPallet[0]) {
+                pendingLines.push({
+                    lineId: rec.resId,
+                    palletId: pendingPallet[0],
+                    oldSeries: rec.data.pending_resync_old_series || "?",
+                    newSeries: rec.data.pending_resync_new_series || "?",
+                });
+            }
+        }
+        if (pendingLines.length === 0) return;
+        this._resyncDialogOpen = true;
+
+        // Build a rich HTML body listing all affected lines
+        const esc = (s) => {
+            const d = document.createElement("div");
+            d.textContent = s;
+            return d.innerHTML;
+        };
+        let html = "<p><strong>This pallet is already in use.</strong> The following pallet series will be recycled back to the pool and can be used for future pallets:</p>";
+        html += "<ul style='margin:8px 0;padding-left:20px;color:#666;'>";
+        for (const line of pendingLines) {
+            html += `<li><strong style='color:#d9534f;'>${esc(line.oldSeries)}</strong> will be recycled (originally assigned to this line)</li>`;
+        }
+        html += "</ul>";
+        const newSeries = pendingLines[0].newSeries;
+        html += `<p style='margin:8px 0;'>All lines will be assigned to series <strong style='color:#5cb85c;'>${esc(newSeries)}</strong>.</p>`;
+        html += "<p style='color:#666;font-size:0.95em;'><em>💡 If you clear the pallet or revert this line to a unique pallet later, the original series will be restored.</em></p>";
+        if (pendingLines.length > 1) {
+            html += `<p style='margin-top:12px;'><strong>${pendingLines.length} lines</strong> will be affected by this change.</p>`;
+        }
+
+        this.dialogService.add(ConfirmationDialog, {
+            title: "Pallet Series Will Be Re-Synced",
+            body: markup(html),
+            confirmLabel: "Yes, Re-Sync",
+            cancelLabel: "No, Cancel",
+            confirm: async () => {
+                for (const { lineId, palletId } of pendingLines) {
+                    await this.orm.call(
+                        "stock.move.line.fast_encode_rr.line",
+                        "action_apply_resync",
+                        [[lineId], palletId]
+                    );
+                }
+                await this.model.root.load();
+                this.render(true);
+            },
+            cancel: async () => {
+                const lineIds = pendingLines.map(p => p.lineId);
+                await this.orm.call(
+                    "stock.move.line.fast_encode_rr.line",
+                    "action_cancel_resync",
+                    [lineIds]
+                );
+                await this.model.root.load();
+                this.render(true);
+            },
+        }, {
+            onClose: () => {
+                this._resyncDialogOpen = false;
+            },
         });
     }
 
