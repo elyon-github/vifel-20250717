@@ -313,6 +313,7 @@ class FastEncodeRRWizardLine(models.TransientModel):
     wizard_id = fields.Many2one('stock.move.line.fast_encode_rr', string="Wizard", ondelete='cascade')
     transfer_id = fields.Integer(string="Transfer ID", related='wizard_id.transfer_id', store=True)
     stock_move_line = fields.Integer(string="Move Line ID")
+    x_studio_ = fields.Integer(string="#", readonly=True, group_operator=False)
     
     product_id = fields.Many2one('product.product', string="Products", readonly="1")
     pallet_series_id = fields.Char(string='Pallet Series ID', readonly="1")

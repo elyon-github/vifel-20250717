@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_pallet_series_audit_group,pallet.series.audit.group,model_pallet_series_audit,pallet_series_audit.group_pallet_audit,1,0,0,0
+access_pallet_series_audit_line_group,pallet.series.audit.line.group,model_pallet_series_audit_line,pallet_series_audit.group_pallet_audit,1,0,0,0
+access_pallet_series_audit_manager,pallet.series.audit.manager,model_pallet_series_audit,stock.group_stock_manager,1,1,1,1
+access_pallet_series_audit_line_manager,pallet.series.audit.line.manager,model_pallet_series_audit_line,stock.group_stock_manager,1,1,1,1

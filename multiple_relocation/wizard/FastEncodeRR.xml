@@ -23,6 +23,7 @@
                 <field name="has_duplicate_pallet" column_invisible="1"/>
                 <field name="needs_new_pallet_series" column_invisible="1"/>
                 <field name="transfer_id" column_invisible="1"/>
+                <field name="x_studio_" string="#" readonly="1"/>
                 <field name="product_id"/>
                 <field name="original_pallet_series_id" readonly="1" groups="base.group_erp_manager"/>
                 <field name="needs_new_pallet_series" readonly="1" groups="base.group_erp_manager"/>
@@ -66,6 +67,7 @@
                         <field name="line_ids" nolabel="1" mode="tree,kanban">
                             <tree editable="bottom" limit="80">
                                 <field name="needs_new_pallet_series" column_invisible="1"/>
+                                <field name="x_studio_" string="#" readonly="1"/>
                                 <field name="product_id"/>
                                 <field name="original_pallet_series_id" readonly="1"/>
                                 <field name="pallet_series_id" decoration-success="needs_new_pallet_series"/>

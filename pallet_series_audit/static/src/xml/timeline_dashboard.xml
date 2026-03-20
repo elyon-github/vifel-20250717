@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+
+<t t-name="pallet_series_audit.TimelineDashboard">
+    <div class="psa-timeline-dashboard o_action">
+
+        <!-- ======== LOADING ======== -->
+        <div t-if="state.loading" class="psa-loading">
+            <i class="fa fa-spinner fa-spin fa-3x"/> Loading timeline…
+        </div>
+
+        <!-- ======== NO DATA ======== -->
+        <div t-elif="!state.auditId" class="psa-empty">
+            <i class="fa fa-ban fa-3x text-muted"/>
+            <p>No audit record selected.</p>
+        </div>
+
+        <!-- ======== MAIN ======== -->
+        <div t-else="" class="psa-main">
+
+            <!-- HEADER BAR -->
+            <div class="psa-header">
+                <div class="psa-header-left">
+                    <button class="btn btn-sm btn-secondary me-3" t-on-click="goBack">
+                        <i class="fa fa-arrow-left"/> Back to Form
+                    </button>
+                    <h2 class="psa-title">
+                        <i class="fa fa-history me-2"/>
+                        <t t-esc="state.pickingName"/>
+                    </h2>
+                    <span class="badge text-bg-secondary ms-2" t-if="state.partnerName">
+                        <i class="fa fa-user me-1"/><t t-esc="state.partnerName"/>
+                    </span>
+                    <span t-attf-class="badge ms-2 #{state.pickingState === 'done' ? 'text-bg-success' : state.pickingState === 'assigned' ? 'text-bg-info' : 'text-bg-warning'}">
+                        <t t-esc="state.pickingState"/>
+                    </span>
+                </div>
+                <div class="psa-header-stats">
+                    <div class="psa-stat">
+                        <span class="psa-stat-value"><t t-esc="state.eventCount"/></span>
+                        <span class="psa-stat-label">Events</span>
+                    </div>
+                    <div class="psa-stat">
+                        <span class="psa-stat-value"><t t-esc="state.uniqueSeries"/></span>
+                        <span class="psa-stat-label">Series</span>
+                    </div>
+                    <div class="psa-stat">
+                        <span class="psa-stat-value"><t t-esc="summaryStats.palletCount"/></span>
+                        <span class="psa-stat-label">Pallets</span>
+                    </div>
+                    <div class="psa-stat">
+                        <span class="psa-stat-value"><t t-esc="summaryStats.lineCount"/></span>
+                        <span class="psa-stat-label">Lines</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- QUICK STATS BAR: clickable event type badges -->
+            <div class="psa-quick-stats">
+                <t t-foreach="Object.entries(summaryStats.byType)" t-as="entry" t-key="entry[0]">
+                    <button class="psa-quick-badge" t-attf-style="background:#{eventMeta(entry[0]).bg};color:#{eventMeta(entry[0]).fg}"
+                            t-on-click="() => this.quickFilter(entry[0])">
+                        <i t-attf-class="fa #{eventMeta(entry[0]).icon} me-1"/>
+                        <t t-esc="eventMeta(entry[0]).label"/>
+                        <span class="psa-quick-count"><t t-esc="entry[1]"/></span>
+                    </button>
+                </t>
+                <button t-if="state.filterType || state.filterSource || state.searchText"
+                        class="psa-quick-badge psa-quick-clear" t-on-click="clearFilters">
+                    <i class="fa fa-times me-1"/> Clear Filters
+                </button>
+            </div>
+
+            <!-- TOOLBAR -->
+            <div class="psa-toolbar">
+                <div class="psa-toolbar-left">
+                    <!-- Group mode buttons -->
+                    <div class="btn-group btn-group-sm me-3">
+                        <button t-attf-class="btn #{state.groupMode === 'timeline' ? 'btn-primary' : 'btn-outline-primary'}"
+                                t-on-click="() => this.setGroupMode('timeline')">
+                            <i class="fa fa-clock-o me-1"/> Timeline
+                        </button>
+                        <button t-attf-class="btn #{state.groupMode === 'series' ? 'btn-primary' : 'btn-outline-primary'}"
+                                t-on-click="() => this.setGroupMode('series')">
+                            <i class="fa fa-barcode me-1"/> By Series
+                        </button>
+                        <button t-attf-class="btn #{state.groupMode === 'line' ? 'btn-primary' : 'btn-outline-primary'}"
+                                t-on-click="() => this.setGroupMode('line')">
+                            <i class="fa fa-list-ol me-1"/> By Line #
+                        </button>
+                        <button t-attf-class="btn #{state.groupMode === 'pallet' ? 'btn-primary' : 'btn-outline-primary'}"
+                                t-on-click="() => this.setGroupMode('pallet')">
+                            <i class="fa fa-cube me-1"/> By Pallet
+                        </button>
+                    </div>
+
+                    <!-- Event filter -->
+                    <select class="form-select form-select-sm psa-filter-select me-2" t-on-change="setFilterType">
+                        <option value="">All Events</option>
+                        <t t-foreach="eventTypes" t-as="et" t-key="et">
+                            <option t-att-value="et" t-att-selected="state.filterType === et">
+                                <t t-esc="eventMeta(et).label"/>
+                            </option>
+                        </t>
+                    </select>
+
+                    <!-- Source filter -->
+                    <select class="form-select form-select-sm psa-filter-select" t-on-change="setFilterSource">
+                        <option value="">All Sources</option>
+                        <t t-foreach="sourceTypes" t-as="src" t-key="src">
+                            <option t-att-value="src" t-att-selected="state.filterSource === src">
+                                <t t-esc="sourceLabel(src)"/>
+                            </option>
+                        </t>
+                    </select>
+                </div>
+                <div class="psa-toolbar-right">
+                    <div class="input-group input-group-sm psa-search-box">
+                        <span class="input-group-text"><i class="fa fa-search"/></span>
+                        <input type="text" class="form-control" placeholder="Search series, pallet, line, notes…"
+                               t-att-value="state.searchText" t-on-input="setSearchText"/>
+                        <button t-if="state.searchText || state.filterType || state.filterSource"
+                                class="btn btn-outline-secondary" t-on-click="clearFilters">
+                            <i class="fa fa-times"/>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LEGEND -->
+            <div class="psa-legend">
+                <span class="psa-legend-item" style="--dot-color:#28a745"><i class="fa fa-circle"/> Assign / Pull / Generate</span>
+                <span class="psa-legend-item" style="--dot-color:#17a2b8"><i class="fa fa-circle"/> Sync / Restore / Reassign</span>
+                <span class="psa-legend-item" style="--dot-color:#6f42c1"><i class="fa fa-circle"/> Pallet Changed</span>
+                <span class="psa-legend-item" style="--dot-color:#fd7e14"><i class="fa fa-circle"/> Push to Pool</span>
+                <span class="psa-legend-item" style="--dot-color:#dc3545"><i class="fa fa-circle"/> Clear / Delete</span>
+                <span class="psa-legend-tz">Times shown in UTC+8</span>
+            </div>
+
+            <!-- Active filter indicator -->
+            <div t-if="state.filterType || state.filterSource || state.searchText" class="psa-active-filter">
+                <i class="fa fa-filter me-1"/>
+                Showing <strong><t t-esc="filteredEvents.length"/></strong> of <t t-esc="state.events.length"/> events
+                <t t-if="state.filterType"> | Type: <strong><t t-esc="eventMeta(state.filterType).label"/></strong></t>
+                <t t-if="state.filterSource"> | Source: <strong><t t-esc="sourceLabel(state.filterSource)"/></strong></t>
+                <t t-if="state.searchText"> | Search: "<strong><t t-esc="state.searchText"/></strong>"</t>
+            </div>
+
+            <!-- ========================= -->
+            <!--  TIMELINE MODE            -->
+            <!-- ========================= -->
+            <div t-if="state.groupMode === 'timeline'" class="psa-timeline">
+                <t t-foreach="filteredEvents" t-as="ev" t-key="ev.id">
+                    <div class="psa-tl-row">
+                        <!-- Left: timestamp -->
+                        <div class="psa-tl-time">
+                            <div class="psa-tl-date"><t t-esc="formatDateOnly(ev.event_date)"/></div>
+                            <div class="psa-tl-clock"><t t-esc="formatTime(ev.event_date)"/></div>
+                        </div>
+
+                        <!-- Centre: dot + vertical line -->
+                        <div class="psa-tl-dot-col">
+                            <div class="psa-tl-line"/>
+                            <div class="psa-tl-dot" t-attf-style="background:#{eventMeta(ev.event_type).bg}">
+                                <i t-attf-class="fa #{eventMeta(ev.event_type).icon}" style="font-size:10px;color:#fff"/>
+                            </div>
+                        </div>
+
+                        <!-- Right: card -->
+                        <div class="psa-tl-card" t-attf-style="border-left: 4px solid #{eventMeta(ev.event_type).bg}">
+                            <div class="psa-tl-card-header">
+                                <span class="badge" t-attf-style="background:#{eventMeta(ev.event_type).bg};color:#{eventMeta(ev.event_type).fg}">
+                                    <i t-attf-class="fa #{eventMeta(ev.event_type).icon} me-1"/>
+                                    <t t-esc="eventMeta(ev.event_type).label"/>
+                                </span>
+                                <span class="text-muted ms-2" style="font-size:11px">
+                                    via <t t-esc="sourceLabel(ev.source)"/>
+                                </span>
+                                <span t-if="ev.user_id" class="text-muted ms-2" style="font-size:11px">
+                                    by <strong><t t-esc="ev.user_id[1]"/></strong>
+                                </span>
+                            </div>
+                            <div class="psa-tl-card-body">
+                                <div class="psa-tl-series">
+                                    <i t-att-class="ev.event_type === 'pallet_assigned' ? 'fa fa-cube text-muted me-1' : 'fa fa-barcode text-muted me-1'"/>
+                                    <strong><t t-esc="seriesArrow(ev)"/></strong>
+                                </div>
+                                <div class="psa-tl-details">
+                                    <span t-if="ev.line_number" class="badge text-bg-secondary me-1">
+                                        Line #<t t-esc="ev.line_number"/>
+                                    </span>
+                                    <span t-if="ev.result_package_name and ev.event_type !== 'pallet_assigned'" class="badge text-bg-light border me-1">
+                                        <i class="fa fa-cube me-1"/><t t-esc="ev.result_package_name"/>
+                                    </span>
+                                    <span t-if="ev.pallet_series_id and ev.event_type === 'pallet_assigned'" class="badge text-bg-light border me-1">
+                                        <i class="fa fa-barcode me-1"/>Series: <t t-esc="ev.pallet_series_id"/>
+                                    </span>
+                                    <span t-if="ev.pool_delta" class="badge text-bg-light border me-1">
+                                        <i class="fa fa-database me-1"/>Pool: <t t-esc="ev.pool_delta"/>
+                                        <t t-if="ev.pool_size_after"> (size: <t t-esc="ev.pool_size_after"/>)</t>
+                                    </span>
+                                </div>
+                                <div t-if="ev.notes" class="psa-tl-notes">
+                                    <i class="fa fa-sticky-note-o me-1 text-muted"/>
+                                    <em><t t-esc="ev.notes"/></em>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </t>
+
+                <div t-if="filteredEvents.length === 0" class="psa-empty-filtered">
+                    <i class="fa fa-filter fa-2x text-muted"/>
+                    <p>No events match your filter.</p>
+                </div>
+            </div>
+
+            <!-- ========================= -->
+            <!--  GROUPED BY SERIES        -->
+            <!-- ========================= -->
+            <div t-if="state.groupMode === 'series'" class="psa-grouped">
+                <t t-foreach="filteredSeriesKeys" t-as="serKey" t-key="serKey">
+                    <div class="psa-group-card">
+                        <div class="psa-group-header psa-group-toggle" t-on-click="() => this.toggleGroup(serKey)">
+                            <i t-attf-class="fa #{isGroupCollapsed(serKey) ? 'fa-chevron-right' : 'fa-chevron-down'} me-2"/>
+                            <i class="fa fa-barcode me-1"/>
+                            <strong><t t-esc="serKey"/></strong>
+                            <span class="badge text-bg-secondary ms-2">
+                                <t t-esc="filteredGrouped[serKey].length"/> events
+                            </span>
+                        </div>
+                        <div t-if="!isGroupCollapsed(serKey)" class="psa-group-events">
+                            <t t-foreach="filteredGrouped[serKey]" t-as="ev" t-key="ev.id">
+                                <div class="psa-mini-row" t-attf-style="border-left: 4px solid #{eventMeta(ev.event_type).bg}">
+                                    <span class="psa-mini-badge" t-attf-style="background:#{eventMeta(ev.event_type).bg};color:#fff">
+                                        <i t-attf-class="fa #{eventMeta(ev.event_type).icon}"/>
+                                    </span>
+                                    <span class="psa-mini-label"><t t-esc="eventMeta(ev.event_type).label"/></span>
+                                    <span class="psa-mini-arrow"><t t-esc="seriesArrow(ev)"/></span>
+                                    <span t-if="ev.line_number" class="badge text-bg-secondary">
+                                        #<t t-esc="ev.line_number"/>
+                                    </span>
+                                    <span t-if="ev.result_package_name" class="psa-mini-pallet">
+                                        <i class="fa fa-cube"/> <t t-esc="ev.result_package_name"/>
+                                    </span>
+                                    <span class="psa-mini-time"><t t-esc="formatDate(ev.event_date)"/></span>
+                                    <span t-if="ev.user_id" class="psa-mini-user">
+                                        <t t-esc="ev.user_id[1]"/>
+                                    </span>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+                <div t-if="filteredSeriesKeys.length === 0" class="psa-empty-filtered">
+                    <i class="fa fa-filter fa-2x text-muted"/>
+                    <p>No events match your filter.</p>
+                </div>
+            </div>
+
+            <!-- ========================= -->
+            <!--  GROUPED BY LINE #        -->
+            <!-- ========================= -->
+            <div t-if="state.groupMode === 'line'" class="psa-grouped">
+                <t t-foreach="lineKeys" t-as="lnKey" t-key="lnKey">
+                    <div class="psa-group-card">
+                        <div class="psa-group-header psa-group-toggle" t-on-click="() => this.toggleGroup(lnKey)">
+                            <i t-attf-class="fa #{isGroupCollapsed(lnKey) ? 'fa-chevron-right' : 'fa-chevron-down'} me-2"/>
+                            <i class="fa fa-list-ol me-1"/>
+                            <strong><t t-esc="lnKey"/></strong>
+                            <span class="badge text-bg-secondary ms-2">
+                                <t t-esc="groupedByLine[lnKey].length"/> events
+                            </span>
+                        </div>
+                        <div t-if="!isGroupCollapsed(lnKey)" class="psa-group-events">
+                            <t t-foreach="groupedByLine[lnKey]" t-as="ev" t-key="ev.id">
+                                <div class="psa-mini-row" t-attf-style="border-left: 4px solid #{eventMeta(ev.event_type).bg}">
+                                    <span class="psa-mini-badge" t-attf-style="background:#{eventMeta(ev.event_type).bg};color:#fff">
+                                        <i t-attf-class="fa #{eventMeta(ev.event_type).icon}"/>
+                                    </span>
+                                    <span class="psa-mini-label"><t t-esc="eventMeta(ev.event_type).label"/></span>
+                                    <span class="psa-mini-arrow"><t t-esc="seriesArrow(ev)"/></span>
+                                    <span t-if="ev.result_package_name" class="psa-mini-pallet">
+                                        <i class="fa fa-cube"/> <t t-esc="ev.result_package_name"/>
+                                    </span>
+                                    <span class="psa-mini-time"><t t-esc="formatDate(ev.event_date)"/></span>
+                                    <span t-if="ev.user_id" class="psa-mini-user">
+                                        <t t-esc="ev.user_id[1]"/>
+                                    </span>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+                <div t-if="lineKeys.length === 0" class="psa-empty-filtered">
+                    <i class="fa fa-filter fa-2x text-muted"/>
+                    <p>No events match your filter.</p>
+                </div>
+            </div>
+
+            <!-- ========================= -->
+            <!--  GROUPED BY PALLET        -->
+            <!-- ========================= -->
+            <div t-if="state.groupMode === 'pallet'" class="psa-grouped">
+                <t t-foreach="palletKeys" t-as="pkKey" t-key="pkKey">
+                    <div class="psa-group-card">
+                        <div class="psa-group-header psa-group-toggle" t-on-click="() => this.toggleGroup(pkKey)">
+                            <i t-attf-class="fa #{isGroupCollapsed(pkKey) ? 'fa-chevron-right' : 'fa-chevron-down'} me-2"/>
+                            <i class="fa fa-cube me-1"/>
+                            <strong><t t-esc="pkKey"/></strong>
+                            <span class="badge text-bg-secondary ms-2">
+                                <t t-esc="groupedByPallet[pkKey].length"/> events
+                            </span>
+                        </div>
+                        <div t-if="!isGroupCollapsed(pkKey)" class="psa-group-events">
+                            <t t-foreach="groupedByPallet[pkKey]" t-as="ev" t-key="ev.id">
+                                <div class="psa-mini-row" t-attf-style="border-left: 4px solid #{eventMeta(ev.event_type).bg}">
+                                    <span class="psa-mini-badge" t-attf-style="background:#{eventMeta(ev.event_type).bg};color:#fff">
+                                        <i t-attf-class="fa #{eventMeta(ev.event_type).icon}"/>
+                                    </span>
+                                    <span class="psa-mini-label"><t t-esc="eventMeta(ev.event_type).label"/></span>
+                                    <span class="psa-mini-series"><t t-esc="ev.pallet_series_id || '-'"/></span>
+                                    <span class="psa-mini-arrow"><t t-esc="seriesArrow(ev)"/></span>
+                                    <span t-if="ev.line_number" class="badge text-bg-secondary">
+                                        #<t t-esc="ev.line_number"/>
+                                    </span>
+                                    <span class="psa-mini-time"><t t-esc="formatDate(ev.event_date)"/></span>
+                                    <span t-if="ev.user_id" class="psa-mini-user">
+                                        <t t-esc="ev.user_id[1]"/>
+                                    </span>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+                <div t-if="palletKeys.length === 0" class="psa-empty-filtered">
+                    <i class="fa fa-filter fa-2x text-muted"/>
+                    <p>No events match your filter.</p>
+                </div>
+            </div>
+
+        </div><!-- /psa-main -->
+    </div>
+</t>
+
+</templates>
