@@ -147,6 +147,11 @@
             </div>
 
             <!-- ========================= -->
+            <!--  SCROLLABLE EVENTS AREA   -->
+            <!-- ========================= -->
+            <div class="psa-events-scroll">
+
+            <!-- ========================= -->
             <!--  TIMELINE MODE            -->
             <!-- ========================= -->
             <div t-if="state.groupMode === 'timeline'" class="psa-timeline">
@@ -339,6 +344,7 @@
                 </div>
             </div>
 
+            </div><!-- /psa-events-scroll -->
         </div><!-- /psa-main -->
     </div>
 </t>

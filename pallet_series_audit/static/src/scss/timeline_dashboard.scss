@@ -3,11 +3,21 @@
 /* ================================================================== */
 
 .psa-timeline-dashboard {
-    padding: 16px 24px;
     background: #f8f9fa;
-    min-height: 100%;
-    height: 100%;
-    overflow-y: auto;
+    padding: 16px 24px;
+
+    // Make the main area a flex column so the event list fills remaining space
+    .psa-main {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 46px);
+    }
+
+    .psa-events-scroll {
+        flex: 1 1 0;
+        overflow-y: auto;
+        min-height: 0;
+    }
 }
 
 /* ---------- Loading / empty ---------- */
