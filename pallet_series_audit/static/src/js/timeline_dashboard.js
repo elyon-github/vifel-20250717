@@ -5,7 +5,7 @@ import { Component, onWillStart, useState } from "@odoo/owl";
 
 export class PalletSeriesTimeline extends Component {
     static template = "pallet_series_audit.TimelineDashboard";
-    static props = { action: Object };
+    static props = { action: { type: Object, optional: true }, actionId: { type: Number, optional: true }, className: { type: String, optional: true }, "*": true };
 
     /* ------------------------------------------------------------------ */
     /*  Colour / icon helpers (static, shared across instances)            */
