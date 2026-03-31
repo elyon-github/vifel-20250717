@@ -424,36 +424,36 @@ class transfer_locations(models.Model):
             return s
 
     
-    @api.constrains('x_studio_truck_time', 'x_studio_start_time', 'x_studio_end_time')
-    def _check_date_not_too_old(self):
-        """
-        Constraint to ensure truck_time, start_time, and end_time are not older 
-        than the configured maximum days back
-        """
-        max_days_back = self._get_max_days_back_config()
-        cutoff_datetime = datetime.now() - timedelta(days=max_days_back)
+    # @api.constrains('x_studio_truck_time', 'x_studio_start_time', 'x_studio_end_time')
+    # def _check_date_not_too_old(self):
+    #     """
+    #     Constraint to ensure truck_time, start_time, and end_time are not older 
+    #     than the configured maximum days back
+    #     """
+    #     max_days_back = self._get_max_days_back_config()
+    #     cutoff_datetime = datetime.now() - timedelta(days=max_days_back)
         
-        for record in self:
-            # Check truck_time
-            if record.x_studio_truck_time and record.x_studio_truck_time < cutoff_datetime:
-                raise ValidationError(
-                    f"Truck Time cannot be more than {int(max_days_back)} days ago. "
-                    f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
-                )
+    #     for record in self:
+    #         # Check truck_time
+    #         if record.x_studio_truck_time and record.x_studio_truck_time < cutoff_datetime:
+    #             raise ValidationError(
+    #                 f"Truck Time cannot be more than {int(max_days_back)} days ago. "
+    #                 f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
+    #             )
             
-            # Check start_time
-            if record.x_studio_start_time and record.x_studio_start_time < cutoff_datetime:
-                raise ValidationError(
-                    f"Start Time cannot be more than {int(max_days_back)} days ago. "
-                    f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
-                )
+    #         # Check start_time
+    #         if record.x_studio_start_time and record.x_studio_start_time < cutoff_datetime:
+    #             raise ValidationError(
+    #                 f"Start Time cannot be more than {int(max_days_back)} days ago. "
+    #                 f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
+    #             )
             
-            # Check end_time
-            if record.x_studio_end_time and record.x_studio_end_time < cutoff_datetime:
-                raise ValidationError(
-                    f"End Time cannot be more than {int(max_days_back)} days ago. "
-                    f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
-                )
+    #         # Check end_time
+    #         if record.x_studio_end_time and record.x_studio_end_time < cutoff_datetime:
+    #             raise ValidationError(
+    #                 f"End Time cannot be more than {int(max_days_back)} days ago. "
+    #                 f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
+    #             )
     
     def operation_type_checker(self, operation_type_record):
         is_receiving = operation_type_record.code == 'incoming'
