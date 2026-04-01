@@ -337,7 +337,7 @@ class FastEncodeRRWizardLine(models.TransientModel):
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     quantity = fields.Float(string="Quantity")
     min_uom_unit = fields.Float(string="Packs")
-    kilogram = fields.Float(string="Weight (KG)")
+    kilogram = fields.Float(string="Weight (KG)", digits=(12, 3))
     location_dest_id = fields.Many2one('stock.location', string='Destination Location')
     container_number = fields.Char(string='Container #')
     production_date = fields.Date(string='Production Date')

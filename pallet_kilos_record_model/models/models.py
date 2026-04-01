@@ -29,8 +29,8 @@ class PalletKilosRecordModel(models.Model):
     # Storage operation fields - these will be populated directly, not computed
     pallets_received = fields.Float(store=True, string="Pallets Received", readonly=True)
     pallets_withdrawn = fields.Float(store=True, string="Pallets Withdrawn", readonly=True)
-    kilos_received = fields.Float(store=True, string="Kilos Received", readonly=True)
-    kilos_withdrawn = fields.Float(store=True, string="Kilos Withdrawn", readonly=True)
+    kilos_received = fields.Float(store=True, string="Kilos Received", readonly=True, digits='Product Unit of Measure')
+    kilos_withdrawn = fields.Float(store=True, string="Kilos Withdrawn", readonly=True, digits='Product Unit of Measure')
 
     # Operation fields - stored, not computed
     packaging_received = fields.Float(string="Packaging Received", readonly=True, store=True)
@@ -41,7 +41,7 @@ class PalletKilosRecordModel(models.Model):
     # Balance fields - stored, calculated via method calls
     total_balance_in_units = fields.Float(store=True, string="Total Balance in Packs", readonly=True, group_operator=False)
     total_balance_in_packaging = fields.Float(store=True, string="Total Balance in Quantity", group_operator=False)
-    total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False)
+    total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False, digits='Product Unit of Measure')
     total_balance_in_pallets = fields.Float(store=True, string="Total Balance in Pallets", readonly=True, group_operator=False)
 
     # Return fields - stored, not computed
@@ -49,16 +49,16 @@ class PalletKilosRecordModel(models.Model):
     return_heads = fields.Float(string="Total Return Units", readonly=True)
     return_packaging = fields.Float(string="Total Return Packaging", readonly=True)
     return_pallets = fields.Float(string="Total Return Pallets", readonly=True)
-    return_kilos = fields.Float(string="Total Return Kilos", readonly=True)
+    return_kilos = fields.Float(string="Total Return Kilos", readonly=True, digits='Product Unit of Measure')
 
     adjustment_heads = fields.Float(string="Total Adjustment Units", readonly=True)
     adjustment_packaging = fields.Float(string="Total Adjustment Packaging", readonly=True)
     adjustment_pallets = fields.Float(string="Total Adjustment Pallets", readonly=True)
-    adjustment_kilos = fields.Float(string="Total Adjustment Kilos", readonly=True)
+    adjustment_kilos = fields.Float(string="Total Adjustment Kilos", readonly=True, digits='Product Unit of Measure')
 
     # Beginning balance fields - stored, calculated via method calls
     beginning_balance_in_pallets = fields.Float(string="Beginning Balance in Pallets", readonly=True, store=True)
-    beginning_balance_in_kilos = fields.Float(string="Beginning Balance in Kilos", readonly=True, store=True)
+    beginning_balance_in_kilos = fields.Float(string="Beginning Balance in Kilos", readonly=True, store=True, digits='Product Unit of Measure')
 
     # Rate fields
     holding_rate = fields.Float(string='Holding Rate', related='owner_id.x_studio_holding_rate', store=True)
@@ -87,7 +87,7 @@ class PalletKilosRecordModel(models.Model):
 
     # Running balance fields - stored, not computed
     overall_pallets = fields.Float(string='Overall Pallets', store=True, group_operator=False)
-    overall_kilos = fields.Float(string='Overall Kilos', store=True, group_operator=False)
+    overall_kilos = fields.Float(string='Overall Kilos', store=True, group_operator=False, digits='Product Unit of Measure')
 
     # Add blast freezer flag for efficient filtering
     is_blast_freezer = fields.Boolean(string="Is Blast Freezer", store=True, index=True)

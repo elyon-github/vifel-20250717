@@ -10,9 +10,25 @@ class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_billing_report_2'
     _inherit = 'report.report_xlsx.abstract'
 
+    def _get_kg_format_string(self):
+        """Get the dynamic KG format string based on system decimal precision."""
+        try:
+            # Get the decimal precision for 'Product Unit of Measure'
+            precision_model = self.env['decimal.precision']
+            precision_value = precision_model.precision_get('Product Unit of Measure')
+            # Build format string like '#,##0.00' or '#,##0.000'
+            if precision_value:
+                decimals = '0' * precision_value
+                return f'#,##0.{decimals}'
+            return '#,##0.00'  # Default fallback
+        except Exception as e:
+            _logger.warning(f"Error getting decimal precision: {e}, using default")
+            return '#,##0.00'
+
     def _define_formats(self, workbook):
         """Define and return format objects with Excel-like design."""
         base_font = {'font_name': 'Calibri', 'font_size': 11}
+        kg_format_string = self._get_kg_format_string()
         
         header_format = workbook.add_format({
             **base_font,
@@ -56,6 +72,24 @@ class PalletKilosXlsx(models.AbstractModel):
             'border': 1
         })
 
+        # KG format with dynamic decimal places
+        kg_format = workbook.add_format({
+            **base_font,
+            'num_format': kg_format_string,
+            'align': 'right',
+            'valign': 'vcenter'
+        })
+
+        kg_format_bold = workbook.add_format({
+            **base_font,
+            'num_format': kg_format_string,
+            'bold': True,
+            'align': 'right',
+            'valign': 'vcenter',
+            'bg_color': '#FFF2CC',
+            'border': 1
+        })
+
         date_format = workbook.add_format({
             **base_font,
             'num_format': 'mm/dd/yyyy',
@@ -70,7 +104,7 @@ class PalletKilosXlsx(models.AbstractModel):
             'valign': 'vcenter'
         })
 
-        return header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format
+        return header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format, kg_format, kg_format_bold
 
     def _convert_to_user_timezone(self, utc_datetime):
         """Convert UTC datetime to user's timezone (UTC+8 for Philippines)"""
@@ -132,7 +166,7 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.set_column(0, 11, 20)
             row_index = 5
 
-            sorted_records = sorted(owner_records, key=lambda x: x.start_time)
+            sorted_records = sorted(owner_records, key=lambda x: (x.start_time, x.create_date or datetime.datetime.min))
             
             # Convert dates to user timezone
             oldest_date_local = self._convert_to_user_timezone(sorted_records[0].start_time).date()
@@ -217,9 +251,9 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 3, line.pallets_received or 0, float_format)
                         sheet.write(row_index, 4, line.pallets_withdrawn or 0, float_format)
                         sheet.write(row_index, 5, line.total_balance_in_pallets or 0, float_format)
-                        sheet.write(row_index, 6, line.kilos_received or 0, float_format)
-                        sheet.write(row_index, 7, line.kilos_withdrawn or 0, float_format)
-                        sheet.write(row_index, 8, line.total_balance_in_kilos or 0, float_format)
+                        sheet.write(row_index, 6, line.kilos_received or 0, kg_format)
+                        sheet.write(row_index, 7, line.kilos_withdrawn or 0, kg_format)
+                        sheet.write(row_index, 8, line.total_balance_in_kilos or 0, kg_format)
 
                         # Update running balances with the latest values from this record
                         current_pallet_balance = line.total_balance_in_pallets or 0
@@ -251,8 +285,8 @@ class PalletKilosXlsx(models.AbstractModel):
             # Write totals
             sheet.write(row_index, 3, summation['total_pallets_received'], float_format_bold)
             sheet.write(row_index, 4, summation['total_pallets_withdrawn'], float_format_bold)
-            sheet.write(row_index, 6, summation['total_kilos_received'], float_format_bold)
-            sheet.write(row_index, 7, summation['total_kilos_withdrawn'], float_format_bold)
+            sheet.write(row_index, 6, summation['total_kilos_received'], kg_format_bold)
+            sheet.write(row_index, 7, summation['total_kilos_withdrawn'], kg_format_bold)
 
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)
 
@@ -300,6 +334,24 @@ class PalletKilosXlsx_2(models.AbstractModel):
         float_format_bold = workbook.add_format({
             **base_font,
             'num_format': '#,##0.00',
+            'bold': True,
+            'align': 'right',
+            'valign': 'vcenter',
+            'bg_color': '#FFF2CC',
+            'border': 1
+        })
+
+        # KG format with 3 decimal places
+        kg_format = workbook.add_format({
+            **base_font,
+            'num_format': '#,##0.000',
+            'align': 'right',
+            'valign': 'vcenter'
+        })
+
+        kg_format_bold = workbook.add_format({
+            **base_font,
+            'num_format': '#,##0.000',
             'bold': True,
             'align': 'right',
             'valign': 'vcenter',
@@ -371,7 +423,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
 
     def generate_xlsx_report(self, workbook, data, records):
         formats = self._define_formats(workbook)
-        header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format = formats
+        header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format, kg_format, kg_format_bold = formats
 
         records_by_owner = {}
         for record in records:
@@ -383,7 +435,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
             sheet.set_column(0, 11, 20)
             row_index = 5
 
-            sorted_records = sorted(owner_records, key=lambda x: x.start_time)
+            sorted_records = sorted(owner_records, key=lambda x: (x.start_time, x.create_date or datetime.datetime.min))
             
             # Convert dates to user timezone
             oldest_date_local = self._convert_to_user_timezone(sorted_records[0].start_time).date()
@@ -444,7 +496,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
             current_kilo_balance = beginning_kilos
             
             # Write beginning balances
-            sheet.write(row_index-1, 8, beginning_kilos or 0, float_format)
+            sheet.write(row_index-1, 8, beginning_kilos or 0, kg_format)
             sheet.write(row_index-1, 5, beginning_pallets or 0, float_format)
             
             for current_date in date_list:
@@ -463,9 +515,9 @@ class PalletKilosXlsx_2(models.AbstractModel):
                         sheet.write(row_index, 3, line.pallets_received or 0, float_format)
                         sheet.write(row_index, 4, line.pallets_withdrawn or 0, float_format)
                         sheet.write(row_index, 5, line.total_balance_in_pallets or 0, float_format)
-                        sheet.write(row_index, 6, line.kilos_received or 0, float_format)
-                        sheet.write(row_index, 7, line.kilos_withdrawn or 0, float_format)
-                        sheet.write(row_index, 8, line.total_balance_in_kilos or 0, float_format)
+                        sheet.write(row_index, 6, line.kilos_received or 0, kg_format)
+                        sheet.write(row_index, 7, line.kilos_withdrawn or 0, kg_format)
+                        sheet.write(row_index, 8, line.total_balance_in_kilos or 0, kg_format)
 
                         # Update running balances with the latest values from this record
                         current_pallet_balance = line.total_balance_in_pallets or 0
@@ -497,7 +549,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
             # Write totals
             sheet.write(row_index, 3, summation['total_pallets_received'], float_format_bold)
             sheet.write(row_index, 4, summation['total_pallets_withdrawn'], float_format_bold)
-            sheet.write(row_index, 6, summation['total_kilos_received'], float_format_bold)
-            sheet.write(row_index, 7, summation['total_kilos_withdrawn'], float_format_bold)
+            sheet.write(row_index, 6, summation['total_kilos_received'], kg_format_bold)
+            sheet.write(row_index, 7, summation['total_kilos_withdrawn'], kg_format_bold)
 
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)

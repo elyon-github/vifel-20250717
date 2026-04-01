@@ -126,7 +126,7 @@ class transfer_locations(models.Model):
         check_company=True, required=True, domain="[('id', 'in', allowed_value_ids)]")
 
     total_quantity = fields.Float(string="Total Quantity", compute="_compute_totals", store=True)
-    total_weight = fields.Float(string="Total Weight (KG)", compute="_compute_totals", store=True)
+    total_weight = fields.Float(string="Total Weight (KG)", compute="_compute_totals", store=True, digits='Product Unit of Measure')
 
     vifel_type_of_operation = fields.Selection(string="Operation Type", store=True, compute="_comupute_vifel_type_of_operation", selection=[
         ('BFRR', 'BF RECEIVING'),

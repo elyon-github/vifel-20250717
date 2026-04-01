@@ -24,7 +24,7 @@ class StockQuantRelocationLine(models.TransientModel):
     x_studio_quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM', readonly=True)
     x_studio_total_units = fields.Float(string='Total Packs', readonly=True)
     x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Packs UOM', readonly=True)
-    quantity = fields.Float(string='Weight (KG)', readonly=True)
+    quantity = fields.Float(string='Weight (KG)', readonly=True, digits='Product Unit of Measure')
     building = fields.Many2one('x_warehouse_building', string="Building", compute="_compute_building", store=True)
 
     @api.depends('relocate_wizard_id.building')
