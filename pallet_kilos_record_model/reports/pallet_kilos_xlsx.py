@@ -11,9 +11,25 @@ class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_report_xlsx'
     _inherit = 'report.report_xlsx.abstract'
 
+    def _get_kg_format_string(self):
+        """Get the dynamic KG format string based on system decimal precision."""
+        try:
+            # Get the decimal precision for 'Product Unit of Measure'
+            precision_model = self.env['decimal.precision']
+            precision_value = precision_model.precision_get('Product Unit of Measure')
+            # Build format string like '#,##0.00' or '#,##0.000'
+            if precision_value:
+                decimals = '0' * precision_value
+                return f'#,##0.{decimals}'
+            return '#,##0.00'  # Default fallback
+        except Exception as e:
+            _logger.warning(f"Error getting decimal precision: {e}, using default")
+            return '#,##0.00'
+
     def _define_formats(self, workbook):
         """Define and return format objects with professional Excel-like design."""
         base_font = {'font_name': 'Calibri', 'font_size': 11}
+        kg_format_string = self._get_kg_format_string()
         
         # Professional header format (company name)
         header_format = workbook.add_format({
@@ -59,7 +75,7 @@ class PalletKilosXlsx(models.AbstractModel):
             'bottom': 1,
             'top_color': '#00B0F0',
             'bottom_color': '#00B0F0',
-            'num_format': '#,##0.00',
+            'num_format': kg_format_string,
             'text_wrap': True
         })
         
@@ -138,7 +154,7 @@ class PalletKilosXlsx(models.AbstractModel):
         # RR columns (keep green background)
         received_format_vivid = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'num_format': kg_format_string,
             'bg_color': '#C8E6C9',
             'font_color': '#1B5E20',
             'align': 'right',
@@ -152,7 +168,7 @@ class PalletKilosXlsx(models.AbstractModel):
         # WR/Return columns (no background, just text color)
         received_format = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'num_format': kg_format_string,
             'font_color': '#1B5E20',
             'align': 'right',
             'valign': 'vcenter',
@@ -164,7 +180,7 @@ class PalletKilosXlsx(models.AbstractModel):
         
         withdrawn_format = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'num_format': kg_format_string,
             'font_color': '#B71C1C',
             'align': 'right',
             'valign': 'vcenter',
@@ -191,7 +207,7 @@ class PalletKilosXlsx(models.AbstractModel):
         # Grand totals (keep vivid backgrounds)
         received_format_vivid_bold = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'num_format': kg_format_string,
             'bg_color': '#C8E6C9',
             'font_color': '#1B5E20',
             'bold': True,
@@ -205,7 +221,7 @@ class PalletKilosXlsx(models.AbstractModel):
         
         withdrawn_format_vivid_bold = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+            'num_format': kg_format_string,
             'bg_color': '#FFCDD2',
             'font_color': '#B71C1C',
             'bold': True,
@@ -323,12 +339,39 @@ class PalletKilosXlsx(models.AbstractModel):
             'bottom_color': '#00B0F0'
         })
         
+        # KG format (dynamic decimal places)
+        kg_format = workbook.add_format({
+            **base_font,
+            'num_format': kg_format_string,
+            'align': 'right',
+            'valign': 'vcenter',
+            'top': 1,
+            'bottom': 1,
+            'top_color': '#00B0F0',
+            'bottom_color': '#00B0F0'
+        })
+        
+        # KG format bold (dynamic decimal places, bold, yellow background)
+        kg_format_bold = workbook.add_format({
+            **base_font,
+            'num_format': kg_format_string,
+            'bold': True,
+            'bg_color': '#FFF2CC',
+            'align': 'right',
+            'valign': 'vcenter',
+            'top': 1,
+            'bottom': 1,
+            'top_color': '#00B0F0',
+            'bottom_color': '#00B0F0',
+            'border': 1
+        })
+        
         return (header_format, table_header_format, summary_format, normal_format, normal_format_bold,
                 date_format, float_format_dash, pallet_format, received_format_vivid, received_format,
                 withdrawn_format, received_format_vivid_bold, withdrawn_format_vivid_bold,
                 gray_bg_format, gray_bg_format_bold, gray_bg_format_float, gray_bg_format_float_bold, 
                 gray_bg_format_pallet, gray_bg_format_pallet_with_pp, gray_bg_format_float_bold_italic,
-                net_format, net_format_bold)
+                net_format, net_format_bold, kg_format, kg_format_bold)
 
     def _convert_to_user_timezone(self, utc_datetime):
         """Convert UTC datetime to user's timezone (UTC+8 for Philippines)"""
@@ -526,17 +569,17 @@ class PalletKilosXlsx(models.AbstractModel):
                 'top': 1, 'bottom': 1, 'top_color': '#00B0F0', 'bottom_color': '#00B0F0', 'bg_color': '#F2F2F2'
             })
             received_vivid_fmt = workbook.add_format({
-                'font_name': 'Calibri', 'font_size': 11, 'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+                'font_name': 'Calibri', 'font_size': 11, 'num_format': kg_format_string,
                 'bg_color': '#C8E6C9', 'font_color': '#1B5E20', 'align': 'right', 'valign': 'vcenter',
                 'top': 1, 'bottom': 1, 'top_color': '#00B0F0', 'bottom_color': '#00B0F0'
             })
             received_fmt = workbook.add_format({
-                'font_name': 'Calibri', 'font_size': 11, 'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+                'font_name': 'Calibri', 'font_size': 11, 'num_format': kg_format_string,
                 'font_color': '#1B5E20', 'align': 'right', 'valign': 'vcenter', 'top': 1, 'bottom': 1,
                 'top_color': '#00B0F0', 'bottom_color': '#00B0F0', 'bg_color': '#F2F2F2'
             })
             withdrawn_fmt = workbook.add_format({
-                'font_name': 'Calibri', 'font_size': 11, 'num_format': '#,##0.00_-;-#,##0.00_-;"-"_-',
+                'font_name': 'Calibri', 'font_size': 11, 'num_format': kg_format_string,
                 'font_color': '#B71C1C', 'align': 'right', 'valign': 'vcenter', 'top': 1, 'bottom': 1,
                 'top_color': '#00B0F0', 'bottom_color': '#00B0F0', 'bg_color': '#F2F2F2'
             })
@@ -559,7 +602,7 @@ class PalletKilosXlsx(models.AbstractModel):
          withdrawn_format, received_format_vivid_bold, withdrawn_format_vivid_bold,
          gray_bg_format, gray_bg_format_bold, gray_bg_format_float, gray_bg_format_float_bold, 
          gray_bg_format_pallet, gray_bg_format_pallet_with_pp, gray_bg_format_float_bold_italic,
-         net_format, net_format_bold) = formats
+         net_format, net_format_bold, kg_format, kg_format_bold) = formats
         
         # Group records by owner
         records_by_owner = {}

@@ -7,9 +7,25 @@ class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.occupancy_report'
     _inherit = 'report.report_xlsx.abstract'
 
+    def _get_kg_format_string(self):
+        """Get the dynamic KG format string based on system decimal precision."""
+        try:
+            # Get the decimal precision for 'Product Unit of Measure'
+            precision_model = self.env['decimal.precision']
+            precision_value = precision_model.precision_get('Product Unit of Measure')
+            # Build format string like '#,##0.00' or '#,##0.000'
+            if precision_value:
+                decimals = '0' * precision_value
+                return f'#,##0.{decimals}'
+            return '#,##0.00'  # Default fallback
+        except Exception as e:
+            _logger.warning(f"Error getting decimal precision: {e}, using default")
+            return '#,##0.00'
+
     def _define_formats(self, workbook):
         """Define and return all format objects with a clean, modern palette."""
         base = {'font_name': 'Aptos', 'font_size': 10}
+        kg_format_string = self._get_kg_format_string()
 
         formats = {}
 
@@ -89,7 +105,7 @@ class PalletKilosXlsx(models.AbstractModel):
                 'bg_color': bg, 'border': 1, 'border_color': '#D9E2F3',
             })
             formats[f'kilos_{suffix}'] = workbook.add_format({
-                **base, 'num_format': '#,##0.00', 'align': 'right', 'valign': 'vcenter',
+                **base, 'num_format': kg_format_string, 'align': 'right', 'valign': 'vcenter',
                 'bg_color': '#EAF1FA' if suffix == 'even' else '#E0EBFA',
                 'border': 1, 'border_color': '#D9E2F3',
                 'font_color': '#2F5496',
@@ -120,7 +136,7 @@ class PalletKilosXlsx(models.AbstractModel):
             'right': 1, 'right_color': '#1F3864',
         })
         formats['total_kilos'] = workbook.add_format({
-            **base, 'bold': True, 'num_format': '#,##0.00',
+            **base, 'bold': True, 'num_format': kg_format_string,
             'align': 'right', 'valign': 'vcenter',
             'bg_color': '#1F3864', 'font_color': '#BDD7EE',
             'top': 2, 'top_color': '#4472C4',

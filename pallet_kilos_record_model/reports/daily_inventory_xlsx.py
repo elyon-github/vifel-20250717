@@ -10,9 +10,25 @@ class DailyInventoryXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.daily_inventory_report_xlsx'
     _inherit = 'report.report_xlsx.abstract'
 
+    def _get_kg_format_string(self):
+        """Get the dynamic KG format string based on system decimal precision."""
+        try:
+            # Get the decimal precision for 'Product Unit of Measure'
+            precision_model = self.env['decimal.precision']
+            precision_value = precision_model.precision_get('Product Unit of Measure')
+            # Build format string like '#,##0.00' or '#,##0.000'
+            if precision_value:
+                decimals = '0' * precision_value
+                return f'#,##0.{decimals}'
+            return '#,##0.00'  # Default fallback
+        except Exception as e:
+            _logger.warning(f"Error getting decimal precision: {e}, using default")
+            return '#,##0.00'
+
     def _define_formats(self, workbook):
         """Define and return format objects with Excel-like design."""
         base_font = {'font_name': 'Calibri', 'font_size': 11}
+        kg_format_string = self._get_kg_format_string()
         
         # Header format (for company title and warehouse)
         header_format = workbook.add_format({
@@ -49,7 +65,7 @@ class DailyInventoryXlsx(models.AbstractModel):
             'align': 'center',
             'valign': 'vcenter',
             'border': 1,
-            'num_format': '#,##0.00',
+            'num_format': kg_format_string,
             'text_wrap': True
         })
         
@@ -73,7 +89,7 @@ class DailyInventoryXlsx(models.AbstractModel):
         # Float format
         float_format = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00',
+            'num_format': kg_format_string,
             'align': 'right',
             'valign': 'vcenter',
             'border': 1
@@ -82,7 +98,7 @@ class DailyInventoryXlsx(models.AbstractModel):
         # Float format bold
         float_format_bold = workbook.add_format({
             **base_font,
-            'num_format': '#,##0.00',
+            'num_format': kg_format_string,
             'bold': True,
             'align': 'right',
             'valign': 'vcenter',

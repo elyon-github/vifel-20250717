@@ -5,7 +5,7 @@ import { Component, onWillStart, useState } from "@odoo/owl";
 
 export class PalletSeriesTimeline extends Component {
     static template = "pallet_series_audit.TimelineDashboard";
-    static props = { action: Object };
+    static props = { action: { type: Object, optional: true }, actionId: { type: Number, optional: true }, className: { type: String, optional: true }, "*": true };
 
     /* ------------------------------------------------------------------ */
     /*  Colour / icon helpers (static, shared across instances)            */
@@ -51,9 +51,11 @@ export class PalletSeriesTimeline extends Component {
             eventCount: 0,
             uniqueSeries: 0,
             events: [],
-            groupMode: "timeline",   // "timeline" | "series" | "line" | "pallet"
+            groupMode: "timeline",   // "timeline" | "series" | "line" | "pallet" | "user"
             filterType: "",          // "" = all
             filterSource: "",        // "" = all
+            filterUser: "",          // "" = all, otherwise user_id[0] as string
+            sortOrder: "desc",       // "desc" = latest first (default), "asc" = oldest first
             searchText: "",
             collapsedGroups: {},     // key -> true/false
         });
@@ -91,7 +93,7 @@ export class PalletSeriesTimeline extends Component {
             const eventIds = await this.orm.search(
                 "pallet.series.audit.line",
                 [["audit_id", "=", this.state.auditId]],
-                { order: "event_date asc, id asc" },
+                { order: "event_date desc, id desc" },
             );
             if (eventIds.length) {
                 this.state.events = await this.orm.read(
@@ -125,6 +127,10 @@ export class PalletSeriesTimeline extends Component {
         if (this.state.filterSource) {
             evts = evts.filter(e => e.source === this.state.filterSource);
         }
+        if (this.state.filterUser) {
+            const uid = parseInt(this.state.filterUser);
+            evts = evts.filter(e => e.user_id && e.user_id[0] === uid);
+        }
         if (this.state.searchText) {
             const q = this.state.searchText.toLowerCase();
             evts = evts.filter(e =>
@@ -135,6 +141,10 @@ export class PalletSeriesTimeline extends Component {
                 (e.notes || "").toLowerCase().includes(q) ||
                 String(e.line_number || "").includes(q)
             );
+        }
+        // Sort: data loaded as desc; flip if user wants asc
+        if (this.state.sortOrder === "asc") {
+            evts = [...evts].reverse();
         }
         return evts;
     }
@@ -181,6 +191,16 @@ export class PalletSeriesTimeline extends Component {
         return Object.keys(this.groupedByPallet).sort();
     }
 
+    get groupedByUser() {
+        return this._groupBy(this.filteredEvents, ev =>
+            ev.user_id ? ev.user_id[1] : "(unknown user)"
+        );
+    }
+
+    get userKeys() {
+        return Object.keys(this.groupedByUser).sort();
+    }
+
     get eventTypes() {
         const types = new Set(this.state.events.map(e => e.event_type));
         return [...types].sort();
@@ -189,6 +209,14 @@ export class PalletSeriesTimeline extends Component {
     get sourceTypes() {
         const types = new Set(this.state.events.map(e => e.source));
         return [...types].sort();
+    }
+
+    get userList() {
+        const map = {};
+        for (const e of this.state.events) {
+            if (e.user_id) map[e.user_id[0]] = e.user_id[1];
+        }
+        return Object.entries(map).sort((a, b) => a[1].localeCompare(b[1]));
     }
 
     /* ------------------------------------------------------------------ */
@@ -286,6 +314,14 @@ export class PalletSeriesTimeline extends Component {
         this.state.filterSource = ev.target.value;
     }
 
+    setFilterUser(ev) {
+        this.state.filterUser = ev.target.value;
+    }
+
+    setSortOrder(ev) {
+        this.state.sortOrder = ev.target.value;
+    }
+
     setSearchText(ev) {
         this.state.searchText = ev.target.value;
     }
@@ -293,7 +329,9 @@ export class PalletSeriesTimeline extends Component {
     clearFilters() {
         this.state.filterType = "";
         this.state.filterSource = "";
+        this.state.filterUser = "";
         this.state.searchText = "";
+        this.state.sortOrder = "desc";
     }
 
     toggleGroup(key) {

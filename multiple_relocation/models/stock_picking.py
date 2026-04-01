@@ -126,7 +126,7 @@ class transfer_locations(models.Model):
         check_company=True, required=True, domain="[('id', 'in', allowed_value_ids)]")
 
     total_quantity = fields.Float(string="Total Quantity", compute="_compute_totals", store=True)
-    total_weight = fields.Float(string="Total Weight (KG)", compute="_compute_totals", store=True)
+    total_weight = fields.Float(string="Total Weight (KG)", compute="_compute_totals", store=True, digits='Product Unit of Measure')
 
     vifel_type_of_operation = fields.Selection(string="Operation Type", store=True, compute="_comupute_vifel_type_of_operation", selection=[
         ('BFRR', 'BF RECEIVING'),
@@ -424,36 +424,36 @@ class transfer_locations(models.Model):
             return s
 
     
-    @api.constrains('x_studio_truck_time', 'x_studio_start_time', 'x_studio_end_time')
-    def _check_date_not_too_old(self):
-        """
-        Constraint to ensure truck_time, start_time, and end_time are not older 
-        than the configured maximum days back
-        """
-        max_days_back = self._get_max_days_back_config()
-        cutoff_datetime = datetime.now() - timedelta(days=max_days_back)
+    # @api.constrains('x_studio_truck_time', 'x_studio_start_time', 'x_studio_end_time')
+    # def _check_date_not_too_old(self):
+    #     """
+    #     Constraint to ensure truck_time, start_time, and end_time are not older 
+    #     than the configured maximum days back
+    #     """
+    #     max_days_back = self._get_max_days_back_config()
+    #     cutoff_datetime = datetime.now() - timedelta(days=max_days_back)
         
-        for record in self:
-            # Check truck_time
-            if record.x_studio_truck_time and record.x_studio_truck_time < cutoff_datetime:
-                raise ValidationError(
-                    f"Truck Time cannot be more than {int(max_days_back)} days ago. "
-                    f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
-                )
+    #     for record in self:
+    #         # Check truck_time
+    #         if record.x_studio_truck_time and record.x_studio_truck_time < cutoff_datetime:
+    #             raise ValidationError(
+    #                 f"Truck Time cannot be more than {int(max_days_back)} days ago. "
+    #                 f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
+    #             )
             
-            # Check start_time
-            if record.x_studio_start_time and record.x_studio_start_time < cutoff_datetime:
-                raise ValidationError(
-                    f"Start Time cannot be more than {int(max_days_back)} days ago. "
-                    f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
-                )
+    #         # Check start_time
+    #         if record.x_studio_start_time and record.x_studio_start_time < cutoff_datetime:
+    #             raise ValidationError(
+    #                 f"Start Time cannot be more than {int(max_days_back)} days ago. "
+    #                 f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
+    #             )
             
-            # Check end_time
-            if record.x_studio_end_time and record.x_studio_end_time < cutoff_datetime:
-                raise ValidationError(
-                    f"End Time cannot be more than {int(max_days_back)} days ago. "
-                    f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
-                )
+    #         # Check end_time
+    #         if record.x_studio_end_time and record.x_studio_end_time < cutoff_datetime:
+    #             raise ValidationError(
+    #                 f"End Time cannot be more than {int(max_days_back)} days ago. "
+    #                 f"The earliest allowed date is {cutoff_datetime.strftime('%m/%d/%Y %H:%M:%S')}"
+    #             )
     
     def operation_type_checker(self, operation_type_record):
         is_receiving = operation_type_record.code == 'incoming'
@@ -1235,7 +1235,18 @@ class transfer_locations(models.Model):
             
             # Get UOM and quantity
             uom = move.x_studio_quantity_uom.name if move and move.x_studio_quantity_uom else move.x_studio_quantity_uom_delivery.name
-            quantity = line.x_studio_2nd_uom or move.x_studio_affected_2nd_uom
+            quantity = 0
+            weight = 0
+            
+            if self.partner_id.x_studio_special_no_rr_return_needed and move.x_studio_affected_2nd_uom:
+                quantity = line.x_studio_actual_packaging
+            else:
+                quantity = line.x_studio_2nd_uom or move.x_studio_affected_2nd_uom
+                
+            if self.partner_id.x_studio_special_no_rr_return_needed:
+                weight = line.x_studio_actual_kg
+            else:
+                weight = line.quantity or 0
             
             # Add to grand total by UOM
             if uom:
@@ -1251,6 +1262,7 @@ class transfer_locations(models.Model):
             else:
                 pallet_no = line.result_package_id.name if line.result_package_id else ''
     
+
             # Append processed line
             processed_lines.append({
                 'pallet_no': pallet_no,
@@ -1259,7 +1271,7 @@ class transfer_locations(models.Model):
                 'description_key': description_key,  # Keep for new page logic
                 'quantity': quantity,
                 'uom': uom,
-                'weight': line.quantity or 0,
+                'weight': weight,
                 'weight_uom': line.product_uom_id.name if line.product_uom_id else '',
                 'original_line': line,  # Reference for any additional data
                 'is_new_page': is_new_page  # Flag for new page starts
@@ -1477,11 +1489,36 @@ class transfer_locations(models.Model):
                         grouped_moves[key]['heads_demand'] += move.x_studio_min_uom if hasattr(move, 'x_studio_min_uom') else 0
                         globally_processed_moves.add(move.id)
                     
+                    pack_qty = 0 
+                    weight_actual = 0
+                    qty_actual = 0
+                    if move_line.x_studio_2nd_uom:
+                        pack_qty = move_line.x_studio_2nd_uom
+                    else:
+                        pack_qty = move_line.x_studio_affected_2nd_uom
+                        if self.partner_id.x_studio_special_no_rr_return_needed:
+                            pack_qty = move_line.x_studio_actual_packaging
+                            
+                    if hasattr(move_line, 'quantity'):
+                        weight_actual = move_line.quantity
+                        if self.partner_id.x_studio_special_no_rr_return_needed:
+                            weight_actual = move_line.x_studio_actual_kg
+                    else:
+                        weight_actual = 0
+                        
+                    if hasattr(move_line, 'quantity'):
+                        qty_actual = move_line.quantity
+                        if self.partner_id.x_studio_special_no_rr_return_needed:
+                            qty_actual = move_line.x_studio_actual_kg
+                            
+                    else:
+                         qty_actual = 0
+                         
                     # Add move line specific quantities (actual quantities)
                     # These are added for each move line since they're line-specific
-                    grouped_moves[key]['qty_actual'] += move_line.quantity if hasattr(move_line, 'quantity') else 0
-                    grouped_moves[key]['weight_actual'] += move_line.quantity if hasattr(move_line, 'quantity') else 0
-                    grouped_moves[key]['packaging_qty'] += move_line.x_studio_2nd_uom if move_line.x_studio_2nd_uom else move_line.x_studio_affected_2nd_uom
+                    grouped_moves[key]['qty_actual'] += qty_actual
+                    grouped_moves[key]['weight_actual'] += weight_actual
+                    grouped_moves[key]['packaging_qty'] += pack_qty
                     grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if hasattr(move_line, 'x_studio_withdaw_units') else move_line.x_studio_withdraw_units
                     
                     # Track unique packages for pallet count
@@ -1604,26 +1641,47 @@ class transfer_locations(models.Model):
                 
                 # Calculate page totals
                 uom_data = self.group_quantities_by_uom(page_moves)
-                page_totals = {
-                    'qty_demand': sum(move['qty_demand'] for move in page_moves),
-                    'qty_demand_formatted': uom_data['qty_demand_formatted'],
-                    'weight_demand': sum(move['weight_demand'] for move in page_moves),
-                    'qty_actual': sum(move['qty_actual'] for move in page_moves),
-                    'weight_actual': sum(move['weight_actual'] for move in page_moves),
-                    'packaging_qty': sum(move['packaging_qty'] for move in page_moves),
-                    'pallet_count': sum(move['pallet_count'] for move in page_moves),
-                    'qty_formatted': uom_data['qty_formatted'],
-                    'qty_actual_formatted': uom_data['qty_actual_formatted'],
-                    # 'pallet_count': sum(move['pallet_count'] for move in page_moves),
-                    'uom_formatted': uom_data['uom_formatted'],
-                    'kg_actual_formatted': uom_data['kg_actual_formatted'],
-                    'kg_demand_formatted': uom_data['kg_demand_formatted'],
-                    'heads_actual': sum(move['heads_actual'] for move in page_moves),
-                    'heads_demand': sum(move['heads_demand'] for move in page_moves),
-                    'heads_actual_formatted': uom_data['heads_actual_formatted'],
-                    'heads_demand_formatted': uom_data['heads_demand_formatted'],
-                }
-                
+                if not self.partner_id.x_studio_special_no_rr_return_needed:
+                    page_totals = {
+                        'qty_demand': sum(move['qty_demand'] for move in page_moves),
+                        'qty_demand_formatted': uom_data['qty_demand_formatted'],
+                        'weight_demand': sum(move['weight_demand'] for move in page_moves),
+                        'qty_actual': sum(move['qty_actual'] for move in page_moves),
+                        'weight_actual': sum(move['weight_actual'] for move in page_moves),
+                        'packaging_qty': sum(move['packaging_qty'] for move in page_moves),
+                        'pallet_count': sum(move['pallet_count'] for move in page_moves),
+                        'qty_formatted': uom_data['qty_formatted'],
+                        'qty_actual_formatted': uom_data['qty_actual_formatted'],
+                        # 'pallet_count': sum(move['pallet_count'] for move in page_moves),
+                        'uom_formatted': uom_data['uom_formatted'],
+                        'kg_actual_formatted': uom_data['kg_actual_formatted'],
+                        'kg_demand_formatted': uom_data['kg_demand_formatted'],
+                        'heads_actual': sum(move['heads_actual'] for move in page_moves),
+                        'heads_demand': sum(move['heads_demand'] for move in page_moves),
+                        'heads_actual_formatted': uom_data['heads_actual_formatted'],
+                        'heads_demand_formatted': uom_data['heads_demand_formatted'],
+                    }
+                else:
+                    page_totals = {
+                        'qty_demand': sum(move['qty_demand'] for move in page_moves),
+                        'qty_demand_formatted': uom_data['qty_demand_formatted'],
+                        'weight_demand': sum(move['weight_demand'] for move in page_moves),
+                        'qty_actual': sum(move['qty_actual'] for move in page_moves),
+                        'weight_actual': sum(move['weight_actual'] for move in page_moves),
+                        'packaging_qty': sum(move['packaging_qty'] for move in page_moves),
+                        'pallet_count': sum(move['pallet_count'] for move in page_moves),
+                        'qty_formatted': uom_data['qty_formatted'],
+                        'qty_actual_formatted': uom_data['qty_actual_formatted'],
+                        # 'pallet_count': sum(move['pallet_count'] for move in page_moves),
+                        'uom_formatted': uom_data['uom_formatted'],
+                        'kg_actual_formatted': uom_data['kg_actual_formatted'],
+                        'kg_demand_formatted': uom_data['kg_demand_formatted'],
+                        'heads_actual': sum(move['heads_actual'] for move in page_moves),
+                        'heads_demand': sum(move['heads_demand'] for move in page_moves),
+                        'heads_actual_formatted': uom_data['heads_actual_formatted'],
+                        'heads_demand_formatted': uom_data['heads_demand_formatted'],
+                    }
+
                 page_data.append({
                     'page_num': page_num,
                     'moves': page_moves,

@@ -65,7 +65,7 @@
                         <span class="psa-quick-count"><t t-esc="entry[1]"/></span>
                     </button>
                 </t>
-                <button t-if="state.filterType || state.filterSource || state.searchText"
+                <button t-if="state.filterType || state.filterSource || state.filterUser || state.searchText"
                         class="psa-quick-badge psa-quick-clear" t-on-click="clearFilters">
                     <i class="fa fa-times me-1"/> Clear Filters
                 </button>
@@ -92,6 +92,10 @@
                                 t-on-click="() => this.setGroupMode('pallet')">
                             <i class="fa fa-cube me-1"/> By Pallet
                         </button>
+                        <button t-attf-class="btn #{state.groupMode === 'user' ? 'btn-primary' : 'btn-outline-primary'}"
+                                t-on-click="() => this.setGroupMode('user')">
+                            <i class="fa fa-user me-1"/> By User
+                        </button>
                     </div>
 
                     <!-- Event filter -->
@@ -105,7 +109,7 @@
                     </select>
 
                     <!-- Source filter -->
-                    <select class="form-select form-select-sm psa-filter-select" t-on-change="setFilterSource">
+                    <select class="form-select form-select-sm psa-filter-select me-2" t-on-change="setFilterSource">
                         <option value="">All Sources</option>
                         <t t-foreach="sourceTypes" t-as="src" t-key="src">
                             <option t-att-value="src" t-att-selected="state.filterSource === src">
@@ -113,13 +117,29 @@
                             </option>
                         </t>
                     </select>
+
+                    <!-- User filter -->
+                    <select class="form-select form-select-sm psa-filter-select me-2" t-on-change="setFilterUser">
+                        <option value="">All Users</option>
+                        <t t-foreach="userList" t-as="u" t-key="u[0]">
+                            <option t-att-value="'' + u[0]" t-att-selected="state.filterUser === ('' + u[0])">
+                                <t t-esc="u[1]"/>
+                            </option>
+                        </t>
+                    </select>
+
+                    <!-- Sort order -->
+                    <select class="form-select form-select-sm psa-filter-select" t-on-change="setSortOrder">
+                        <option value="desc" t-att-selected="state.sortOrder === 'desc'">Latest First</option>
+                        <option value="asc" t-att-selected="state.sortOrder === 'asc'">Oldest First</option>
+                    </select>
                 </div>
                 <div class="psa-toolbar-right">
                     <div class="input-group input-group-sm psa-search-box">
                         <span class="input-group-text"><i class="fa fa-search"/></span>
                         <input type="text" class="form-control" placeholder="Search series, pallet, line, notes…"
                                t-att-value="state.searchText" t-on-input="setSearchText"/>
-                        <button t-if="state.searchText || state.filterType || state.filterSource"
+                        <button t-if="state.filterType || state.filterSource || state.filterUser || state.searchText"
                                 class="btn btn-outline-secondary" t-on-click="clearFilters">
                             <i class="fa fa-times"/>
                         </button>
@@ -138,12 +158,14 @@
             </div>
 
             <!-- Active filter indicator -->
-            <div t-if="state.filterType || state.filterSource || state.searchText" class="psa-active-filter">
+            <div t-if="state.filterType || state.filterSource || state.filterUser || state.searchText || state.sortOrder === 'asc'" class="psa-active-filter">
                 <i class="fa fa-filter me-1"/>
                 Showing <strong><t t-esc="filteredEvents.length"/></strong> of <t t-esc="state.events.length"/> events
                 <t t-if="state.filterType"> | Type: <strong><t t-esc="eventMeta(state.filterType).label"/></strong></t>
                 <t t-if="state.filterSource"> | Source: <strong><t t-esc="sourceLabel(state.filterSource)"/></strong></t>
+                <t t-if="state.filterUser"> | User: <strong><t t-esc="userList.find(u => ('' + u[0]) === state.filterUser)?.[1] || state.filterUser"/></strong></t>
                 <t t-if="state.searchText"> | Search: "<strong><t t-esc="state.searchText"/></strong>"</t>
+                <t t-if="state.sortOrder === 'asc'"> | Sort: <strong>Oldest First</strong></t>
             </div>
 
             <!-- ========================= -->
@@ -339,6 +361,46 @@
                     </div>
                 </t>
                 <div t-if="palletKeys.length === 0" class="psa-empty-filtered">
+                    <i class="fa fa-filter fa-2x text-muted"/>
+                    <p>No events match your filter.</p>
+                </div>
+            </div>
+
+            <!-- ========================= -->
+            <!--  GROUPED BY USER          -->
+            <!-- ========================= -->
+            <div t-if="state.groupMode === 'user'" class="psa-grouped">
+                <t t-foreach="userKeys" t-as="uKey" t-key="uKey">
+                    <div class="psa-group-card">
+                        <div class="psa-group-header psa-group-toggle" t-on-click="() => this.toggleGroup(uKey)">
+                            <i t-attf-class="fa #{isGroupCollapsed(uKey) ? 'fa-chevron-right' : 'fa-chevron-down'} me-2"/>
+                            <i class="fa fa-user me-1"/>
+                            <strong><t t-esc="uKey"/></strong>
+                            <span class="badge text-bg-secondary ms-2">
+                                <t t-esc="groupedByUser[uKey].length"/> events
+                            </span>
+                        </div>
+                        <div t-if="!isGroupCollapsed(uKey)" class="psa-group-events">
+                            <t t-foreach="groupedByUser[uKey]" t-as="ev" t-key="ev.id">
+                                <div class="psa-mini-row" t-attf-style="border-left: 4px solid #{eventMeta(ev.event_type).bg}">
+                                    <span class="psa-mini-badge" t-attf-style="background:#{eventMeta(ev.event_type).bg};color:#fff">
+                                        <i t-attf-class="fa #{eventMeta(ev.event_type).icon}"/>
+                                    </span>
+                                    <span class="psa-mini-label"><t t-esc="eventMeta(ev.event_type).label"/></span>
+                                    <span class="psa-mini-arrow"><t t-esc="seriesArrow(ev)"/></span>
+                                    <span t-if="ev.line_number" class="badge text-bg-secondary">
+                                        #<t t-esc="ev.line_number"/>
+                                    </span>
+                                    <span t-if="ev.result_package_name" class="psa-mini-pallet">
+                                        <i class="fa fa-cube"/> <t t-esc="ev.result_package_name"/>
+                                    </span>
+                                    <span class="psa-mini-time"><t t-esc="formatDate(ev.event_date)"/></span>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+                <div t-if="userKeys.length === 0" class="psa-empty-filtered">
                     <i class="fa fa-filter fa-2x text-muted"/>
                     <p>No events match your filter.</p>
                 </div>
