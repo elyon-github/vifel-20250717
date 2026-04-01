@@ -1596,6 +1596,7 @@ class transfer_locations(models.Model):
             kg_actual_parts = []
             heads_demand_parts = []
             heads_actual_parts = []
+            uom_digit = 2 if not self.partner_id.x_studio_special_3_digit_decimal_pdf_report else 3
             
             for uom, qty in uom_totals.items():
                 qty_parts.append(f"{qty:,.2f}")
@@ -1606,21 +1607,22 @@ class transfer_locations(models.Model):
             for uom, qty in uom_totals_actual.items():
                 qty_actual_parts.append(f"{qty:,.2f}")
             for uom, kg in uom_total_actual_kg.items():
-                kg_actual_parts.append(f"{kg:,.2f}")
+                kg_actual_parts.append(f"{kg:,.{uom_digit}f}")
             for uom, kg in uom_total_demand_kg.items():
-                kg_demand_parts.append(f"{kg:,.2f}")
+                kg_demand_parts.append(f"{kg:,.{uom_digit}f}")
             for uom, heads in uom_total_actual_heads.items():
                 heads_actual_parts.append(f"{heads:,.2f}")
             for uom, heads in uom_total_demand_heads.items():
                 heads_demand_parts.append(f"{heads:,.2f}")
+            
             
             return {
                 'qty_formatted': "<br/>".join(qty_parts) if qty_parts else "0",
                 'uom_formatted': "<br/>".join(uom_parts) if uom_parts else "",
                 'qty_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in qty_demand_parts]) if qty_demand_parts else "0.00",
                 'qty_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in qty_actual_parts]) if qty_actual_parts else "0.00",
-                'kg_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_actual_parts]) if kg_actual_parts else "0.00",
-                'kg_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.2f}" for part in kg_demand_parts]) if kg_demand_parts else "0.00",
+                'kg_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.{uom_digit}f}" for part in kg_actual_parts]) if kg_actual_parts else "0.00",
+                'kg_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.{uom_digit}f}" for part in kg_demand_parts]) if kg_demand_parts else "0.00",
                 'heads_actual_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in heads_actual_parts]) if heads_actual_parts else "0.00",
                 'heads_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in heads_demand_parts]) if heads_demand_parts else "0.00"
             }
