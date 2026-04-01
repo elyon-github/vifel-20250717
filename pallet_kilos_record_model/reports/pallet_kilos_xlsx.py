@@ -543,6 +543,8 @@ class PalletKilosXlsx(models.AbstractModel):
 
     def get_formats_for_row(self, workbook, is_alt_row, formats):
         """Get appropriate formats based on whether it's an alternating row."""
+        kg_format_string = self._get_kg_format_string()
+        
         if is_alt_row:
             # Create alt row formats dynamically
             date_fmt = workbook.add_format({
