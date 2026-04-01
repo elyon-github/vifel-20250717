@@ -1243,7 +1243,7 @@ class transfer_locations(models.Model):
             else:
                 quantity = line.x_studio_2nd_uom or move.x_studio_affected_2nd_uom
                 
-            if self.partner_id.x_studio_special_no_rr_return_needed:
+            if self.partner_id.x_studio_special_no_rr_return_needed and line.x_studio_actual_kg:
                 weight = line.x_studio_actual_kg
             else:
                 weight = line.quantity or 0
@@ -1496,19 +1496,19 @@ class transfer_locations(models.Model):
                         pack_qty = move_line.x_studio_2nd_uom
                     else:
                         pack_qty = move_line.x_studio_affected_2nd_uom
-                        if self.partner_id.x_studio_special_no_rr_return_needed:
+                        if self.partner_id.x_studio_special_no_rr_return_needed and move_line.x_studio_actual_packaging:
                             pack_qty = move_line.x_studio_actual_packaging
                             
                     if hasattr(move_line, 'quantity'):
                         weight_actual = move_line.quantity
-                        if self.partner_id.x_studio_special_no_rr_return_needed:
+                        if self.partner_id.x_studio_special_no_rr_return_needed and move_line.x_studio_actual_kg:
                             weight_actual = move_line.x_studio_actual_kg
                     else:
                         weight_actual = 0
                         
                     if hasattr(move_line, 'quantity'):
                         qty_actual = move_line.quantity
-                        if self.partner_id.x_studio_special_no_rr_return_needed:
+                        if self.partner_id.x_studio_special_no_rr_return_needed and move_line.x_studio_actual_kg:
                             qty_actual = move_line.x_studio_actual_kg
                             
                     else:
