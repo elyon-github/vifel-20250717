@@ -373,7 +373,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
             'valign': 'vcenter'
         })
 
-        return header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format
+        return header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format, kg_format, kg_format_bold
 
     def _convert_to_user_timezone(self, utc_datetime):
         """Convert UTC datetime to user's timezone (UTC+8 for Philippines)"""
@@ -400,7 +400,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
             return utc_datetime
 
     def generate_header(self, sheet, sorted_records, formats, end_date):
-        header_format, _, normal_format, _, _, _, _ = formats
+        header_format, _, normal_format, _, _, _, _, _, _ = formats
         sheet.write(0, 0, sorted_records[0].owner_id.name or '', header_format)
         sheet.write(1, 0, 'BILLING DETAILS-HOLDING', header_format)
         
@@ -412,7 +412,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
         sheet.write(2, 0, date_range, normal_format)
 
     def generate_table_header(self, sheet, row_index, formats):
-        _, table_header_format, _, _, _, _, _ = formats
+        _, table_header_format, _, _, _, _, _, _, _ = formats
         table_headers = [
             'Date', 'Receiving Report No.', 'Withdrawal Report No.', 'Pallets Received',
             'Pallets Withdrawn', 'Balance in Pallets', 'Kilos Received', 'Kilos Withdrawn',
