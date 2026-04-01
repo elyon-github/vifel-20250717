@@ -1386,16 +1386,24 @@ class transfer_locations(models.Model):
         for line_idx in range(start_idx, min(end_idx, len(processed_lines))):
             line_data = processed_lines[line_idx]
             line = line_data['original_line']
+            same_quant_stocks_picked = self.env['stock.move.line'].search([
+                ('lot_id', '=', line.lot_id.id),
+                ('state', '!=', 'done'),
+                ('picking_id.id', '!=', line.picking_id.id),
+                ('picking_id.picking_type_code', '=', 'outgoing')
+            ])
             
             # Check if this line contains a pallet's first occurrence
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('package', line.package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 else 0
+
+                    
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('result_package', line.result_package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 else 0
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
                 if first_occurrence.get(pallet_id) == line_idx:
@@ -1521,27 +1529,33 @@ class transfer_locations(models.Model):
                     grouped_moves[key]['packaging_qty'] += pack_qty
                     grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if hasattr(move_line, 'x_studio_withdaw_units') else move_line.x_studio_withdraw_units
                     
+                    same_quant_stocks_picked = self.env['stock.move.line'].search([
+                        ('lot_id', '=', move_line.lot_id.id),
+                        ('state', '!=', 'done'),
+                        ('picking_id.id', '!=', move_line.picking_id.id),
+                        ('picking_id.picking_type_code', '=', 'outgoing')
+                    ])
                     # Track unique packages for pallet count
                     if move_line.package_id and not move_line.picking_id.x_studio_is_a_blast_freezer:
                         grouped_moves[key]['package_ids'].add(move_line.package_id.id)
                         if move_line.package_id.id not in package_ids:
                             package_ids.add(move_line.package_id.id)
-                            grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 else 0
+                            grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
 
                     elif move_line.bf_pallet_char and move_line.picking_id.x_studio_is_a_blast_freezer:
                         
                         grouped_moves[key]['package_ids'].add(move_line.bf_pallet_char)
                         if move_line.bf_pallet_char not in package_ids:
                             package_ids.add(move_line.bf_pallet_char)
-                            grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 else 0
+                            grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
 
                     elif move_line.result_package_id:
                         grouped_moves[key]['package_ids'].add(move_line.result_package_id.id)
                         if move_line.result_package_id.id not in package_ids:
                             package_ids.add(move_line.result_package_id.id)
-                            grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 else 0
-                            
+                            grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
 
+                    
     
                     
             # Convert to list and calculate final pallet counts

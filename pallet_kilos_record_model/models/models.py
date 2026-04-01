@@ -173,9 +173,13 @@ class PalletKilosRecordModel(models.Model):
                             building_operations[building_name]['pallets'].add(move_line.bf_pallet_char)
                     else:
                         if move_line.package_id and move_line.package_id.id not in pallets:
-                            
-                            if move_line.reserved_quantity_on_validation == 0:
-
+                            same_quant_stocks_picked = self.env['stock.move.line'].search([
+                                ('lot_id', '=', move_line.lot_id.id),
+                                ('state', '!=', 'done'),
+                                ('picking_id.id', '!=', move_line.picking_id.id),
+                                ('picking_id.picking_type_code', '=', 'outgoing')
+                            ])
+                            if move_line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked:
                                 pallet_count += 1
                                 pallets.add(move_line.package_id.id)
                                 building_operations[building_name]['pallets'].add(move_line.package_id.id)
