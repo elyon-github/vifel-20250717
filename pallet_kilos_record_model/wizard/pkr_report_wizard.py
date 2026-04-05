@@ -8,6 +8,7 @@ _logger = logging.getLogger(__name__)
 # Map selection key → XML ID of the ir.actions.report
 REPORT_MAP = {
     'pallet_monitoring': 'pallet_kilos_record_model.pallet_kilos_inventory',
+    'pallet_kilos_billing': 'pallet_kilos_record_model.pallet_kilos_billing_inventory_2',
     'daily_inventory': 'pallet_kilos_record_model.xlsx_daily_inventory',
 }
 
@@ -19,6 +20,7 @@ class PkrReportWizard(models.TransientModel):
     report_type = fields.Selection(
         [
             ('pallet_monitoring', 'Pallet Monitoring XLSX'),
+            ('pallet_kilos_billing', 'Pallet Kilos Billing XLSX'),
             ('daily_inventory', 'Daily Inventory XLSX'),
         ],
         string='Report Type',
