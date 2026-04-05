@@ -163,6 +163,26 @@ class ReturnPackageWizard(models.TransientModel):
                             location_dest_id = move_line.location_id.id
                         if location_dest_id and (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners):
                             pallet_result_id = move_line.package_id.id
+                    
+                    # Fallback: if location_dest_id is still blank, find an aisle location under the same building
+                    if not location_dest_id and move_line.location_id:
+                        if move_line.location_id.x_studio_building:
+                            # First try: find aisle location in the same building
+                            building = move_line.location_id.x_studio_building
+                            aisle_location = self.env['stock.location'].search([
+                                ('x_studio_is_an_aisle', '=', True),
+                                ('x_studio_building', '=', building.id)
+                            ], limit=1)
+                            if aisle_location:
+                                location_dest_id = aisle_location.id
+                        
+                        # Fallback to any aisle location if not found in building
+                        if not location_dest_id:
+                            aisle_location = self.env['stock.location'].search([
+                                ('x_studio_is_an_aisle', '=', True)
+                            ], limit=1)
+                            if aisle_location:
+                                location_dest_id = aisle_location.id
                     if self.return_reason != 'Partial Withdraw':
 
                                 
@@ -193,32 +213,35 @@ class ReturnPackageWizard(models.TransientModel):
                             
                         }))
                     else:
-                        lines.append((0, 0, {
-                                'select_package': False,
-                                'result_package_id': pallet_result_id,
-                                'location_dest_id': location_dest_id,
-                                'pallet_series_id': move_line.x_studio_pallet_series_id,
-                                'bf_pallet_char': move_line.bf_pallet_char,
-                                'product_id': move_line.product_id.id,
-                                'expiration_date': move_line.x_studio_expiration_date,
-                                'x_studio_building_dropped': move_line.x_studio_building_dropped,
-                                'original_record_reference': move_line.original_record_reference,
-                                'production_date': move_line.x_studio_production_date,
-                                'lot_id': move_line.lot_id.id,
-                                'stock_move_line': move_line.id,
-                                'return_counter': move_line.x_studio_return_count,
-                                'container_number': move_line.x_studio_container_number,
-                                'pack_uom_unit': move_line.x_studio_affected_2nd_uom - move_line.x_studio_actual_packaging,
-                                'min_uom_unit': move_line.x_studio_withdraw_units - move_line.x_studio_actual_min,
-                                'quantity': move_line.quantity -  move_line.x_studio_actual_kg,
-                                'pack_uom': move_line.x_studio_quantity_uom_delivery,
-                                'min_uom': move_line.x_studio_min_quantity_uom,
-                                'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
-                                'actual_min_uom_unit': move_line.x_studio_withdraw_units,
-                                'actual_quantity': move_line.quantity,
-                               'location_id':  self.picking_id.location_id.id
-                                
-                            }))
+                        # Only add line for Partial Withdraw if quantity has a value (was edited)
+                        partial_quantity = move_line.quantity - move_line.x_studio_actual_kg
+                        if partial_quantity > 0:
+                            lines.append((0, 0, {
+                                    'select_package': True,
+                                    'result_package_id': pallet_result_id,
+                                    'location_dest_id': location_dest_id,
+                                    'pallet_series_id': move_line.x_studio_pallet_series_id,
+                                    'bf_pallet_char': move_line.bf_pallet_char,
+                                    'product_id': move_line.product_id.id,
+                                    'expiration_date': move_line.x_studio_expiration_date,
+                                    'x_studio_building_dropped': move_line.x_studio_building_dropped,
+                                    'original_record_reference': move_line.original_record_reference,
+                                    'production_date': move_line.x_studio_production_date,
+                                    'lot_id': move_line.lot_id.id,
+                                    'stock_move_line': move_line.id,
+                                    'return_counter': move_line.x_studio_return_count,
+                                    'container_number': move_line.x_studio_container_number,
+                                    'pack_uom_unit': move_line.x_studio_affected_2nd_uom - move_line.x_studio_actual_packaging,
+                                    'min_uom_unit': move_line.x_studio_withdraw_units - move_line.x_studio_actual_min,
+                                    'quantity': partial_quantity,
+                                    'pack_uom': move_line.x_studio_quantity_uom_delivery,
+                                    'min_uom': move_line.x_studio_min_quantity_uom,
+                                    'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
+                                    'actual_min_uom_unit': move_line.x_studio_withdraw_units,
+                                    'actual_quantity': move_line.quantity,
+                                   'location_id':  self.picking_id.location_id.id
+                                    
+                                }))
 
                 self.package_line_ids = lines
                 self.lines_computed = True
@@ -275,6 +298,8 @@ class ReturnPackageWizard(models.TransientModel):
                 """
             else:
                 wizard.sync_warning_message = False
+
+
 
     def _find_existing_return(self):
         """Find existing return picking that is not cancelled or validated"""

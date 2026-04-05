@@ -131,7 +131,7 @@ class PalletKilosXlsx(models.AbstractModel):
             return utc_datetime
 
     def generate_header(self, sheet, sorted_records, formats, end_date):
-        header_format, _, normal_format, _, _, _, _ = formats
+        header_format, _, normal_format, _, _, _, _, _, _ = formats
         sheet.write(0, 0, sorted_records[0].owner_id.name or '', header_format)
         sheet.write(1, 0, 'BILLING DETAILS-HOLDING', header_format)
         
@@ -143,7 +143,7 @@ class PalletKilosXlsx(models.AbstractModel):
         sheet.write(2, 0, date_range, normal_format)
 
     def generate_table_header(self, sheet, row_index, formats):
-        _, table_header_format, _, _, _, _, _ = formats
+        _, table_header_format, _, _, _, _, _, _, _ = formats
         table_headers = [
             'Date', 'Receiving Report No.', 'Withdrawal Report No.', 'Pallets Received',
             'Pallets Withdrawn', 'Balance in Pallets', 'Kilos Received', 'Kilos Withdrawn',
@@ -154,7 +154,7 @@ class PalletKilosXlsx(models.AbstractModel):
 
     def generate_xlsx_report(self, workbook, data, records):
         formats = self._define_formats(workbook)
-        header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format = formats
+        header_format, table_header_format, normal_format, float_format, float_format_bold, date_format, alt_row_format, kg_format, kg_format_bold = formats
 
         records_by_owner = {}
         for record in records:
@@ -232,7 +232,7 @@ class PalletKilosXlsx(models.AbstractModel):
             current_kilo_balance = beginning_kilos
             
             # Write beginning balances
-            sheet.write(row_index-1, 8, beginning_kilos or 0, float_format)
+            sheet.write(row_index-1, 8, beginning_kilos or 0, kg_format)
             sheet.write(row_index-1, 5, beginning_pallets or 0, float_format)
             
             for current_date in date_list:
@@ -273,11 +273,14 @@ class PalletKilosXlsx(models.AbstractModel):
                     sheet.write(row_index, 0, current_date, date_format)
                     for col in range(1, 9):
                         if col in [3, 4, 6, 7]:  # Numeric columns for transactions (0 for missing dates)
-                            sheet.write(row_index, col, 0, float_format)
+                            if col in [6, 7]:  # Kilos received/withdrawn columns
+                                sheet.write(row_index, col, 0, kg_format)
+                            else:  # Pallet columns
+                                sheet.write(row_index, col, 0, float_format)
                         elif col == 5:  # Balance in Pallets (use last known balance)
                             sheet.write(row_index, col, current_pallet_balance, float_format)
                         elif col == 8:  # Balance in Kilos (use last known balance)
-                            sheet.write(row_index, col, current_kilo_balance, float_format)
+                            sheet.write(row_index, col, current_kilo_balance, kg_format)
                         else:  # Text columns (RR/WR numbers)
                             sheet.write(row_index, col, '-', base_format)
                     row_index += 1
@@ -287,6 +290,7 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.write(row_index, 4, summation['total_pallets_withdrawn'], float_format_bold)
             sheet.write(row_index, 6, summation['total_kilos_received'], kg_format_bold)
             sheet.write(row_index, 7, summation['total_kilos_withdrawn'], kg_format_bold)
+            sheet.write(row_index, 8, current_kilo_balance, kg_format_bold)
 
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)
 
@@ -537,11 +541,14 @@ class PalletKilosXlsx_2(models.AbstractModel):
                     sheet.write(row_index, 0, current_date, date_format)
                     for col in range(1, 9):
                         if col in [3, 4, 6, 7]:  # Numeric columns for transactions (0 for missing dates)
-                            sheet.write(row_index, col, 0, float_format)
+                            if col in [6, 7]:  # Kilos received/withdrawn columns
+                                sheet.write(row_index, col, 0, kg_format)
+                            else:  # Pallet columns
+                                sheet.write(row_index, col, 0, float_format)
                         elif col == 5:  # Balance in Pallets (use last known balance)
                             sheet.write(row_index, col, current_pallet_balance, float_format)
                         elif col == 8:  # Balance in Kilos (use last known balance)
-                            sheet.write(row_index, col, current_kilo_balance, float_format)
+                            sheet.write(row_index, col, current_kilo_balance, kg_format)
                         else:  # Text columns (RR/WR numbers)
                             sheet.write(row_index, col, '-', base_format)
                     row_index += 1
@@ -551,5 +558,6 @@ class PalletKilosXlsx_2(models.AbstractModel):
             sheet.write(row_index, 4, summation['total_pallets_withdrawn'], float_format_bold)
             sheet.write(row_index, 6, summation['total_kilos_received'], kg_format_bold)
             sheet.write(row_index, 7, summation['total_kilos_withdrawn'], kg_format_bold)
+            sheet.write(row_index, 8, current_kilo_balance, kg_format_bold)
 
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)

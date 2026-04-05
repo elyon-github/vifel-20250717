@@ -43,10 +43,9 @@
                     <div class="alert alert-warning" role="alert" invisible="not has_sync_warnings">
                         <field name="sync_warning_message" nolabel="1"/>
                     </div>
-                    <!-- Additional Warning Message -->
-                    <div class="alert alert-warning" role="alert" invisible="not return_reason">
-                        <strong>Note:</strong> Some <strong>Pallet #</strong> and <strong>Location</strong> fields may appear blank because the selected pallets are already <strong>used or reserved</strong> in another transfer.  
-                        Please review and <strong>manually assign the correct Pallet # and Location</strong> before proceeding.
+                    <!-- Note on Destination Location Behavior -->
+                    <div class="alert alert-info" role="alert" invisible="not return_reason">
+                        <strong><i class="fa fa-info-circle"></i> Destination Location Assignment:</strong> When the original location is already occupied or reserved, the system automatically assigns <strong>Aisle locations</strong> as an alternative destination. Please review the assigned locations and manually adjust if needed before proceeding.
                     </div>
 
                     <!-- Notebook with full width -->
@@ -74,13 +73,16 @@
                                         <field name="result_package_id" domain="[
                                                                                ('location_id', '=', False), 
                                                                                ('x_studio_is_reserved', '=', False)
-                                                                           ]" force_save="1" readonly="is_a_blast_freeze"/>
+                                                                           ]" force_save="1" readonly="is_a_blast_freeze" options="{'no_create': True}"/>
                                         <field name="location_dest_id" domain="[
-                                                                                ('x_studio_occupied_by_1', '=', False),
-                                                                                ('x_studio_is_reserved', '=', False), 
                                                                                 ('child_ids', '=', False),
-                                                                                ('id', 'child_of', location_id)
-                                                                            ]" force_save="1"/>
+                                                                                ('id', 'child_of', location_id),
+                                                                                '|',
+                                                                                ('x_studio_is_an_aisle', '=', True),
+                                                                                '&amp;',
+                                                                                ('x_studio_occupied_by_1', '=', False),
+                                                                                ('x_studio_is_reserved', '=', False)
+                                                                            ]" force_save="1" options="{'no_create': True}"/>
                                         <field name="container_number" force_save="1"/>
                                         <field name="production_date" force_save="1"/>
                                         <field name="expiration_date" force_save="1"/>
