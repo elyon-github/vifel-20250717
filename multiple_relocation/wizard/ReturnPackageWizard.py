@@ -217,7 +217,7 @@ class ReturnPackageWizard(models.TransientModel):
                         partial_quantity = move_line.quantity - move_line.x_studio_actual_kg
                         if partial_quantity > 0:
                             lines.append((0, 0, {
-                                    'select_package': False,
+                                    'select_package': True,
                                     'result_package_id': pallet_result_id,
                                     'location_dest_id': location_dest_id,
                                     'pallet_series_id': move_line.x_studio_pallet_series_id,
