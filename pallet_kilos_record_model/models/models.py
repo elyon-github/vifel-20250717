@@ -179,7 +179,7 @@ class PalletKilosRecordModel(models.Model):
                                 ('picking_id.id', '!=', move_line.picking_id.id),
                                 ('picking_id.picking_type_code', '=', 'outgoing')
                             ])
-                            if move_line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked:
+                            if move_line.reserved_quantity_on_validation == 0:
                                 pallet_count += 1
                                 pallets.add(move_line.package_id.id)
                                 building_operations[building_name]['pallets'].add(move_line.package_id.id)
