@@ -1150,13 +1150,25 @@ class transfer_locations(models.Model):
             for line in move.move_line_ids:
                 all_move_lines.append(line)
         
-        # Sort by product name, then pallet series ID, then container number, then production date (deterministic ordering)
-        sorted_move_lines = sorted(all_move_lines, key=lambda l: (
-            l.product_id.name if l.product_id else '',
-            l.x_studio_pallet_series_id or '',
-            l.x_studio_container_number or '',
-            l.x_studio_production_date or ''
-        ))
+        # Sort by description key (product|container|prod_date|exp_date) first, then by pallet series ID (groups items with same description together)
+        def get_sort_key(line):
+            product_name = line.product_id.name if line.product_id else ''
+            container_number = line.x_studio_container_number or ''
+            
+            production_date = ''
+            if line.x_studio_production_date:
+                production_date = line.x_studio_production_date.strftime('%b%d.%Y').upper()
+            
+            expiration_date = ''
+            if line.x_studio_expiration_date:
+                expiration_date = line.x_studio_expiration_date.strftime('%b%d.%Y').upper()
+            
+            description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+            pallet_id = line.x_studio_pallet_series_id or ''
+            
+            return (description_key, pallet_id)
+        
+        sorted_move_lines = sorted(all_move_lines, key=get_sort_key)
         
         processed_lines = []
         seen_descriptions = set()
