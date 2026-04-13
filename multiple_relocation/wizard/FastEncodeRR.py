@@ -599,8 +599,17 @@ class FastEncodeRRWizardLine(models.TransientModel):
         
         NOTE: Cascade detection is NOT done here — onchange on transient models
         is unreliable for cross-record writes. Cascade is handled in write() override.
+        
+        NOTE: For return RRs (detected by transfer_id.return_id), skip all re-sync
+        logic — user changes are applied as-is without auto-assignment.
         """
         for record in self:
+            # Skip auto-sync for return RRs — let user assign pallet freely
+            if record.transfer_id:
+                picking = self.env['stock.picking'].browse(record.transfer_id)
+                if picking.exists() and picking.return_id:
+                    continue  # Return RR detected, skip all sync logic
+            
             if not record.result_package_id:
                 # Pallet cleared — try to restore original, or flag for NEW
                 series, needs_new = record._resolve_series_for_unique_line()

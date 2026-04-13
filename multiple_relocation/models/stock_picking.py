@@ -2090,6 +2090,8 @@ class transfer_locations(models.Model):
     
         
     def action_return_packages(self):
+        if self.partner_id.x_studio_special_no_rr_return_needed:
+            raise UserError("You cannot create a return for Special No RR Return Needed customers. Please contact your Inventory Supervisor if you really think you need to create a return for this customer.")
         return {
             'type': 'ir.actions.act_window',
             'name': 'Return Packages',

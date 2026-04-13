@@ -10,7 +10,7 @@ class ReturnPackageWizardLine(models.TransientModel):
 
     wizard_id = fields.Many2one('return.package.wizard', string="Wizard")
     select_package = fields.Boolean(string="Select")
-    result_package_id = fields.Many2one('stock.quant.package', string="Pallet" , domain="[('location_id', '=', False), ('x_studio_is_reserved', '=', False)]")
+    result_package_id = fields.Many2one('stock.quant.package', string="Pallet #" , domain="[('location_id', '=', False), ('x_studio_is_reserved', '=', False)]")
     pallet_series_id = fields.Char(string='Pallet Series ID')
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     product_id = fields.Many2one('product.product', string="Products")
@@ -23,8 +23,10 @@ class ReturnPackageWizardLine(models.TransientModel):
     pack_uom_unit = fields.Float(string="Actual Quantity")
     min_uom_unit = fields.Float(string="Actual Packs")
     location_dest_id = fields.Many2one('stock.location', string="Destination Location")
-    pack_uom = fields.Many2one('uom.uom', string='Unit of Measure')
-    min_uom = fields.Many2one('uom.uom', string='Unit of Measure')
+    location_dest_id_is_fallback = fields.Boolean(string="Location is Fallback", default=False)
+    result_package_id_is_fallback = fields.Boolean(string="Pallet is Fallback", default=False)
+    pack_uom = fields.Many2one('uom.uom', string='Unit of Measure', readonly=True)
+    min_uom = fields.Many2one('uom.uom', string='Unit of Measure', readonly=True)
     actual_quantity = fields.Float(string="Original Weight (KG)", digits='Product Unit of Measure')
     actual_pack_uom_unit = fields.Float(string="Original Quantity Unit")
     actual_min_uom_unit = fields.Float(string="Original Packs Unit")
@@ -165,6 +167,7 @@ class ReturnPackageWizard(models.TransientModel):
                             pallet_result_id = move_line.package_id.id
                     
                     # Fallback: if location_dest_id is still blank, find an aisle location under the same building
+                    location_dest_id_is_fallback = False
                     if not location_dest_id and move_line.location_id:
                         if move_line.location_id.x_studio_building:
                             # First try: find aisle location in the same building
@@ -175,6 +178,7 @@ class ReturnPackageWizard(models.TransientModel):
                             ], limit=1)
                             if aisle_location:
                                 location_dest_id = aisle_location.id
+                                location_dest_id_is_fallback = True
                         
                         # Fallback to any aisle location if not found in building
                         if not location_dest_id:
@@ -183,13 +187,29 @@ class ReturnPackageWizard(models.TransientModel):
                             ], limit=1)
                             if aisle_location:
                                 location_dest_id = aisle_location.id
+                                location_dest_id_is_fallback = True
+                    
+                    # Fallback: if pallet_result_id is still blank, find an unoccupied unreserved pallet with "NP" in name
+                    result_package_id_is_fallback = False
+                    if not pallet_result_id:
+                        np_pallet = self.env['stock.quant.package'].search([
+                            ('name', 'ilike', 'NP'),
+                            ('location_id', '=', False),
+                            ('x_studio_is_reserved', '=', False)
+                        ], limit=1)
+                        if np_pallet:
+                            pallet_result_id = np_pallet.id
+                            result_package_id_is_fallback = True
+                    
                     if self.return_reason != 'Partial Withdraw':
 
                                 
                         lines.append((0, 0, {
                             'select_package': False,
                             'result_package_id': pallet_result_id,
+                            'result_package_id_is_fallback': result_package_id_is_fallback,
                             'location_dest_id': location_dest_id,
+                            'location_dest_id_is_fallback': location_dest_id_is_fallback,
                             'pallet_series_id': move_line.x_studio_pallet_series_id,
                             'bf_pallet_char': move_line.bf_pallet_char,
                             'product_id': move_line.product_id.id,
@@ -215,11 +235,14 @@ class ReturnPackageWizard(models.TransientModel):
                     else:
                         # Only add line for Partial Withdraw if quantity has a value (was edited)
                         partial_quantity = move_line.quantity - move_line.x_studio_actual_kg
+                        
                         if partial_quantity > 0:
                             lines.append((0, 0, {
                                     'select_package': True,
                                     'result_package_id': pallet_result_id,
+                                    'result_package_id_is_fallback': result_package_id_is_fallback,
                                     'location_dest_id': location_dest_id,
+                                    'location_dest_id_is_fallback': location_dest_id_is_fallback,
                                     'pallet_series_id': move_line.x_studio_pallet_series_id,
                                     'bf_pallet_char': move_line.bf_pallet_char,
                                     'product_id': move_line.product_id.id,
