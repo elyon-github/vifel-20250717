@@ -43,9 +43,9 @@
                     <div class="alert alert-warning" role="alert" invisible="not has_sync_warnings">
                         <field name="sync_warning_message" nolabel="1"/>
                     </div>
-                    <!-- Note on Destination Location Behavior -->
+                    <!-- Note on Destination Location and Pallet Behavior -->
                     <div class="alert alert-info" role="alert" invisible="not return_reason">
-                        <strong><i class="fa fa-info-circle"></i> Destination Location Assignment:</strong> When the original location is already occupied or reserved, the system automatically assigns <strong>Aisle locations</strong> as an alternative destination. Please review the assigned locations and manually adjust if needed before proceeding.
+                        <strong><i class="fa fa-info-circle"></i> Automatic Assignment:</strong> When locations/pallets are unavailable, the system automatically assigns: <strong>Aisle locations</strong> for destinations and <strong>NP Pallets</strong> (unoccupied, unreserved) for pallet assignment. <strong style="color: #FF9800;">Automatically assigned values are highlighted in orange.</strong> Please review assigned values and manually adjust if needed before proceeding.
                     </div>
 
                     <!-- Notebook with full width -->
@@ -58,7 +58,7 @@
                                         <field name="pallet_type" column_invisible="1" invisible="1"/>
                                         <field name="warehouse_id" column_invisible="1" invisible="1"/>
                                         <field name="lot_id" column_invisible="1" invisible="1"/>
-                                        <field name="select_package"/>
+                                        <field name="select_package" force_save="1"/>
 
                                         <field name="is_a_blast_freeze" column_invisible="1"/>
                                         <field name="has_pack_sync_issue" column_invisible="1"/>
@@ -69,11 +69,13 @@
                                         <field name="product_id" readonly="1" force_save="1" />
                                         <field name="return_counter" readonly="1" force_save="1" />
                                         <field name="pallet_series_id" readonly="1"  force_save="1" />
-                                        <field name="bf_pallet_char" readonly="not is_a_blast_freeze" force_save="1" />
+                                        <field name="bf_pallet_char" readonly="not is_a_blast_freeze" invisible="not is_a_blast_freeze" column_invisible="context.get('hide_blast_freeze_pallet', True)" force_save="1" />
+                                        <field name="result_package_id_is_fallback" column_invisible="1" invisible="1"/>
                                         <field name="result_package_id" domain="[
                                                                                ('location_id', '=', False), 
                                                                                ('x_studio_is_reserved', '=', False)
-                                                                           ]" force_save="1" readonly="is_a_blast_freeze" options="{'no_create': True}"/>
+                                                                           ]" force_save="1" readonly="is_a_blast_freeze" options="{'no_create': True}" decoration-warning="result_package_id_is_fallback"/>
+                                        <field name="location_dest_id_is_fallback" column_invisible="1" invisible="1"/>
                                         <field name="location_dest_id" domain="[
                                                                                 ('child_ids', '=', False),
                                                                                 ('id', 'child_of', location_id),
@@ -82,7 +84,7 @@
                                                                                 '&amp;',
                                                                                 ('x_studio_occupied_by_1', '=', False),
                                                                                 ('x_studio_is_reserved', '=', False)
-                                                                            ]" force_save="1" options="{'no_create': True}"/>
+                                                                            ]" force_save="1" options="{'no_create': True}" decoration-warning="location_dest_id_is_fallback"/>
                                         <field name="container_number" force_save="1"/>
                                         <field name="production_date" force_save="1"/>
                                         <field name="expiration_date" force_save="1"/>
