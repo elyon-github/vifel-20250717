@@ -193,6 +193,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'old_x_studio_total_units': quant.x_studio_total_units,
             'old_x_studio_quantity_uom': quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
             'old_x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
+            'old_x_studio_container_number': quant.x_studio_container_number,
             'new_package_id': wizard_line.package_id.id if wizard_line.package_id else False,
             'new_product_id': wizard_line.product_id.id,
             'new_quantity': wizard_line.quantity,
@@ -204,6 +205,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'new_x_studio_total_units': wizard_line.x_studio_total_units,
             'new_x_studio_quantity_uom': wizard_line.x_studio_quantity_uom.id if wizard_line.x_studio_quantity_uom else False,
             'new_x_studio_min_quantity_uom': wizard_line.x_studio_min_quantity_uom.id if wizard_line.x_studio_min_quantity_uom else False,
+            'new_x_studio_container_number': wizard_line.x_studio_container_number,
         }
         
         return self.env['stock.quant.adjustment.line'].create(line_vals)
@@ -626,6 +628,9 @@ class StockQuantCorrectionLine(models.TransientModel):
             'owner_id': ('owner_id', lambda x: x.id if x else False),
             'quantity': ('quantity', float),
             'x_studio_return_count': ('x_studio_return_count', int),
+            'x_studio_production_date': ('x_studio_production_date', str),
+            'x_studio_expiration_date': ('x_studio_expiration_date', str),
+            'x_studio_container_number': ('x_studio_container_number', str),
         }
         
         for wizard_field, (quant_field, converter) in field_mapping.items():
@@ -1057,6 +1062,7 @@ class StockQuantAdjustmentLine(models.Model):
     old_x_studio_total_units = fields.Float(string='Old Total Heads', readonly=True, digits='Product Unit of Measure')
     old_x_studio_quantity_uom = fields.Many2one('uom.uom', string='Old Quantity UOM', readonly=True)
     old_x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Old Heads UOM', readonly=True)
+    old_x_studio_container_number = fields.Char(string='Old Container #', readonly=True)
     
     # NEW VALUES
     new_package_id = fields.Many2one('stock.quant.package', string='New Pallet #')
@@ -1070,6 +1076,7 @@ class StockQuantAdjustmentLine(models.Model):
     new_x_studio_total_units = fields.Float(string='New Total Heads', digits='Product Unit of Measure')
     new_x_studio_quantity_uom = fields.Many2one('uom.uom', string='New Quantity UOM')
     new_x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='New Heads UOM')
+    new_x_studio_container_number = fields.Char(string='New Container #')
 
 
     changed_fields_display = fields.Html(string='Changes', compute='_compute_changed_fields_display')
@@ -1079,7 +1086,10 @@ class StockQuantAdjustmentLine(models.Model):
                  'old_x_studio_total_units', 'new_x_studio_total_units',
                  'old_x_studio_quantity_uom', 'new_x_studio_quantity_uom',
                  'old_x_studio_min_quantity_uom', 'new_x_studio_min_quantity_uom',
-                 'old_owner_id', 'new_owner_id')
+                 'old_owner_id', 'new_owner_id',
+                 'old_x_studio_production_date', 'new_x_studio_production_date',
+                 'old_x_studio_expiration_date', 'new_x_studio_expiration_date',
+                 'old_x_studio_container_number', 'new_x_studio_container_number')
     def _compute_changed_fields_display(self):
         """Compute HTML display of only the fields that changed"""
         for line in self:
@@ -1098,6 +1108,9 @@ class StockQuantAdjustmentLine(models.Model):
                 'x_studio_quantity_uom': 'Quantity UOM',
                 'x_studio_total_units': 'Total Heads',
                 'x_studio_min_quantity_uom': 'Heads UOM',
+                'x_studio_production_date': 'Production Date',
+                'x_studio_expiration_date': 'Expiration Date',
+                'x_studio_container_number': 'Container #',
             }
             
             for field_name, (old_val, new_val) in changes.items():
@@ -1233,6 +1246,9 @@ class StockQuantAdjustmentLine(models.Model):
             'x_studio_total_units': ('x_studio_total_units', float),
             'x_studio_quantity_uom': ('x_studio_quantity_uom', lambda x: x.id if x else False),
             'x_studio_min_quantity_uom': ('x_studio_min_quantity_uom', lambda x: x.id if x else False),
+            'x_studio_production_date': ('x_studio_production_date', str),
+            'x_studio_expiration_date': ('x_studio_expiration_date', str),
+            'x_studio_container_number': ('x_studio_container_number', str),
         }
         
         for base_field, (field_name, converter) in field_mapping.items():
