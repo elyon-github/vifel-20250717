@@ -264,122 +264,110 @@ class DailyInventoryXlsx(models.AbstractModel):
             d += datetime.timedelta(days=1)
         
         return comp
-
+    
     def generate_xlsx_report(self, workbook, data, lines):
         formats = self._define_formats(workbook)
-        header_format, table_header_format, summary_format, normal_format, date_format, float_format, float_format_bold, pct_format, alt_row_format = formats
-        
-        # group by warehouse
+        header_format, table_header_format, summary_format, normal_format, \
+            date_format, float_format, float_format_bold, pct_format, alt_row_format = formats
+    
+        kg_format_string = self._get_kg_format_string()
+    
+        # Group by warehouse
         by_w = {}
-        for ln in lines: 
+        for ln in lines:
             by_w.setdefault(ln.warehouse.name, []).append(ln)
-        
+    
         for wh, recs in sorted(by_w.items()):
             sheet = workbook.add_worksheet(wh[:31])
-            
-            # Set column widths for better readability
-            sheet.set_column(0, 0, 15)   # Date
-            sheet.set_column(1, 2, 18)   # Pallets Received/Withdrawn
-            sheet.set_column(3, 3, 20)   # Balance in Pallets
-            sheet.set_column(4, 5, 18)   # Kilos Received/Withdrawn
-            sheet.set_column(6, 6, 18)   # Balance in Kilos
-            sheet.set_column(7, 7, 18)   # Average Pallets
-            sheet.set_column(8, 8, 22)   # Capacity Rate Pallets
-            sheet.set_column(9, 9, 18)   # Average Kilos
-            sheet.set_column(10, 10, 22) # Capacity Rate Kilos
-            
-            # Freeze panes for easier navigation
+    
+            sheet.set_column(0, 0, 15)
+            sheet.set_column(1, 2, 18)
+            sheet.set_column(3, 3, 20)
+            sheet.set_column(4, 5, 18)
+            sheet.set_column(6, 6, 18)
+            sheet.set_column(7, 7, 18)
+            sheet.set_column(8, 8, 22)
+            sheet.set_column(9, 9, 18)
+            sheet.set_column(10, 10, 22)
             sheet.freeze_panes(4, 1)
-            
+    
             self.generate_header(sheet, wh, formats)
             filled = self.fill_missing_dates(recs)
             self.generate_summary(sheet, filled, formats)
             self.generate_table_header(sheet, 3, formats)
-            
-            # write data
-            tot_pr = tot_pw = tot_kr = tot_kw = 0
-            transaction_days_p = transaction_days_k = 0
-            
+    
+            # ✅ Move warehouse variable lookup OUTSIDE the row loop
+            vars = self.env['x_inventory_static_var'].search([
+                '&',
+                ('x_studio_use_case', '=', 'XLSX Variables'),
+                ('x_studio_warehouse.name', '=', wh)
+            ])
+            maxkg_rec = next((v for v in vars if v.x_name == 'Max Kilograms (KG)'), None)
+            maxpl_rec = next((v for v in vars if v.x_name == 'Max Pallets'), None)
+            maxpl_val = maxpl_rec.x_studio_float_value if maxpl_rec and maxpl_rec.x_studio_float_value else 0
+            maxkg_val = maxkg_rec.x_studio_float_value if maxkg_rec and maxkg_rec.x_studio_float_value else 0
+    
+            # ✅ Compute true simple averages across ALL days (including zero-transaction days)
+            #    Average = total received across all days / total number of days
+            total_days = len(filled)
+            total_pr = sum(x['pallets_received'] for x in filled)
+            total_kr = sum(x['kilos_received'] for x in filled)
+    
+            avg_p = total_pr / total_days if total_days > 0 else 0
+            avg_k = total_kr / total_days if total_days > 0 else 0
+    
+            # ✅ Capacity rate = current balance / max capacity (occupancy, not inflow rate)
+            #    Computed per row using that day's closing balance
             for i, itm in enumerate(filled, 1):
-                tot_pr += itm['pallets_received']
-                tot_pw += itm['pallets_withdrawn']
-                tot_kr += itm['kilos_received'] 
-                tot_kw += itm['kilos_withdrawn']
-                
-                # Count days with actual transactions for averages
-                if itm['pallets_received'] > 0:
-                    transaction_days_p += 1
-                if itm['kilos_received'] > 0:
-                    transaction_days_k += 1
-                
-                # Calculate averages based on transaction days only
-                avg_p = tot_pr / transaction_days_p if transaction_days_p > 0 else 0
-                avg_k = tot_kr / transaction_days_k if transaction_days_k > 0 else 0
-                
-                vars = self.env['x_inventory_static_var'].search([
-                    '&', 
-                    ('x_studio_use_case', '=', 'XLSX Variables'),
-                    ('x_studio_warehouse.name', '=', wh)
-                ])
-                
-                maxkg = next((v for v in vars if v.x_name == 'Max Kilograms (KG)'), None)
-                maxpl = next((v for v in vars if v.x_name == 'Max Pallets'), None)
-                
-                cap_p = avg_p / maxpl.x_studio_float_value if maxpl and maxpl.x_studio_float_value else 0
-                cap_k = avg_k / maxkg.x_studio_float_value if maxkg and maxkg.x_studio_float_value else 0
-                
-                # Determine if this should be an alternating row
+                overall_pallets = itm['overall_pallets']
+                overall_kilos   = itm['overall_kilos']
+    
+                cap_p = overall_pallets / maxpl_val if maxpl_val else 0
+                cap_k = overall_kilos   / maxkg_val if maxkg_val else 0
+    
                 is_alt_row = (i % 2 == 0)
-                
                 r = 3 + i
-                c = 0
-                
-                # Apply alternating row formatting for date
+    
                 if is_alt_row:
-                    alt_date_format = workbook.add_format({
+                    alt_date_fmt = workbook.add_format({
                         'font_name': 'Calibri', 'font_size': 11,
                         'num_format': 'mm/dd/yyyy',
                         'align': 'left', 'valign': 'vcenter',
                         'border': 1, 'bg_color': '#F2F2F2'
                     })
-                    alt_float_format = workbook.add_format({
+                    alt_float_fmt = workbook.add_format({
                         'font_name': 'Calibri', 'font_size': 11,
-                        'num_format': '#,##0.00',
+                        'num_format': kg_format_string,   # ✅ dynamic, not hardcoded
                         'align': 'right', 'valign': 'vcenter',
                         'border': 1, 'bg_color': '#F2F2F2'
                     })
-                    alt_pct_format = workbook.add_format({
+                    alt_pct_fmt = workbook.add_format({
                         'font_name': 'Calibri', 'font_size': 11,
                         'num_format': '0.00%',
                         'align': 'right', 'valign': 'vcenter',
                         'border': 1, 'bg_color': '#F2F2F2'
                     })
-                    
-                    sheet.write(r, c, itm['start_time'].replace(tzinfo=None), alt_date_format); c += 1
-                    sheet.write(r, c, itm['pallets_received'], alt_float_format); c += 1
-                    sheet.write(r, c, itm['pallets_withdrawn'], alt_float_format); c += 1
-                    sheet.write(r, c, itm['overall_pallets'], alt_float_format); c += 1
-                    sheet.write(r, c, itm['kilos_received'], alt_float_format); c += 1
-                    sheet.write(r, c, itm['kilos_withdrawn'], alt_float_format); c += 1
-                    sheet.write(r, c, itm['overall_kilos'], alt_float_format); c += 1
-                    sheet.write(r, c, avg_p, alt_float_format); c += 1
-                    sheet.write(r, c, cap_p, alt_pct_format); c += 1
-                    sheet.write(r, c, avg_k, alt_float_format); c += 1
-                    sheet.write(r, c, cap_k, alt_pct_format)
+                    d_fmt  = alt_date_fmt
+                    f_fmt  = alt_float_fmt
+                    p_fmt  = alt_pct_fmt
                 else:
-                    sheet.write(r, c, itm['start_time'].replace(tzinfo=None), date_format); c += 1
-                    sheet.write(r, c, itm['pallets_received'], float_format); c += 1
-                    sheet.write(r, c, itm['pallets_withdrawn'], float_format); c += 1
-                    sheet.write(r, c, itm['overall_pallets'], float_format); c += 1
-                    sheet.write(r, c, itm['kilos_received'], float_format); c += 1
-                    sheet.write(r, c, itm['kilos_withdrawn'], float_format); c += 1
-                    sheet.write(r, c, itm['overall_kilos'], float_format); c += 1
-                    sheet.write(r, c, avg_p, float_format); c += 1
-                    sheet.write(r, c, cap_p, pct_format); c += 1
-                    sheet.write(r, c, avg_k, float_format); c += 1
-                    sheet.write(r, c, cap_k, pct_format)
-                
-                # Set row height for better appearance
+                    d_fmt = date_format
+                    f_fmt = float_format
+                    p_fmt = pct_format
+    
+                c = 0
+                sheet.write(r, c, itm['start_time'].replace(tzinfo=None), d_fmt);  c += 1
+                sheet.write(r, c, itm['pallets_received'],  f_fmt);                c += 1
+                sheet.write(r, c, itm['pallets_withdrawn'], f_fmt);                c += 1
+                sheet.write(r, c, overall_pallets,          f_fmt);                c += 1
+                sheet.write(r, c, itm['kilos_received'],    f_fmt);                c += 1
+                sheet.write(r, c, itm['kilos_withdrawn'],   f_fmt);                c += 1
+                sheet.write(r, c, overall_kilos,            f_fmt);                c += 1
+                sheet.write(r, c, avg_p,  f_fmt);                                  c += 1  # ✅ same avg every row
+                sheet.write(r, c, cap_p,  p_fmt);                                  c += 1  # ✅ per-row occupancy
+                sheet.write(r, c, avg_k,  f_fmt);                                  c += 1
+                sheet.write(r, c, cap_k,  p_fmt)
+    
                 sheet.set_row(r, 20)
-        
+    
         return True
