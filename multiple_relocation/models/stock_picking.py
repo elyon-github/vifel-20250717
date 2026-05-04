@@ -1915,6 +1915,24 @@ class transfer_locations(models.Model):
 
         return sorted(list(uom_set))
 
+    # def get_picklist_sorted_move_line_ids(self):
+    #     """
+    #     Returns move lines sorted by container number to keep the same containers grouped together in the picklist.
+    #     Sorting order: product name -> container_number -> pallet_series_id
+    #     Returns: Sorted recordset of move.line ordered by container grouping
+    #     """
+    #     move_lines = self.move_line_ids
+
+    #     # Sort by product name, then container number, then pallet series for deterministic grouping
+    #     def get_sort_key(line):
+    #         product_name = line.product_id.name if line.product_id else ''
+    #         container = line.x_studio_container_number or ''
+    #         pallet_id = line.x_studio_pallet_series_id or ''
+    #         return (product_name, container, pallet_id)
+
+    #     sorted_lines = sorted(move_lines, key=get_sort_key)
+    #     return self.env['stock.move.line'].browse([l.id for l in sorted_lines])
+
     def get_picklist_sorted_move_line_ids(self):
         """
         Returns move lines sorted by container number to keep the same containers grouped together in the picklist.
@@ -1923,12 +1941,16 @@ class transfer_locations(models.Model):
         """
         move_lines = self.move_line_ids
 
-        # Sort by product name, then container number, then pallet series for deterministic grouping
+        # Sort by product name → production date → expiration date → container → pallet series
         def get_sort_key(line):
             product_name = line.product_id.name if line.product_id else ''
+            prod_date = str(
+                line.x_studio_production_date) if line.x_studio_production_date else ''
+            exp_date = str(
+                line.x_studio_expiration_date) if line.x_studio_expiration_date else ''
             container = line.x_studio_container_number or ''
             pallet_id = line.x_studio_pallet_series_id or ''
-            return (product_name, container, pallet_id)
+            return (product_name, prod_date, exp_date, container, pallet_id)
 
         sorted_lines = sorted(move_lines, key=get_sort_key)
         return self.env['stock.move.line'].browse([l.id for l in sorted_lines])
