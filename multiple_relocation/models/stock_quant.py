@@ -372,7 +372,7 @@ class multiple_relocation(models.TransientModel):
         self._log_multiple_packages_per_location()
         
         # If there are any errors, raise them all at once
-        if errors and self.quant_relocation_line_ids and self.quant_relocation_line_ids[0].quant_id.x_studio_record_reference.x_studio_is_a_blast_freezer:
+        if errors and self.quant_relocation_line_ids and not self.quant_relocation_line_ids[0].quant_id.x_studio_record_reference.x_studio_is_a_blast_freezer:
             error_msg = "❌ Relocation Validation Failed:\n\n" + "\n".join([f"  • {err}" for err in errors])
             raise UserError(error_msg)
         
