@@ -10,7 +10,11 @@ REPORT_MAP = {
     'pallet_monitoring': 'pallet_kilos_record_model.pallet_kilos_inventory',
     'pallet_kilos_billing': 'pallet_kilos_record_model.pallet_kilos_billing_inventory_2',
     'daily_inventory': 'pallet_kilos_record_model.xlsx_daily_inventory',
+    'daily_pallet_utilization': 'pallet_kilos_record_model.xlsx_daily_pallet_utilization',
 }
+
+# Reports that take an as-of-now snapshot and don't need a date range
+SNAPSHOT_REPORTS = {'daily_pallet_utilization'}
 
 
 class PkrReportWizard(models.TransientModel):
@@ -22,6 +26,7 @@ class PkrReportWizard(models.TransientModel):
             ('pallet_monitoring', 'Pallet Monitoring XLSX'),
             ('pallet_kilos_billing', 'Pallet Kilos Billing XLSX'),
             ('daily_inventory', 'Daily Inventory XLSX'),
+            ('daily_pallet_utilization', 'Daily Pallet Utilization XLSX'),
         ],
         string='Report Type',
         required=True,
@@ -32,23 +37,48 @@ class PkrReportWizard(models.TransientModel):
         string='Clients',
         help='Leave empty to include all clients.',
     )
-    date_from = fields.Date(
-        string='Start Date',
-        required=True,
+    building_ids = fields.Many2many(
+        'x_warehouse_building',
+        'pkr_wizard_building_rel',
+        'wizard_id',
+        'building_id',
+        string='Buildings',
+        help='Leave empty to include all buildings.',
     )
-    date_to = fields.Date(
-        string='End Date',
-        required=True,
+    date_from = fields.Date(string='Start Date')
+    date_to = fields.Date(string='End Date')
+
+    is_snapshot_report = fields.Boolean(
+        compute='_compute_is_snapshot_report',
+        store=False,
     )
 
-    @api.constrains('date_from', 'date_to')
+    @api.depends('report_type')
+    def _compute_is_snapshot_report(self):
+        for rec in self:
+            rec.is_snapshot_report = rec.report_type in SNAPSHOT_REPORTS
+
+    @api.constrains('report_type', 'date_from', 'date_to')
     def _check_dates(self):
         for rec in self:
+            if rec.report_type in SNAPSHOT_REPORTS:
+                continue
+            if not rec.date_from or not rec.date_to:
+                raise UserError(_("Start Date and End Date are required for this report."))
             if rec.date_from > rec.date_to:
                 raise UserError(_("Start Date must be before End Date."))
 
     def action_generate_report(self):
         self.ensure_one()
+
+        xml_id = REPORT_MAP.get(self.report_type)
+        if not xml_id:
+            raise UserError(_("Unknown report type: %s") % self.report_type)
+        report_action = self.env.ref(xml_id)
+
+        # As-of-now snapshot reports don't need transaction records — pass the wizard itself
+        if self.report_type in SNAPSHOT_REPORTS:
+            return report_action.report_action(self)
 
         domain = [
             ('start_time', '>=', fields.Datetime.to_string(
@@ -73,9 +103,4 @@ class PkrReportWizard(models.TransientModel):
                 "(%s to %s)."
             ) % (self.date_from, self.date_to))
 
-        xml_id = REPORT_MAP.get(self.report_type)
-        if not xml_id:
-            raise UserError(_("Unknown report type: %s") % self.report_type)
-
-        report_action = self.env.ref(xml_id)
         return report_action.report_action(records)
