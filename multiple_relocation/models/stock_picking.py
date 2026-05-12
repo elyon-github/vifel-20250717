@@ -621,7 +621,9 @@ class transfer_locations(models.Model):
             rr_pallet_series_ids = record.move_line_ids.mapped(
                 'x_studio_pallet_series_id')
             rr_pallet_series_ids = [p for p in rr_pallet_series_ids if p]
-
+            package_ids = record.move_line_ids.mapped(
+                'result_package_id')
+            
             if rr_pallet_series_ids:
                 child_location_ids = self.env['stock.location'].search([
                     ('id', 'child_of', existing_void_wr.location_id.id)
@@ -629,6 +631,7 @@ class transfer_locations(models.Model):
                 quant_domain = [
                     ('location_id', 'in', child_location_ids),
                     ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
+                    ('package_id', 'in', package_ids.ids),
                     ('quantity', '!=', 0),
                 ]
                 if record.partner_id:
@@ -702,7 +705,9 @@ class transfer_locations(models.Model):
             'x_studio_pallet_series_id')
         # Filter out empty strings
         rr_pallet_series_ids = [p for p in rr_pallet_series_ids if p]
-
+        package_ids = record.move_line_ids.mapped(
+                'result_package_id')
+        
         if not rr_pallet_series_ids:
             _logger.warning(
                 "No pallet series IDs found on voided RR %s, cannot auto-checkout quants", record.name)
@@ -717,6 +722,7 @@ class transfer_locations(models.Model):
         quant_domain = [
             ('location_id', 'in', child_location_ids),
             ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
+            ('package_id', 'in', package_ids.ids),
             ('quantity', '!=', 0),
         ]
 
