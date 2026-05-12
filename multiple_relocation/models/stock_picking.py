@@ -660,7 +660,7 @@ class transfer_locations(models.Model):
 
         # Source = where goods were received TO (RR destination)
         # Destination = default location for outgoing operations (ID 5)
-        wr_source_location = record.location_dest_id.id
+        wr_source_location = 7
         wr_dest_location = 5  # Default destination location for void WR
 
         # Create the WR picking
@@ -955,7 +955,7 @@ class transfer_locations(models.Model):
                     for pallet_series in pallet_series_ids:
                         quant = self.env['stock.quant'].search([
                             ('x_studio_pallet_series_id', '=', pallet_series),
-                            ('location_id', 'in', child_location_ids),
+                            # ('location_id', 'in', child_location_ids),
                             ('quantity', '!=', 0),
                         ], limit=1)
                         if not quant:
