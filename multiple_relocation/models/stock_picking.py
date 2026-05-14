@@ -1639,8 +1639,7 @@ class transfer_locations(models.Model):
                 grouped_moves[key]['qty_actual'] += qty_actual
                 grouped_moves[key]['weight_actual'] += weight_actual
                 grouped_moves[key]['packaging_qty'] += pack_qty
-                grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if hasattr(
-                    move_line, 'x_studio_withdaw_units') else move_line.x_studio_withdraw_units
+                grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if move_line.x_studio_total_units else move_line.x_studio_withdraw_units
 
                 same_quant_stocks_picked = self.env['stock.move.line'].search([
                     ('lot_id', '=', move_line.lot_id.id),
