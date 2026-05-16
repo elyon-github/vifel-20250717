@@ -6,18 +6,14 @@
         <field name="name">pallet_kilos_record_model.report.wizard.form</field>
         <field name="model">pallet_kilos_record_model.report.wizard</field>
         <field name="arch" type="xml">
-            <form string="Generate Report">
+<form string="Generate Report">
                 <div class="alert alert-info text-center" role="alert">
                     <i class="fa fa-file-excel-o"/>
                     Select a <strong>report type</strong>, filter by client and date range, then click <strong>Generate</strong>.
                 </div>
-                <group>
+                <group invisible="report_type == 'daily_pallet_utilization'">
                     <group string="Customer / Client">
-                        <field name="partner_ids" widget="many2many_tags"
-                               options="{'no_create': True}"
-                               placeholder="All clients (leave empty for all)"
-                               string="Customers"
-                               colspan="2"/>
+                        <field name="partner_ids" widget="many2many_tags" options="{'no_create': True}" placeholder="All clients (leave empty for all)" string="Customers" colspan="2"/>
                     </group>
                     <group string="Date Range">
                         <field name="date_from"/>
@@ -30,11 +26,7 @@
                     </group>
                 </group>
                 <footer>
-                    <button name="action_generate_report"
-                            string="Generate"
-                            type="object"
-                            class="btn-primary"
-                            icon="fa-file-excel-o"/>
+                    <button name="action_generate_report" string="Generate" type="object" class="btn-primary" icon="fa-file-excel-o"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

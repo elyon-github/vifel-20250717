@@ -306,7 +306,7 @@
             <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120" options="{'no_create': True, 'no_open':True}"/>
         </xpath>
                 <xpath expr="//tree//field[@name='quantity']" position="after">
-                    <field optional="show" name="x_studio_actual_kg" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
+                    <field optional="show" name="x_studio_actual_kg" digits="[16,3]" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
                 </xpath>
 
 
@@ -410,7 +410,7 @@
     <field name="inherit_id" ref="stock.view_picking_form"/>
     <field name="arch" type="xml">
 
-      <!-- First Part -->
+<!-- First Part -->
       <xpath expr="//button[@name='action_assign']" position="attributes">
         <attribute name="invisible">picking_type_code != "outgoing" or state in ["done", "draft"]</attribute>
       </xpath>
@@ -436,7 +436,7 @@
         <button string="Auto-Fill Details" name="341" type="action" class="btn btn-info" invisible="1"/>
 
           
-        <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True or state == 'done'" data-hotkey="shift+d" />
+        <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True or state == 'done'" data-hotkey="shift+d"/>
         <button string="Generate Pallet Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset." data-hotkey="g"/>
 
           
@@ -479,8 +479,7 @@
         <field name="has_unvalidated_void_child" invisible="1"/>
 
     <!--Void Child Not Yet Validated Banner-->
-    <div class="alert alert-danger" role="alert"
-         invisible="not has_unvalidated_void_child">
+    <div class="alert alert-danger" role="alert" invisible="not has_unvalidated_void_child">
         <b>⚠️ Void Record Not Yet Validated</b>
         <br/><br/>
         This transfer has been <b>voided</b>, but the corresponding <b>void record</b> has <b>not yet been validated</b>.
@@ -492,8 +491,7 @@
     </div>
 
     <!--Void Child Simplified Instruction (only show for void records)-->
-    <div class="alert alert-info" role="alert"
-         invisible="not is_void_return and not is_void_wr">
+    <div class="alert alert-info" role="alert" invisible="not is_void_return and not is_void_wr">
         <b>ℹ️ Void Record - Simplified Process</b>
         <br/><br/>
         This is a <b>void record</b>. Complete the following steps:
@@ -618,8 +616,7 @@
         Enter the actual values (e.g., <b>500</b>) in their respective <b>Gold-highlighted column</b> before proceeding.
     </div> -->
 
-<div class="alert alert-danger" role="alert"
-     invisible="not show_return_alert or state not in ['done']">
+<div class="alert alert-danger" role="alert" invisible="not show_return_alert or state not in ['done']">
     <b>⚠️ Draft Return Transaction Pending</b>
     <br/><br/>
     <b>Steps to Process:</b>
@@ -634,8 +631,7 @@
 
 <field name="next_step_status" invisible="1"/>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Generate Pallet Lines' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Generate Pallet Lines' or is_void_return or is_void_wr">
      <b>⚠️ Action Required: Generate Pallet Lines</b>
      <br/><br/>
      Click the <b>"Generate Pallet Lines"</b> button to create pallet line entries based on your product estimates.
@@ -643,8 +639,7 @@
      <b>Tip:</b> If the <b>Tally Sheet</b> appears empty, you likely skipped this step.
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Estimate Pallet Lines' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Estimate Pallet Lines' or is_void_return or is_void_wr">
       <b>Steps to Complete:</b>
       <br/>
       1. Add products in the <b>Operations → Product</b> column
@@ -659,8 +654,7 @@
 
 </div>
     
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'BF Complete Pallet Details' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'BF Complete Pallet Details' or is_void_return or is_void_wr">
      <b>Next Steps:</b>
      <br/>
      1. Generate the <b>Tally Sheet</b> and provide it to the <b>Checker</b>.
@@ -670,8 +664,7 @@
      3. Ensure all required <b>columns</b> are properly completed.
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'RR Complete Pallet Details' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'RR Complete Pallet Details' or is_void_return or is_void_wr">
      <b>Steps to Complete:</b>
      <br/>
      <!-- 1. Assign <b>Pallet Series</b> and <b>Locations</b> inside <b>Pallet Breakdown</b> (top-center of screen). -->
@@ -692,8 +685,7 @@
      8. Make sure to click the <b>Validate Button</b> by the Text Label and a notification should show at the Top-Left of the screen.
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Set Location' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Set Location' or is_void_return or is_void_wr">
      <b>Steps to Begin:</b>
      <br/>
      1. Complete all available fields in this window form based on your client's documents.
@@ -707,8 +699,7 @@
      <b>Note:</b> If the button does not appear, the Source Location was not set properly. You may skip other fields where information is not yet available.
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Select Stocks' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Select Stocks' or is_void_return or is_void_wr">
      <b>Steps to Pick Pallets:</b>
      <br/>
      1. Click <b>"Location Related Stocks"</b> button (top-center of screen).
@@ -718,8 +709,7 @@
      3. Click <b>Checkout</b> to proceed.
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'To create return' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'To create return' or is_void_return or is_void_wr">
     <b>Note:</b> If no return is needed, simply generate the <b>Picklist</b> and give it to the <b>Checker</b>. Wait for the picklist to return, then complete the window form details and <b>Verify</b> the transfer.     <br/><br/>
      <b>Steps to Create a Return:</b>
      <br/>
@@ -736,8 +726,7 @@
      
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Go back to wr' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Go back to wr' or is_void_return or is_void_wr">
      <b>Next Steps:</b>
      <br/>
      1. Generate the <b>Tally Sheet</b> (if just arrived on this page).
@@ -745,8 +734,7 @@
      2. Return to the <b>WR</b> by pressing <b>Alt + B</b> or clicking the <b>WR reference</b> (top-left of screen) it looks like <b>"M/WR/000000"</b> or just click the value inside <b>"Return of"</b> Field inside the window form.
 </div>
     
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Return RR Complete Pallet Details' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Return RR Complete Pallet Details' or is_void_return or is_void_wr">
      <b>⚠️ Double-Check Required:</b>
      <br/><br/>
      Verify the <b>Tally Sheet</b> carefully. Ensure the <b>Pallet #</b> and <b>Location</b> of all returned pallets are correctly updated if any changes were made.
@@ -757,8 +745,7 @@
      </span>
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="next_step_status != 'Starting' or is_void_return or is_void_wr">
+<div class="alert alert-warning" role="alert" invisible="next_step_status != 'Starting' or is_void_return or is_void_wr">
      <b>Steps to Begin:</b>
      <br/>
      1. Complete all available fields in this window form based on your client's documents.
@@ -772,8 +759,7 @@
      <b>Note:</b> You may skip fields where information is not yet available.
 </div>
 
-<div class="alert alert-warning" role="alert"
-     invisible="not show_return_alert or state in ['done'] or not x_studio_record_lines_counter">
+<div class="alert alert-warning" role="alert" invisible="not show_return_alert or state in ['done'] or not x_studio_record_lines_counter">
     <b>⚠️ Before Validating the Withdrawal Record:</b>
     <br/><br/>
     Wait for the <b>Picklist</b> to return and make sure to <b>double-check</b> all details.
@@ -791,9 +777,7 @@
 </div>
 
           
-    <div class="alert alert-danger" role="alert" 
-         invisible="state == 'draft' or not x_studio_has_discrepancy or state == 'done'" 
-         name="studio_div_76b5b3">
+    <div class="alert alert-danger" role="alert" invisible="state == 'draft' or not x_studio_has_discrepancy or state == 'done'" name="studio_div_76b5b3">
       <span>
         <b>Discrepancy Detected!</b> Please generate an <b>NCR Report</b>. 
         If the discrepancy is <b>unintentional</b> or <b>unexpected</b>, please use the 
@@ -860,7 +844,7 @@
         <field name="truck_type" required="False" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record" invisible="picking_type_id in [47, 48]"/>
         <field name="x_studio_trucks_plate_" required="False" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record" invisible="picking_type_id in [47, 48]"/>
         <field name="x_studio_driver" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record" invisible="picking_type_id in [47, 48]"/>
-        <field name="x_studio_truck_time" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record" />
+        <field name="x_studio_truck_time" force_save="1" readonly="state == &quot;done&quot; and not x_studio_edit_record"/>
         <field name="x_studio_set_adjustment_series" invisible="True"/>
         <!-- <field name="x_studio_remarks" invisible="state != &quot;done&quot;" string="Record Remarks"/> -->
         <field name="x_studio_ncr_remarks" invisible="x_studio_has_discrepancy != True and x_studio_exp_warned != True or state == &quot;draft&quot;"/>
@@ -881,13 +865,7 @@
         <field optional="show" name="x_studio_number_of_lines" column_invisible="parent.picking_type_code == 'outgoing'" string="No. of Pallets"/>
         <field optional="show" name="x_studio_demand_packaging" string="Quantity" readonly="False"/>
         <field optional="show" name="x_studio_actual_packaging_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
-        <field name="x_studio_packaging_variance"
-       string="Variance"
-       optional="show"
-       column_invisible="parent.state == 'draft'"
-       widget="badge"
-       decoration-danger="x_studio_packaging_variance &lt; 0"
-       decoration-success="x_studio_packaging_variance &gt; 0"/>
+        <field name="x_studio_packaging_variance" string="Variance" optional="show" column_invisible="parent.state == 'draft'" widget="badge" decoration-danger="x_studio_packaging_variance &lt; 0" decoration-success="x_studio_packaging_variance &gt; 0"/>
         <field optional="show" name="x_studio_packaging_unit" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;Packaging UOM&quot;)]" string="UOM" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_demand_packaging" options="{&quot;no_create&quot;:true}"/>
         <field optional="show" name="x_studio_variance" column_invisible="True" invisible="False"/>
       </xpath>
@@ -895,12 +873,7 @@
         <field optional="show" name="x_studio_packaging_uom" column_invisible="True"/>
         <field optional="show" name="x_studio_min_uom" column_invisible="False" invisible="False" string="Minimum" required="x_studio_demand_packaging"/>
         <field optional="show" name="x_studio_min_actual_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
-        <field name="x_studio_min_variance"
-       optional="show"
-       column_invisible="parent.state == 'draft'"
-       widget="badge"
-       decoration-danger="x_studio_min_variance &lt; 0"
-       decoration-success="x_studio_min_variance &gt; 0"/>
+        <field name="x_studio_min_variance" optional="show" column_invisible="parent.state == 'draft'" widget="badge" decoration-danger="x_studio_min_variance &lt; 0" decoration-success="x_studio_min_variance &gt; 0"/>
 
         <field optional="show" name="x_studio_min_unit" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;min&quot;)]" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_min_uom" options="{&quot;no_quick_create&quot;:true}" string="UOM"/>
       </xpath>
@@ -921,14 +894,7 @@
           </xpath> -->
         
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="after">
-            <field name="x_studio_kg_variance"
-           string="Variance"
-           optional="show"
-           column_invisible="False"
-           invisible="False"
-           widget="badge"
-           decoration-danger="x_studio_kg_variance &lt; 0"
-           decoration-success="x_studio_kg_variance &gt; 0"/>
+            <field name="x_studio_kg_variance" string="Variance" optional="show" column_invisible="False" invisible="False" widget="badge" decoration-danger="x_studio_kg_variance &lt; 0" decoration-success="x_studio_kg_variance &gt; 0"/>
 
       </xpath>
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]" position="after">
@@ -1068,7 +1034,7 @@
         <attribute name="readonly">state == "done" and not x_studio_edit_record</attribute>
       </xpath>
       <xpath expr="//field[@name='x_studio_additional_services']" position="after">
-        <field name="x_studio_for_revision"  readonly="state == 'done' or return_reason == 'Wrong Details Encoded'" invisible="return_reason != 'Wrong Details Encoded' and picking_type_code in ['incoming']"/>
+        <field name="x_studio_for_revision" readonly="state == 'done' or return_reason == 'Wrong Details Encoded'" invisible="return_reason != 'Wrong Details Encoded' and picking_type_code in ['incoming']"/>
       </xpath>
 
 
@@ -1102,8 +1068,8 @@
       </xpath>
 
       <xpath expr="//button[@name='studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36']" position="after">
-        <button string="BF Receiving R. Summary" name="studio_customization.bfwr_final_d932a6cb-31c1-42fb-b4ff-fd2660fd22e3" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;"  data-hotkey="shift+2"/>
-        <button string="BF Withdrawal R. Summary" name="studio_customization.transfer_report_24d5e58d-a9fe-461c-97ea-0019680f548e" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;"  data-hotkey="shift+2"/>
+        <button string="BF Receiving R. Summary" name="studio_customization.print_bf_receiving_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+2"/>
+        <button string="BF Withdrawal R. Summary" name="studio_customization.print_bf_withdrawal_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+2"/>
       </xpath>
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_id'][2]" position="after">
         <field name="x_studio_last_operation_destination_location" options="{'create_name_field': 'complete_name'}" invisible="picking_type_code != &quot;outgoing&quot; or not x_studio_last_operation_destination_location"/>
