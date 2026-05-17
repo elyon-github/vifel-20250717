@@ -37,7 +37,9 @@ class ReturnPackageWizardLine(models.TransientModel):
     location_id = fields.Many2one('stock.location')
     picking_id = fields.Many2one('stock.picking')
     pallet_type = fields.Char(string="Pallet Type")
-    warehouse_id = fields.Many2one('stock.warehouse')
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        related='wizard_id.warehouse_id', readonly=True)
     lot_id = fields.Many2one('stock.lot')
     x_studio_building_dropped = fields.Char(string="Building")
     original_record_reference = fields.Many2one('stock.picking')
@@ -101,7 +103,9 @@ class ReturnPackageWizard(models.TransientModel):
     picking_type_id = fields.Many2one('stock.picking.type', string="Picking Type", readonly=False)
     is_a_blast_freeze = fields.Boolean(related='picking_id.x_studio_is_a_blast_freezer')
     select_all = fields.Boolean(string="Select All")
-    warehouse_id = fields.Many2one('stock.warehouse')
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        related='picking_id.picking_type_id.warehouse_id', readonly=True)
     existing_return_picking_id = fields.Many2one('stock.picking', string="Existing Return", compute="_compute_existing_return", readonly=True)
     return_reason = fields.Selection(
     [
@@ -131,7 +135,15 @@ class ReturnPackageWizard(models.TransientModel):
     @api.onchange('picking_id', 'return_reason')
     def _compute_location_and_packages(self):
         if self.picking_id:
-            self.location_id = self.picking_id.location_id.id
+            # Derive the RR header destination from the building preset of the
+            # source move lines: move_line.location_id.x_studio_building.x_studio_preset_location
+            preset_location_id = False
+            for ml in self.picking_id.move_line_ids:
+                building = ml.location_id.x_studio_building
+                if building and building.x_studio_preset_location:
+                    preset_location_id = building.x_studio_preset_location.id
+                    break
+            self.location_id = preset_location_id or self.picking_id.location_id.id
             
             # Check if there's an existing return and auto-populate fields
             existing_return = self._find_existing_return()
@@ -153,19 +165,46 @@ class ReturnPackageWizard(models.TransientModel):
                 self.package_line_ids = [(5, 0, 0)]
                 move_lines = self.picking_id.move_line_ids
                 lines = []
+                # Lines sharing the same pallet_series_id share the same recommended package;
+                # lines with different (or empty) series must get distinct packages.
+                series_to_package = {}
+                used_package_ids = set()
                 for move_line in move_lines:
                     location_dest_id = False
                     pallet_result_id = False
+                    result_package_id_is_fallback = False
                     owner_id = self.picking_id.partner_id.id
                     package_occupying_owners = []
-                    if not move_line.location_id.x_studio_is_reserved:
+                    series_id = move_line.x_studio_pallet_series_id
+                    # A source location/package that's already reserved for the existing
+                    # return we're appending to is treated as available — no need to fall
+                    # back to an aisle or an NP pallet.
+                    location_reserved_for_existing = bool(
+                        existing_return
+                        and move_line.location_id.x_studio_is_reserved
+                        and move_line.location_id.x_studio_receiving_report_id
+                        and move_line.location_id.x_studio_receiving_report_id.id == existing_return.id
+                    )
+                    package_reserved_for_existing = bool(
+                        existing_return
+                        and move_line.package_id
+                        and move_line.package_id.x_studio_is_reserved
+                        and move_line.package_id.x_studio_receiving_report_id
+                        and move_line.package_id.x_studio_receiving_report_id.id == existing_return.id
+                    )
+                    if not move_line.location_id.x_studio_is_reserved or location_reserved_for_existing:
                         occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
                         package_occupying_owners = (move_line.package_id.quant_ids.mapped('x_studio_pallet_series_id') if move_line.package_id else [])
-                        if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
+                        if (location_reserved_for_existing
+                                or move_line.owner_id.id in occupying_owners
+                                or not move_line.location_id.x_studio_occupied_by_1.ids):
                             location_dest_id = move_line.location_id.id
-                        if location_dest_id and (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners):
+                        if location_dest_id and move_line.package_id and (
+                                package_reserved_for_existing
+                                or (move_line.package_id.location_id.id == location_dest_id
+                                    and move_line.x_studio_pallet_series_id in package_occupying_owners)):
                             pallet_result_id = move_line.package_id.id
-                    
+
                     # Fallback: if location_dest_id is still blank, find an aisle location under the same building
                     location_dest_id_is_fallback = False
                     if not location_dest_id and move_line.location_id:
@@ -179,7 +218,7 @@ class ReturnPackageWizard(models.TransientModel):
                             if aisle_location:
                                 location_dest_id = aisle_location.id
                                 location_dest_id_is_fallback = True
-                        
+
                         # Fallback to any aisle location if not found in building
                         if not location_dest_id:
                             aisle_location = self.env['stock.location'].search([
@@ -188,18 +227,46 @@ class ReturnPackageWizard(models.TransientModel):
                             if aisle_location:
                                 location_dest_id = aisle_location.id
                                 location_dest_id_is_fallback = True
-                    
-                    # Fallback: if pallet_result_id is still blank, find an unoccupied unreserved pallet with "NP" in name
-                    result_package_id_is_fallback = False
-                    if not pallet_result_id:
-                        np_pallet = self.env['stock.quant.package'].search([
-                            ('name', 'ilike', 'NP'),
-                            ('location_id', '=', False),
-                            ('x_studio_is_reserved', '=', False)
-                        ], limit=1)
-                        if np_pallet:
-                            pallet_result_id = np_pallet.id
-                            result_package_id_is_fallback = True
+
+                    # Package recommendation: enforce uniqueness across lines, but share
+                    # the same package across lines that have the same pallet_series_id.
+                    if series_id and series_id in series_to_package:
+                        pallet_result_id, result_package_id_is_fallback = series_to_package[series_id]
+                    else:
+                        # Drop the organic match if that package is already taken by an earlier series
+                        if pallet_result_id and pallet_result_id in used_package_ids:
+                            pallet_result_id = False
+
+                        # Reuse the original move_line.package_id if it is free
+                        # (no location, not reserved) OR if it's already reserved
+                        # specifically for the existing return we're appending to.
+                        package = move_line.package_id
+                        if (not pallet_result_id
+                                and package
+                                and not package.location_id
+                                and package.id not in used_package_ids
+                                and (not package.x_studio_is_reserved
+                                     or (existing_return
+                                         and package.x_studio_receiving_report_id.id == existing_return.id))):
+                            pallet_result_id = package.id
+
+                        # Final fallback: pick a fresh unreserved/unlocated "NP" pallet
+                        # that hasn't been recommended on an earlier line in this wizard
+                        if not pallet_result_id:
+                            np_pallet = self.env['stock.quant.package'].search([
+                                ('name', 'ilike', 'NP'),
+                                ('location_id', '=', False),
+                                ('x_studio_is_reserved', '=', False),
+                                ('id', 'not in', list(used_package_ids)),
+                            ], limit=1)
+                            if np_pallet:
+                                pallet_result_id = np_pallet.id
+                                result_package_id_is_fallback = True
+
+                        if pallet_result_id:
+                            used_package_ids.add(pallet_result_id)
+                            if series_id:
+                                series_to_package[series_id] = (pallet_result_id, result_package_id_is_fallback)
                     
                     if self.return_reason != 'Partial Withdraw':
 
@@ -229,8 +296,8 @@ class ReturnPackageWizard(models.TransientModel):
                             'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                             'actual_min_uom_unit': move_line.x_studio_withdraw_units,
                             'actual_quantity': move_line.quantity,
-                            'location_id':  self.picking_id.location_id.id
-                            
+                            'location_id':  self.picking_id.location_id.id,
+
                         }))
                     else:
                         # Only add line for Partial Withdraw if quantity has a value (was edited)
@@ -262,8 +329,8 @@ class ReturnPackageWizard(models.TransientModel):
                                     'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                                     'actual_min_uom_unit': move_line.x_studio_withdraw_units,
                                     'actual_quantity': move_line.quantity,
-                                   'location_id':  self.picking_id.location_id.id
-                                    
+                                   'location_id':  self.picking_id.location_id.id,
+
                                 }))
 
                 self.package_line_ids = lines
@@ -436,6 +503,7 @@ class ReturnPackageWizard(models.TransientModel):
             'product_uom_qty': move.product_uom_qty + quantity_diff,
             'x_studio_demand_packaging': move.x_studio_demand_packaging + pack_uom_diff,
             'x_studio_min_uom': move.x_studio_min_uom + min_uom_diff,
+            'state': 'assigned',
         })
 
     def action_process_return(self):
@@ -555,6 +623,13 @@ class ReturnPackageWizard(models.TransientModel):
         if packages_to_create:
             self._create_new_move_lines_for_existing_return(existing_return, packages_to_create)
 
+        # Final state normalization: any move whose quantity changed during this
+        # wizard run can get flipped back to 'confirmed'/'waiting' by Odoo's
+        # reservation recomputation. Force the picking and its moves to 'assigned'
+        # so the return doesn't show "Waiting for Availability".
+        existing_return.move_ids_without_package.write({'state': 'assigned'})
+        existing_return.write({'state': 'assigned'})
+
         return {
             'type': 'ir.actions.act_window',
             'name': 'Updated Return Record',
@@ -600,13 +675,29 @@ class ReturnPackageWizard(models.TransientModel):
             if product_id in existing_move_map:
                 # Update existing move for this product
                 existing_move = existing_move_map[product_id]
-                existing_move.write({
-                    'product_uom_qty': existing_move.product_uom_qty + data['quantity'],
-                    'x_studio_number_of_lines': existing_move.x_studio_number_of_lines + data['counter'],
-                    'x_studio_demand_packaging': existing_move.x_studio_demand_packaging + data['demand_packaging'],
-                    'x_studio_min_uom': existing_move.x_studio_min_uom + data['demand_min'],
-                })
-                
+                if not existing_move.move_line_ids:
+                    # The move exists but has no move lines underneath — its current
+                    # quantities are stale planned values. Overwrite them with this
+                    # batch's totals so we don't double-count.
+                    existing_move.write({
+                        'location_id': 5,
+                        'product_uom_qty': data['quantity'],
+                        'x_studio_number_of_lines': data['counter'],
+                        'x_studio_demand_packaging': data['demand_packaging'],
+                        'x_studio_min_uom': data['demand_min'],
+                        'state': 'assigned',
+                    })
+                else:
+                    # Move already has move lines accounting for its current totals — add on top.
+                    existing_move.write({
+                        'location_id': 5,
+                        'product_uom_qty': existing_move.product_uom_qty + data['quantity'],
+                        'x_studio_number_of_lines': existing_move.x_studio_number_of_lines + data['counter'],
+                        'x_studio_demand_packaging': existing_move.x_studio_demand_packaging + data['demand_packaging'],
+                        'x_studio_min_uom': existing_move.x_studio_min_uom + data['demand_min'],
+                        'state': 'assigned',
+                    })
+
                 # Map all packages of this product to the existing move
                 for package in data['packages']:
                     move_line_mapping[package] = existing_move

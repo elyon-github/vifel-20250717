@@ -353,11 +353,12 @@ multiple_relocation/
 ├── __manifest__.py
 ├── __init__.py
 ├── models/
-│   ├── __init__.py
-│   ├── models.py              # res.partner (pool methods), product.template, 
-│   │                          #   stock.location, quant.package
+│   ├── __init__.py            # Imports: models, stock_quant, stock_move, stock_picking
+│   ├── models.py              # res.partner (pool methods), product.template, product.product,
+│   │                          #   stock.location, stock.quant.package, client.expiry.table
 │   ├── stock_move.py          # stock.move extensions (regenerate, product swap)
-│   ├── stock_move_line.py     UNUSED — see below (move line fields are in models.py)
+│   │                          #   AND stock_move_line_Override (stock.move.line) lives here.
+│   │                          #   There is NO separate stock_move_line.py file.
 │   ├── stock_picking.py       # stock.picking (void, location domains, reports)
 │   └── stock_quant.py         # stock.quant extensions (custom fields)
 │

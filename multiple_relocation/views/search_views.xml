@@ -1,5 +1,18 @@
 <odoo>
 
+    <record id="stock_picking_view_search_inherit" model="ir.ui.view">
+        <field name="name">stock.picking.search.inherit.not.voided</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_internal_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='reception']" position="before">
+                <filter name="not_voided" string="Not Void" domain="[('x_studio_voided', '=', False)]"/>
+                <separator/>
+            </xpath>
+            <xpath expr="//filter[@name='internal']" position="replace"/>
+        </field>
+    </record>
+
     <record id="stock_move_line_view_search_inherit" model="ir.ui.view">
         <field name="name">stock.move.line.search.inherit</field>
         <field name="model">stock.move.line</field>

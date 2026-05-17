@@ -13,9 +13,65 @@ class FastEncodeRRWizard(models.TransientModel):
         'stock.move.line.fast_encode_rr.line', 'wizard_id', string="Pallet Lines", readonly=False
     )
     
+    def _validate_result_package_availability(self):
+        """Refuse to confirm if any selected Pallet # is either:
+          - already reserved by ANOTHER picking via x_studio_receiving_report_id, or
+          - physically occupied (located somewhere AND/OR has stock).
+        Skipped entirely for blast-freeze transactions since BF uses
+        bf_pallet_char as the pallet identifier, not result_package_id.
+        Collects all conflicts into a single UserError so the user can fix them
+        all at once rather than one-by-one.
+        """
+        if self.env.context.get('is_blast_freeze', False):
+            return
+        if not self.line_ids:
+            return
+        transfer_id = self.line_ids[0].transfer_id
+        errors = []
+        seen = set()
+        for line in self.line_ids:
+            pkg = line.result_package_id
+            if not pkg or pkg.id in seen:
+                continue
+            seen.add(pkg.id)
+
+            # Reserved for a different transfer?
+            other_rr = pkg.x_studio_receiving_report_id
+            if other_rr and other_rr.id != transfer_id:
+                errors.append(
+                    f"• Pallet '{pkg.name}' is already reserved for Transfer "
+                    f"Record '{other_rr.name}'. Please pick a "
+                    "different pallet."
+                )
+                continue
+
+            # Physically occupied?
+            has_location = bool(pkg.location_id)
+            has_stock = (pkg.x_studio_total_quantity or 0) > 0
+            if has_location or has_stock:
+                where = pkg.location_id.complete_name if pkg.location_id else "an unknown location"
+                qty_note = (
+                    f" with {pkg.x_studio_total_quantity:.2f} kg of stock"
+                    if has_stock else ""
+                )
+                errors.append(
+                    f"• Pallet '{pkg.name}' is already occupied "
+                    f"(located at '{where}'{qty_note}). Please pick an empty pallet."
+                )
+
+        if errors:
+            raise UserError(
+                "Cannot confirm — the following pallet selection issue(s) were found:\n\n"
+                + "\n".join(errors)
+            )
+
     def action_confirm(self):
         """Apply wizard changes back to stock.move.line"""
-        
+
+        # Reject up front if any selected pallet is taken by another transfer
+        # or already occupied. No-op for BF flows (validation method bails early).
+        self._validate_result_package_availability()
+
         # Check if this is a blast freeze operation
         is_blast_freeze = self.env.context.get('is_blast_freeze', False)
         
@@ -327,6 +383,9 @@ class FastEncodeRRWizardLine(models.TransientModel):
     
     wizard_id = fields.Many2one('stock.move.line.fast_encode_rr', string="Wizard", ondelete='cascade')
     transfer_id = fields.Integer(string="Transfer ID", related='wizard_id.transfer_id', store=True)
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        compute='_compute_warehouse_id')
     stock_move_line = fields.Integer(string="Move Line ID")
     x_studio_ = fields.Integer(string="#", readonly=True, group_operator=False)
     
@@ -384,6 +443,17 @@ class FastEncodeRRWizardLine(models.TransientModel):
         store=False
     )
     
+    @api.depends('transfer_id')
+    def _compute_warehouse_id(self):
+        # Resolve warehouse from the source picking so domain filters on
+        # result_package_id (x_studio_warehouse match) can be driven by it.
+        for record in self:
+            warehouse = False
+            if record.transfer_id:
+                picking = self.env['stock.picking'].browse(record.transfer_id)
+                warehouse = picking.picking_type_id.warehouse_id
+            record.warehouse_id = warehouse
+
     @api.depends('result_package_id', 'wizard_id.line_ids.result_package_id')
     def _compute_has_duplicate_pallet(self):
         """Check if this line's pallet is used by other lines in the wizard"""

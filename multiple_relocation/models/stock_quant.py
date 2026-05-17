@@ -27,6 +27,63 @@ class multiple_relocation(models.TransientModel):
     quant_relocation_line_ids = fields.One2many('stock.quant.relocation.line', 'relocate_wizard_id', string='Quant Relocation')
 
     building = fields.Many2one('x_warehouse_building', string="Building", required=True)
+    is_a_blast_freezer = fields.Boolean(
+        string="Is Blast Freezer",
+        compute='_compute_is_a_blast_freezer')
+    allowed_location_ids = fields.Many2many(
+        'stock.location',
+        string="Allowed Destinations",
+        compute='_compute_allowed_location_ids')
+
+    @api.depends('quant_relocation_line_ids.x_studio_is_a_blast_freezer')
+    def _compute_is_a_blast_freezer(self):
+        # Wizard is BF if any of its lines is BF.
+        for wizard in self:
+            wizard.is_a_blast_freezer = any(
+                line.x_studio_is_a_blast_freezer
+                for line in wizard.quant_relocation_line_ids
+            )
+
+    @api.depends('building', 'quant_relocation_line_ids.warehouse_id', 'quant_relocation_line_ids.x_studio_is_a_blast_freezer')
+    def _compute_allowed_location_ids(self):
+        # ONE search per unique (warehouse, BF) key across all lines.
+        # - BF quants: any leaf location under the chosen building, regardless
+        #   of occupancy or reservation status (BF locations can always be
+        #   reused).
+        # - Non-BF quants: aisle OR (no receiving report AND empty AND not
+        #   reserved).
+        Location = self.env['stock.location']
+        for wizard in self:
+            if not wizard.building:
+                wizard.allowed_location_ids = Location
+                continue
+            keys = {(line.warehouse_id.id, bool(line.x_studio_is_a_blast_freezer))
+                    for line in wizard.quant_relocation_line_ids if line.warehouse_id}
+            if not keys:
+                wizard.allowed_location_ids = Location
+                continue
+            result = Location
+            for wh_id, is_bf in keys:
+                base_domain = [
+                    ('child_ids', '=', False),
+                    ('location_id.location_id.location_id.location_id', '!=', False),
+                    ('warehouse_id', '=', wh_id),
+                    ('x_studio_building', '=', wizard.building.id),
+                    ('x_studio_is_a_blast_freezer', '=', is_bf),
+                ]
+                if not is_bf:
+                    base_domain += [
+                        '|',
+                            ('x_studio_is_an_aisle', '=', True),
+                            '&', '&',
+                                ('x_studio_receiving_report_id', '=', False),
+                                '|',
+                                    ('x_studio_total_quantity', '=', 0),
+                                    ('x_studio_total_quantity', '=', False),
+                                ('x_studio_is_reserved', '=', False),
+                    ]
+                result |= Location.search(base_domain)
+            wizard.allowed_location_ids = result
     
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
@@ -515,7 +572,11 @@ class OverrideStockQuant(models.Model):
     _inherit = 'stock.quant'
 
     x_studio_special_holding = fields.Boolean()
-    bf_pallet_char = fields.Char(string="Pallet # - Text") 
+    bf_pallet_char = fields.Char(string="Pallet # - Text")
+    location_is_bf = fields.Boolean(
+        string="Location is Blast Freezer",
+        related='location_id.x_studio_is_a_blast_freezer',
+        store=True, readonly=True)
     truck_type = fields.Selection(
         string="Truck Type",
         selection=[
@@ -818,32 +879,49 @@ class OverrideStockQuant(models.Model):
         
         # **1. Validate package integrity**
         selected_packages = {}
+        selected_owners_by_pkg = {}
         for quant in records:
             if not quant.available_quantity:
                 continue
             pkg_id = quant.package_id.id
             if pkg_id:
                 selected_packages.setdefault(pkg_id, set()).add(quant.id)
-    
+                if quant.owner_id:
+                    selected_owners_by_pkg.setdefault(pkg_id, set()).add(quant.owner_id.id)
+
         # For each package, check for missing quants
         all_missing_quants = self.env['stock.quant']
         Quant = self.env['stock.quant']
-        
+
         for pkg_id, selected_quant_ids in selected_packages.items():
-            # Get all quants for this package
+            # Restrict missing-quant suggestions to quants whose owner matches
+            # one of the user-selected quants in this package. Quants without
+            # an owner_id are excluded (no owner = no match).
+            allowed_owner_ids = selected_owners_by_pkg.get(pkg_id, set())
+            if not allowed_owner_ids:
+                continue
+
             all_package_quants = Quant.search([
                 ('package_id', '=', pkg_id),
                 ('x_studio_pallet_series_id', '!=', False),
-                ("quantity", ">", 0)
+                ("quantity", ">", 0),
+                ('owner_id', 'in', list(allowed_owner_ids)),
             ])
-        
+
             selected_quant_ids = selected_quant_ids or set()
             all_package_quant_ids = set(all_package_quants.ids)
             missing_ids = all_package_quant_ids - selected_quant_ids
-        
+
             if missing_ids:
-                missing_quants = all_package_quants.filtered(lambda q: q.id in missing_ids)
-                all_missing_quants |= missing_quants
+                # Skip quants that are 100% reserved/picked by another transfer
+                # (available_quantity <= 0). The user can't add them anyway, so
+                # there's no point flagging the package as "incomplete" because
+                # of them.
+                missing_quants = all_package_quants.filtered(
+                    lambda q: q.id in missing_ids and q.available_quantity > 0
+                )
+                if missing_quants:
+                    all_missing_quants |= missing_quants
         
         if all_missing_quants:
             if not ctx.get('ignore_missing_quants'):

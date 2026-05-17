@@ -13,7 +13,7 @@
 
                 <!-- Warning Banner -->
                 <div class="alert alert-danger" role="alert" style="margin-bottom: 20px;">
-                    <i class="fa fa-exclamation-triangle"/> 
+                    <i class="fa fa-exclamation-triangle" title="Warning"/> 
                     <strong>Note:</strong> This wizard allows adjustments to <strong>Pallet details</strong>.
                     Please double-check your entries before confirming to ensure accuracy.
                 </div>
@@ -36,11 +36,11 @@
                 
                 <!-- Info Messages -->
                 <div class="alert alert-info" invisible="skip_approval or not reason_for_adjustment" role="alert" style="margin-top: 15px;">
-                    <i class="fa fa-info-circle"/> 
+                    <i class="fa fa-info-circle" title="Information"/> 
                     This will create an adjustment request for approval. Changes will not be applied until approved by an inventory supervisor.
                 </div>
                 <div class="alert alert-warning" invisible="not skip_approval" role="alert" style="margin-top: 15px;">
-                    <i class="fa fa-exclamation-triangle"/> 
+                    <i class="fa fa-exclamation-triangle" title="Warning"/> 
                     Changes will be applied immediately without approval workflow.
                 </div>
 
@@ -281,20 +281,20 @@ else:
                         <field name="has_conflicts" invisible="1"/>
                         <div class="alert alert-warning" role="alert" 
                              invisible="not has_conflicts or state not in ['pending', 'partial']">
-                            <i class="fa fa-exclamation-triangle"/> 
+                            <i class="fa fa-exclamation-triangle" title="Warning"/> 
                             <strong>Warning:</strong> <field name="conflict_count"/> line(s) have conflicts. 
                             Click "Check Conflicts" to refresh status.
                         </div>
         
                         <div class="alert alert-info" role="alert" 
                              invisible="state != 'draft'">
-                            <i class="fa fa-info-circle"/> 
+                            <i class="fa fa-info-circle" title="Information"/> 
                             <strong>Draft:</strong> Review the lines below and click "Submit for Approval" when ready.
                         </div>
         
                         <div class="alert alert-success" role="alert" 
                              invisible="state != 'approved'">
-                            <i class="fa fa-check-circle"/> 
+                            <i class="fa fa-check-circle" title="Approved"/> 
                             <strong>Approved:</strong> All lines have been approved and applied. 
                             Batch #: <field name="batch_number" readonly="1" class="fw-bold"/>
                         </div>
@@ -302,7 +302,7 @@ else:
                         <!-- Selection Info Banner -->
                         <div class="alert alert-info" role="alert" 
                              invisible="selected_line_count == 0">
-                            <i class="fa fa-check-square-o"/> 
+                            <i class="fa fa-check-square-o" title="Selected"/> 
                             <strong><field name="selected_line_count"/> line(s) selected</strong> - 
                             Use "Approve Selected" or "Reject Selected" buttons above.
                         </div>
@@ -476,7 +476,7 @@ else:
                     <sheet style="width: 100%; max-width: none;">
                         <div class="alert alert-danger" role="alert" 
                              invisible="conflict_status == 'ok'">
-                            <i class="fa fa-exclamation-triangle"/> 
+                            <i class="fa fa-exclamation-triangle" title="Warning"/> 
                             <strong>Conflict:</strong> <field name="conflict_status" readonly="1"/> 
                             - This line cannot be approved until the conflict is resolved.
                         </div>
@@ -518,7 +518,7 @@ else:
                     <sheet style="width: 100%; max-width: none;">
                         <!-- Warning Banner -->
                         <div class="alert alert-warning" role="alert" style="margin-bottom: 20px;">
-                            <i class="fa fa-exclamation-triangle"/> 
+                            <i class="fa fa-exclamation-triangle" title="Warning"/> 
                             <strong>Warning:</strong> You are about to reject <field name="line_count" readonly="1" class="fw-bold"/> adjustment line(s). Please provide a clear reason for rejection.
                         </div>
         

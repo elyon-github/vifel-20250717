@@ -50,6 +50,20 @@ class SelectQuantWizard(models.TransientModel):
 
     automatically_fetched_quantity = fields.Boolean(string="Automatically Fetched using a Button")
 
+    is_a_blast_freeze = fields.Boolean(
+        string="Is Blast Freeze",
+        compute='_compute_is_a_blast_freeze')
+
+    @api.depends('transfer_id')
+    def _compute_is_a_blast_freeze(self):
+        # Resolve from the linked picking so the tree can hide/show pallet
+        # columns based on whether the transfer is a blast-freeze op.
+        for wizard in self:
+            wizard.is_a_blast_freeze = False
+            if wizard.transfer_id:
+                picking = self.env['stock.picking'].browse(wizard.transfer_id)
+                wizard.is_a_blast_freeze = bool(picking.x_studio_is_a_blast_freezer)
+
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
