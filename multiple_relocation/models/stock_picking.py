@@ -914,6 +914,27 @@ class transfer_locations(models.Model):
             if move_line.location_id.x_studio_is_an_aisle:
                 location_dest_id = move_line.location_id.id
 
+            # Fallback: if location_dest_id is still blank (source bin is
+            # reserved or occupied by a different owner), drop the line into an
+            # aisle. Prefer one in the same building so the stock at least
+            # lands in the right zone; fall back to any aisle if that fails.
+            # Same algorithm as ReturnPackageWizard._compute_location_and_packages.
+            if not location_dest_id and move_line.location_id:
+                building = move_line.location_id.x_studio_building
+                if building:
+                    aisle_location = self.env['stock.location'].search([
+                        ('x_studio_is_an_aisle', '=', True),
+                        ('x_studio_building', '=', building.id),
+                    ], limit=1)
+                    if aisle_location:
+                        location_dest_id = aisle_location.id
+                if not location_dest_id:
+                    aisle_location = self.env['stock.location'].search([
+                        ('x_studio_is_an_aisle', '=', True),
+                    ], limit=1)
+                    if aisle_location:
+                        location_dest_id = aisle_location.id
+
             lines.append((0, 0, {
                 'select_package': True,  # Auto-select all
                 'result_package_id': pallet_result_id,
