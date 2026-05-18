@@ -299,7 +299,10 @@ export class FastEncodeRRListController extends ListController {
                     this.notification.add("Changes applied successfully!", { type: "success" });
                     this.action.doAction({ type: 'ir.actions.act_window_close' });
                 } catch (error) {
-                    this.notification.add(error.message || "Error occurred", { type: "danger" });
+                    // Server-side UserError messages live at error.data.message;
+                    // error.message is the generic "Odoo Server Error" wrapper.
+                    const msg = error.data?.message || error.message || "Error occurred";
+                    this.notification.add(msg, { type: "danger", sticky: true });
                 }
             },
             cancel: () => {

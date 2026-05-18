@@ -318,6 +318,9 @@ class stock_move_line_Override(models.Model):
     )
     reserved_quantity_on_validation = fields.Float(
         string="Reserved Quantity on Validation")
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        related='picking_id.picking_type_id.warehouse_id', store=True, readonly=True)
     original_pallet_series_id = fields.Char(string="Original Pallet Series")
     adjusted_quantity = fields.Float(string="Weight (KG)")
     vifel_dest_location_name = fields.Char(

@@ -29,7 +29,7 @@
     <field name="name">pallet.kilos.record.tree</field>
     <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
     <field name="arch" type="xml">
-        <tree string="Pallet and Kilos Records"  default_order="start_time desc" create="0" js_class="pkr_list_report_button">
+    <tree string="Pallet and Kilos Records" create="0" default_order="start_time desc, id desc" js_class="pkr_list_report_button">
             <field name="active" optional="hide" string="Active"/>
             <field name="create_date" optional="hide"/>
             <field name="owner_id"/>
@@ -45,7 +45,7 @@
             <field name="trucks_plate" optional="hide"/>
             <field name="gate_pass" optional="hide"/>
             <!-- <field name="overall_units" sum="Total Units"/>
-            <field name="overall_packaging" sum="Total Packaging"/> -->
+            <field name="overall_packaging" sum="Total Packagings"/> -->
 
 
             <field name="pallets_received" sum="Sum"/>
@@ -57,7 +57,7 @@
             <field name="total_balance_in_pallets" optional="show"/>
             <field name="total_balance_in_kilos" optional="show"/>
             <field name="overall_pallets" optional="hide"/>
-            <field name="overall_kilos"  optional="hide"/>
+            <field name="overall_kilos" optional="hide"/>
 
         </tree>
     </field>

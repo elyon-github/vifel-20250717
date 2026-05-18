@@ -141,6 +141,11 @@ class transfer_locations(models.Model):
         string="Total Quantity", compute="_compute_totals", store=True)
     total_weight = fields.Float(
         string="Total Weight (KG)", compute="_compute_totals", store=True, digits='Product Unit of Measure')
+    transacted_pallet_count = fields.Integer(
+        string="Transacted Pallet Count", compute="_compute_transacted_pallet_count", store=True)
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        related='picking_type_id.warehouse_id', store=True, readonly=True)
 
     vifel_type_of_operation = fields.Selection(string="Operation Type", store=True, compute="_comupute_vifel_type_of_operation", selection=[
         ('BFRR', 'BF RECEIVING'),
@@ -188,13 +193,13 @@ class transfer_locations(models.Model):
     return_id_already_done = fields.Boolean(
         string="Return Already Validated", compute="_compute_return_id_already_validated", store=True)
 
-    @api.depends('return_ids.state')
+    @api.depends('return_ids.state', 'return_ids.x_studio_voided')
     def _compute_return_id_already_validated(self):
         for record in self:
             already_done = False
             if record.return_ids:
                 for rr_return_id in record.return_ids:
-                    if rr_return_id.state == 'done':
+                    if rr_return_id.state == 'done' and not rr_return_id.x_studio_voided:
                         already_done = True
                         break
             record.return_id_already_done = already_done
@@ -511,6 +516,35 @@ class transfer_locations(models.Model):
             record.total_quantity = total_quantity
             record.total_weight = total_weight
 
+    @api.depends(
+        'state',
+    )
+    def _compute_transacted_pallet_count(self):
+        # Count unique pallets transacted on this picking. Only validated
+        # ('done') pickings contribute; mirrors the dedupe logic in
+        # pallet_kilos_record_model._populate_operations_data.
+        for record in self:
+            if record.state != 'done':
+                record.transacted_pallet_count = 0
+                continue
+
+            pallets = set()
+            is_bf = record.x_studio_is_a_blast_freezer
+            is_outgoing = record.picking_type_id.code == 'outgoing'
+
+            for ml in record.move_line_ids:
+                if is_bf:
+                    if ml.bf_pallet_char:
+                        pallets.add(ml.bf_pallet_char)
+                elif is_outgoing:
+                    if ml.package_id and ml.reserved_quantity_on_validation == 0:
+                        pallets.add(ml.package_id.id)
+                else:
+                    if ml.result_package_id:
+                        pallets.add(ml.result_package_id.id)
+
+            record.transacted_pallet_count = len(pallets)
+
     def _refresh_pallet_kilos_on_lock(self):
         """Refresh the pallet kilos record when locking/unlocking a done picking.
         Re-syncs start_time, end_time, and all data from the effective document."""
@@ -661,10 +695,21 @@ class transfer_locations(models.Model):
             raise UserError(
                 _("No matching outgoing operation type found for warehouse. Cannot create void WR."))
 
-        # Source = where goods were received TO (RR destination)
-        # Destination = default location for outgoing operations (ID 5)
-        wr_source_location = 7
-        wr_dest_location = 5  # Default destination location for void WR
+        # Source = where the stock currently sits after the RR. Walk the RR move
+        # lines and use the first building's preset_location we find (same
+        # algorithm as the return wizard's _compute_location_and_packages).
+        # Fall back to the RR's own destination location, then id 7, if nothing
+        # resolves.
+        wr_source_location = False
+        for ml in record.move_line_ids:
+            building = ml.location_dest_id.x_studio_building
+            if building and building.x_studio_preset_location:
+                wr_source_location = building.x_studio_preset_location.id
+                break
+        if not wr_source_location:
+            wr_source_location = record.location_dest_id.id or 7
+
+        wr_dest_location = 5  # Customer location — semantically correct for outgoing
 
         # Create the WR picking
         wr_picking = record.copy({
@@ -1130,6 +1175,24 @@ class transfer_locations(models.Model):
                 _logger.warning(
                     "Transfer %s is not voided, cannot unvoid.", record.name)
                 continue
+
+            # If the void created an equivalent Void WR/RR that's already been
+            # validated, the void is permanent. Letting an unvoid through here
+            # would leave the validated child as an orphan inventory move.
+            void_child = self.env['stock.picking'].search([
+                ('void_source_picking_id', '=', record.id),
+                '|', ('is_void_wr', '=', True), ('is_void_return', '=', True),
+            ], limit=1)
+            if void_child and void_child.state == 'done':
+                raise UserError(_(
+                    "Cannot unvoid %(record_name)s: its equivalent void %(kind)s "
+                    "%(child_name)s has already been validated. This void is "
+                    "permanent. To restore the inventory, please create a new "
+                    "transaction instead.",
+                    record_name=record.name,
+                    kind="WR" if void_child.is_void_wr else "RR",
+                    child_name=void_child.name,
+                ))
 
             # Unmark as voided
             record.x_studio_voided = False

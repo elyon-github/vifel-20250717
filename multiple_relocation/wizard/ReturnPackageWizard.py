@@ -37,7 +37,9 @@ class ReturnPackageWizardLine(models.TransientModel):
     location_id = fields.Many2one('stock.location')
     picking_id = fields.Many2one('stock.picking')
     pallet_type = fields.Char(string="Pallet Type")
-    warehouse_id = fields.Many2one('stock.warehouse')
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        related='wizard_id.warehouse_id', readonly=True)
     lot_id = fields.Many2one('stock.lot')
     x_studio_building_dropped = fields.Char(string="Building")
     original_record_reference = fields.Many2one('stock.picking')
@@ -101,7 +103,9 @@ class ReturnPackageWizard(models.TransientModel):
     picking_type_id = fields.Many2one('stock.picking.type', string="Picking Type", readonly=False)
     is_a_blast_freeze = fields.Boolean(related='picking_id.x_studio_is_a_blast_freezer')
     select_all = fields.Boolean(string="Select All")
-    warehouse_id = fields.Many2one('stock.warehouse')
+    warehouse_id = fields.Many2one(
+        'stock.warehouse', string="Warehouse",
+        related='picking_id.picking_type_id.warehouse_id', readonly=True)
     existing_return_picking_id = fields.Many2one('stock.picking', string="Existing Return", compute="_compute_existing_return", readonly=True)
     return_reason = fields.Selection(
     [
@@ -292,8 +296,8 @@ class ReturnPackageWizard(models.TransientModel):
                             'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                             'actual_min_uom_unit': move_line.x_studio_withdraw_units,
                             'actual_quantity': move_line.quantity,
-                            'location_id':  self.picking_id.location_id.id
-                            
+                            'location_id':  self.picking_id.location_id.id,
+
                         }))
                     else:
                         # Only add line for Partial Withdraw if quantity has a value (was edited)
@@ -325,8 +329,8 @@ class ReturnPackageWizard(models.TransientModel):
                                     'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                                     'actual_min_uom_unit': move_line.x_studio_withdraw_units,
                                     'actual_quantity': move_line.quantity,
-                                   'location_id':  self.picking_id.location_id.id
-                                    
+                                   'location_id':  self.picking_id.location_id.id,
+
                                 }))
 
                 self.package_line_ids = lines

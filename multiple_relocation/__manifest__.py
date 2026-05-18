@@ -19,6 +19,8 @@ Long description of module's purpose
     # any module necessary for this one to work correctly
     'depends': ['base', 'stock', 'web','report_xlsx'],
 
+    'post_init_hook': 'post_init_hook',
+
     # always loaded
     'data': [
         'security/ir.model.access.csv',
