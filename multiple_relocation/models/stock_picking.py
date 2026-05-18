@@ -869,6 +869,27 @@ class transfer_locations(models.Model):
             if move_line.location_id.x_studio_is_an_aisle:
                 location_dest_id = move_line.location_id.id
 
+            # Fallback: if location_dest_id is still blank (source bin is
+            # reserved or occupied by a different owner), drop the line into an
+            # aisle. Prefer one in the same building so the stock at least
+            # lands in the right zone; fall back to any aisle if that fails.
+            # Same algorithm as ReturnPackageWizard._compute_location_and_packages.
+            if not location_dest_id and move_line.location_id:
+                building = move_line.location_id.x_studio_building
+                if building:
+                    aisle_location = self.env['stock.location'].search([
+                        ('x_studio_is_an_aisle', '=', True),
+                        ('x_studio_building', '=', building.id),
+                    ], limit=1)
+                    if aisle_location:
+                        location_dest_id = aisle_location.id
+                if not location_dest_id:
+                    aisle_location = self.env['stock.location'].search([
+                        ('x_studio_is_an_aisle', '=', True),
+                    ], limit=1)
+                    if aisle_location:
+                        location_dest_id = aisle_location.id
+
             lines.append((0, 0, {
                 'select_package': True,  # Auto-select all
                 'result_package_id': pallet_result_id,
@@ -895,6 +916,19 @@ class transfer_locations(models.Model):
                 'location_id': record.location_id.id,
             }))
 
+        # Destination = where the stock should land back. Walk the WR move
+        # lines and use the first building's preset_location we find (same
+        # algorithm as the return wizard's _compute_location_and_packages).
+        # Fall back to the WR's own source location if nothing resolves.
+        rr_dest_location = False
+        for ml in record.move_line_ids:
+            building = ml.location_id.x_studio_building
+            if building and building.x_studio_preset_location:
+                rr_dest_location = building.x_studio_preset_location.id
+                break
+        if not rr_dest_location:
+            rr_dest_location = record.location_id.id
+
         # Create the wizard with all lines pre-built and selected
         wizard = self.env['return.package.wizard'].with_context(
             default_picking_id=record.id,
@@ -904,7 +938,7 @@ class transfer_locations(models.Model):
             'picking_id': record.id,
             'return_reason': 'Void Transfer',
             'warehouse_id': record.picking_type_id.warehouse_id.id,
-            'location_id': record.location_id.id,
+            'location_id': rr_dest_location,
             'select_all': True,
             'lines_computed': True,
             'package_line_ids': lines,
