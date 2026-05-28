@@ -1304,7 +1304,123 @@ class transfer_locations(models.Model):
                         "Successfully auto-voided void return RR %s", record.name)
 
         return result
+        
+    def get_picklist_page_boundaries(self):
+        """
+        Pre-compute page boundaries for picklist using pixel-based height budgeting.
+        Returns list of (start_idx, end_idx) tuples into sorted_move_lines.
 
+        Pixel budget per page:
+          Page height:                           1060px
+          Header (company/dates/shipping):       ~230px
+          Table header row:                       ~40px
+          Footer (sigs + dist, no remarks):      ~186px
+          ─────────────────────────────────────────────
+          Available for item rows:               ~604px
+          MAX_PIXEL_HEIGHT (with safety buffer):  590px
+
+        If pages still overflow lower MAX_PIXEL_HEIGHT.
+        If there is still too much empty space raise it.
+        """
+        MAX_PIXEL_HEIGHT = 590
+
+        sorted_lines = list(self.get_picklist_sorted_move_line_ids())
+        n = len(sorted_lines)
+
+        if not n:
+            return [(0, 0)]
+
+        boundaries = []
+        page_start = 0
+        px_used = 0
+        last_product_id = None
+        last_prod_date = None
+        last_exp_date = None
+
+        for idx in range(n):
+            line = sorted_lines[idx]
+            next_line = sorted_lines[idx + 1] if idx + 1 < n else None
+
+            show_product = (
+                line.product_id.id != last_product_id
+                or line.x_studio_production_date != last_prod_date
+                or line.x_studio_expiration_date != last_exp_date
+            )
+
+            current_container = line.x_studio_container_number or ''
+            next_container = (next_line.x_studio_container_number or '') if next_line else ''
+            is_last = next_line is None
+            next_move_id = next_line.move_id.id if next_line else None
+
+            container_changed = is_last or bool(
+                next_container and current_container and current_container != next_container
+            )
+            move_changed = is_last or (line.move_id.id != next_move_id)
+
+            row_px = self._picklist_row_pixels(
+                line, show_product, current_container,
+                container_changed, move_changed, is_last
+            )
+
+            # Flush current page if this item would exceed budget
+            if px_used + row_px > MAX_PIXEL_HEIGHT and idx > page_start:
+                boundaries.append((page_start, idx))
+                page_start = idx
+                px_used = 0
+                last_product_id = None
+                last_prod_date = None
+                last_exp_date = None
+                # Recount for new page — product always shows at top of new page
+                row_px = self._picklist_row_pixels(
+                    line, True, current_container,
+                    container_changed, move_changed, is_last
+                )
+
+            px_used += row_px
+            last_product_id = line.product_id.id
+            last_prod_date = line.x_studio_production_date
+            last_exp_date = line.x_studio_expiration_date
+
+        boundaries.append((page_start, n))
+        return boundaries
+
+    def _picklist_row_pixels(self, line, show_product, current_container,
+                              container_changed, move_changed, is_last):
+        """
+        Estimate pixel height one move line consumes in the picklist table.
+
+        Pixel breakdown:
+          24px  base data row (min-height)
+          +15px product name wraps (name > 38 chars in the description column)
+          +15px date range line inside td   (if show_product and has dates)
+          +15px container line inside td    (if container_changed and has container)
+          +30px separate Total Request <tr> (if move_changed and total_request set)
+          +12px spacing <tr> between container groups (not on last item)
+        """
+        px = 24  # base data row
+
+        if show_product:
+            # Long product names wrap inside the td, adding an extra line
+            product_name = line.product_id.name or ''
+            if len(product_name) > 38:
+                px += 15  # wrapping line
+            if line.x_studio_production_date or line.x_studio_expiration_date:
+                px += 15  # date range line
+            if container_changed and current_container:
+                px += 15  # container shown on first product row
+        else:
+            if container_changed and current_container:
+                px += 15  # container shown on non-product row
+
+        if move_changed and line.move_id.x_studio_total_request:
+            px += 30  # separate Total Request <tr>
+
+        if container_changed and current_container and not is_last:
+            px += 12  # spacing <tr> between container groups
+
+        return px
+
+    
     def get_grouped_move_lines_for_report(self):
             """
             Preprocess move lines for report rendering.
