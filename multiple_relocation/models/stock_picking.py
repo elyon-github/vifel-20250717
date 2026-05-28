@@ -1306,279 +1306,306 @@ class transfer_locations(models.Model):
         return result
 
     def get_grouped_move_lines_for_report(self):
-        """
-        Preprocess move lines for report rendering.
-        Groups lines by item description key and marks which ones should display the description.
-
-        Returns:
-            tuple: (processed_lines, grand_total_by_uom)
-            - processed_lines: List of dictionaries with processed move line data
-            - grand_total_by_uom: Dictionary with UOM totals for grand total
-        """
-        all_move_lines = []
-
-        # Collect all move lines
-        for move in self.move_ids:
-            for line in move.move_line_ids:
-                all_move_lines.append(line)
-
-        # Sort by description key (product|container|prod_date|exp_date) first, then by pallet series ID (groups items with same description together)
-        def get_sort_key(line):
-            product_name = line.product_id.name if line.product_id else ''
-            container_number = line.x_studio_container_number or ''
-
-            production_date = ''
-            if line.x_studio_production_date:
-                production_date = line.x_studio_production_date.strftime(
-                    '%b%d.%Y').upper()
-
-            expiration_date = ''
-            if line.x_studio_expiration_date:
-                expiration_date = line.x_studio_expiration_date.strftime(
-                    '%b%d.%Y').upper()
-
-            description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
-            pallet_id = line.x_studio_pallet_series_id or ''
-
-            return (description_key, pallet_id)
-
-        sorted_move_lines = sorted(all_move_lines, key=get_sort_key)
-
-        processed_lines = []
-        seen_descriptions = set()
-        grand_total_by_uom = {}
-
-        # First pass: determine if we have only one pallet and one product
-        unique_descriptions = set()
-        for line in sorted_move_lines:
-            move = line
-            product_name = line.product_id.name if line.product_id else ''
-            container_number = move.x_studio_container_number or ''
-
-            # Format dates
-            production_date = ''
-            if move.x_studio_production_date:
-                production_date = move.x_studio_production_date.strftime(
-                    '%b%d.%Y').upper()
-
-            expiration_date = ''
-            if move.x_studio_expiration_date:
-                expiration_date = move.x_studio_expiration_date.strftime(
-                    '%b%d.%Y').upper()
-
-            description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
-            unique_descriptions.add(description_key)
-
-        # Check if we should hide details (only one pallet AND only one product)
-        is_single_pallet_single_product = len(
-            unique_descriptions) == 1 and len(sorted_move_lines) == 1
-
-        # Second pass: process lines
-        # Track seen descriptions per page
-        seen_descriptions_current_page = set()
-        items_per_page = 15  # Should match your XML template
-
-        for line_index, line in enumerate(sorted_move_lines):
-            move = line
-
-            # Create the description key for grouping
-            product_name = line.product_id.name if line.product_id else ''
-            container_number = move.x_studio_container_number or ''
-
-            # Format dates
-            production_date = ''
-            if move.x_studio_production_date:
-                production_date = move.x_studio_production_date.strftime(
-                    '%b%d.%Y').upper()
-
-            expiration_date = ''
-            if move.x_studio_expiration_date:
-                expiration_date = move.x_studio_expiration_date.strftime(
-                    '%b%d.%Y').upper()
-
-            # Create the description key for grouping (used to determine uniqueness)
-            description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
-
-            # Create the formatted description for display
-            description_parts = []
-            if product_name:
-                description_parts.append(product_name)
-            if container_number:
-                description_parts.append(container_number)
-            if production_date and expiration_date:
-                description_parts.append(
-                    f"{production_date} - {expiration_date}")
-            elif production_date:
-                description_parts.append(production_date)
-            elif expiration_date:
-                description_parts.append(expiration_date)
-
-            formatted_description = '<br/>'.join(description_parts)
-
-            # Determine if this line should start a new page
-            # Check if we're at the beginning of a new page (except for the first line)
-            is_new_page = line_index > 0 and line_index % items_per_page == 0
-
-            # If starting a new page, reset the seen descriptions for current page
-            if is_new_page:
-                seen_descriptions_current_page = set()
-
-            # Determine if we should show the description
-            # Show if: first occurrence of this key on current page OR starting a new page
-            show_description = False
-            if description_key not in seen_descriptions_current_page or is_new_page:
-                show_description = True
-                seen_descriptions_current_page.add(description_key)
-
-            # Get UOM and quantity
-            uom = move.x_studio_quantity_uom.name if move and move.x_studio_quantity_uom else move.x_studio_quantity_uom_delivery.name
-            quantity = 0
-            weight = 0
-
-            if self.partner_id.x_studio_special_no_rr_return_needed and move.x_studio_affected_2nd_uom:
-                quantity = line.x_studio_actual_packaging
-            else:
-                quantity = line.x_studio_2nd_uom or move.x_studio_affected_2nd_uom
-
-            if self.partner_id.x_studio_special_no_rr_return_needed and line.x_studio_actual_kg:
-                weight = line.x_studio_actual_kg
-            else:
-                weight = line.quantity or 0
-
-            # Add to grand total by UOM
-            if uom:
-                if uom not in grand_total_by_uom:
-                    grand_total_by_uom[uom] = 0
-                grand_total_by_uom[uom] += quantity
-
-            # Build pallet number with fallback logic
-            if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
-                pallet_no = f"{line.package_id.name}"
-            elif line.picking_id.x_studio_is_a_blast_freezer:
-                pallet_no = line.bf_pallet_char
-            else:
-                pallet_no = line.result_package_id.name if line.result_package_id else ''
-
-            # Append processed line
-            processed_lines.append({
-                'pallet_no': pallet_no,
-                'item_description': formatted_description,
-                'show_description': show_description,
-                'description_key': description_key,  # Keep for new page logic
-                'quantity': quantity,
-                'uom': uom,
-                'weight': weight,
-                'weight_uom': line.product_uom_id.name if line.product_uom_id else '',
-                'original_line': line,  # Reference for any additional data
-                'is_new_page': is_new_page  # Flag for new page starts
-            })
-
-        # Add "***Nothing Follows***" to the very last row after all pallets are rendered
-        if processed_lines:
-            # Always add "Nothing Follows" as a separate line to preserve product details
-            last_line = processed_lines[-1].copy()
-
-            # Create the "Nothing Follows" line
-            nothing_follows_line = last_line.copy()
-            nothing_follows_line['item_description'] = '***Nothing Follows***'
-            nothing_follows_line['show_description'] = True
-            nothing_follows_line['description_key'] = 'nothing_follows'
-            # Clear pallet number for "Nothing Follows"
-            nothing_follows_line['pallet_no'] = ''
-            nothing_follows_line['quantity'] = 0
-            nothing_follows_line['weight'] = 0
-            nothing_follows_line['uom'] = ''
-            nothing_follows_line['weight_uom'] = ''
-
-            processed_lines.append(nothing_follows_line)
-
-        return processed_lines, grand_total_by_uom
+            """
+            Preprocess move lines for report rendering.
+            Groups lines by item description key and marks which ones should display the description.
+    
+            Returns:
+                tuple: (processed_lines, grand_total_by_uom, grand_packs_by_uom)
+                - processed_lines: List of dictionaries with processed move line data
+                - grand_total_by_uom: Dictionary with UOM quantity totals for grand total
+                - grand_packs_by_uom: Dictionary with UOM packs totals for grand total
+    
+            total_units field mapping by operation type:
+                RR (incoming):          x_studio_total_units
+                WR (outgoing) normal:   x_studio_withdraw_units
+                WR (outgoing) special:  x_studio_actual_min
+            """
+            all_move_lines = []
+    
+            # Collect all move lines
+            for move in self.move_ids:
+                for line in move.move_line_ids:
+                    all_move_lines.append(line)
+    
+            # Sort by description key (product|container|prod_date|exp_date) first,
+            # then by pallet series ID (groups items with same description together)
+            def get_sort_key(line):
+                product_name = line.product_id.name if line.product_id else ''
+                container_number = line.x_studio_container_number or ''
+    
+                production_date = ''
+                if line.x_studio_production_date:
+                    production_date = line.x_studio_production_date.strftime('%b%d.%Y').upper()
+    
+                expiration_date = ''
+                if line.x_studio_expiration_date:
+                    expiration_date = line.x_studio_expiration_date.strftime('%b%d.%Y').upper()
+    
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+                pallet_id = line.x_studio_pallet_series_id or ''
+    
+                return (description_key, pallet_id)
+    
+            sorted_move_lines = sorted(all_move_lines, key=get_sort_key)
+    
+            processed_lines = []
+            seen_descriptions = set()
+            grand_total_by_uom = {}
+            grand_packs_by_uom = {}
+    
+            # Determine operation type and special partner flag once, used for total_units mapping
+            is_outgoing = self.picking_type_id.code == 'outgoing'
+            is_special = self.partner_id.x_studio_special_no_rr_return_needed
+    
+            # First pass: determine unique descriptions
+            unique_descriptions = set()
+            for line in sorted_move_lines:
+                move = line
+                product_name = line.product_id.name if line.product_id else ''
+                container_number = move.x_studio_container_number or ''
+    
+                production_date = ''
+                if move.x_studio_production_date:
+                    production_date = move.x_studio_production_date.strftime('%b%d.%Y').upper()
+    
+                expiration_date = ''
+                if move.x_studio_expiration_date:
+                    expiration_date = move.x_studio_expiration_date.strftime('%b%d.%Y').upper()
+    
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+                unique_descriptions.add(description_key)
+    
+            # Check if we should hide details (only one pallet AND only one product)
+            is_single_pallet_single_product = len(unique_descriptions) == 1 and len(sorted_move_lines) == 1
+    
+            # Second pass: process lines
+            seen_descriptions_current_page = set()
+            items_per_page = 15  # Should match your XML template
+    
+            for line_index, line in enumerate(sorted_move_lines):
+                move = line
+    
+                product_name = line.product_id.name if line.product_id else ''
+                container_number = move.x_studio_container_number or ''
+    
+                production_date = ''
+                if move.x_studio_production_date:
+                    production_date = move.x_studio_production_date.strftime('%b%d.%Y').upper()
+    
+                expiration_date = ''
+                if move.x_studio_expiration_date:
+                    expiration_date = move.x_studio_expiration_date.strftime('%b%d.%Y').upper()
+    
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+    
+                description_parts = []
+                if product_name:
+                    description_parts.append(product_name)
+                if container_number:
+                    description_parts.append(container_number)
+                if production_date and expiration_date:
+                    description_parts.append(f"{production_date} - {expiration_date}")
+                elif production_date:
+                    description_parts.append(production_date)
+                elif expiration_date:
+                    description_parts.append(expiration_date)
+    
+                formatted_description = '<br/>'.join(description_parts)
+    
+                is_new_page = line_index > 0 and line_index % items_per_page == 0
+    
+                if is_new_page:
+                    seen_descriptions_current_page = set()
+    
+                show_description = False
+                if description_key not in seen_descriptions_current_page or is_new_page:
+                    show_description = True
+                    seen_descriptions_current_page.add(description_key)
+    
+                uom = move.x_studio_quantity_uom.name if move and move.x_studio_quantity_uom else move.x_studio_quantity_uom_delivery.name
+                quantity = 0
+                weight = 0
+    
+                if is_special and move.x_studio_affected_2nd_uom:
+                    quantity = line.x_studio_actual_packaging
+                else:
+                    quantity = line.x_studio_2nd_uom or move.x_studio_affected_2nd_uom
+    
+                if is_special and line.x_studio_actual_kg:
+                    weight = line.x_studio_actual_kg
+                else:
+                    weight = line.quantity or 0
+    
+                # total_units field mapping based on operation type:
+                # RR (incoming):         x_studio_total_units
+                # WR (outgoing) normal:  x_studio_withdraw_units
+                # WR (outgoing) special: x_studio_actual_min
+                if is_outgoing:
+                    total_units = float(line.x_studio_actual_min or 0) if is_special else float(line.x_studio_withdraw_units or 0)
+                else:
+                    total_units = float(line.x_studio_total_units or 0)
+    
+                # Accumulate grand totals
+                if uom:
+                    if uom not in grand_total_by_uom:
+                        grand_total_by_uom[uom] = 0
+                    grand_total_by_uom[uom] += quantity
+    
+                if uom and total_units:
+                    if uom not in grand_packs_by_uom:
+                        grand_packs_by_uom[uom] = 0
+                    grand_packs_by_uom[uom] += total_units
+    
+                # Build pallet number with fallback logic
+                if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
+                    pallet_no = f"{line.package_id.name}"
+                elif line.picking_id.x_studio_is_a_blast_freezer:
+                    pallet_no = line.bf_pallet_char
+                else:
+                    pallet_no = line.result_package_id.name if line.result_package_id else ''
+    
+                processed_lines.append({
+                    'pallet_no': pallet_no,
+                    'item_description': formatted_description,
+                    'show_description': show_description,
+                    'description_key': description_key,
+                    'quantity': quantity,
+                    'uom': uom,
+                    'weight': weight,
+                    'weight_uom': line.product_uom_id.name if line.product_uom_id else '',
+                    'total_units': total_units,
+                    'original_line': line,
+                    'is_new_page': is_new_page
+                })
+    
+            # Add "***Nothing Follows***" as a separate trailing line
+            if processed_lines:
+                last_line = processed_lines[-1].copy()
+                nothing_follows_line = last_line.copy()
+                nothing_follows_line['item_description'] = '***Nothing Follows***'
+                nothing_follows_line['show_description'] = True
+                nothing_follows_line['description_key'] = 'nothing_follows'
+                nothing_follows_line['pallet_no'] = ''
+                nothing_follows_line['quantity'] = 0
+                nothing_follows_line['weight'] = 0
+                nothing_follows_line['total_units'] = 0
+                nothing_follows_line['uom'] = ''
+                nothing_follows_line['weight_uom'] = ''
+    
+                processed_lines.append(nothing_follows_line)
+    
+            return processed_lines, grand_total_by_uom, grand_packs_by_uom
 
     def get_uom_totals_for_page(self, processed_lines, start_idx, end_idx):
         """
-        Calculate UOM totals for a specific page range.
-
+        Calculate UOM quantity totals for a specific page range.
+ 
         Args:
             processed_lines: List of processed line data
             start_idx: Start index for page
             end_idx: End index for page
-
+ 
         Returns:
-            dict: Dictionary with UOM totals for the page
+            dict: Dictionary with UOM quantity totals for the page
         """
         page_total_by_uom = {}
-
+ 
         for line_data in processed_lines[start_idx:end_idx]:
             uom = line_data['uom']
             quantity = line_data['quantity']
-
+ 
             if uom:
                 if uom not in page_total_by_uom:
                     page_total_by_uom[uom] = 0
                 page_total_by_uom[uom] += quantity
-
+ 
         return page_total_by_uom
 
     def get_weight_totals_for_page(self, processed_lines, start_idx, end_idx):
         """
-        Calculate UOM totals for a specific page range.
-
+        Calculate weight totals by UOM for a specific page range.
+ 
         Args:
             processed_lines: List of processed line data
             start_idx: Start index for page
             end_idx: End index for page
-
+ 
         Returns:
-            dict: Dictionary with UOM totals for the page
+            dict: Dictionary with UOM weight totals for the page
         """
         page_weight_by_uom = {}
-
+ 
         for line_data in processed_lines[start_idx:end_idx]:
             uom = line_data['uom']
             weight = line_data['weight']
-
+ 
             if uom:
                 if uom not in page_weight_by_uom:
                     page_weight_by_uom[uom] = 0
                 page_weight_by_uom[uom] += weight
-
+ 
         return page_weight_by_uom
 
+
+    def get_packs_totals_for_page(self, processed_lines, start_idx, end_idx):
+        """
+        Calculate x_studio_total_units (PACKS) totals by UOM for a specific page range.
+ 
+        Args:
+            processed_lines: List of processed line data
+            start_idx: Start index for page
+            end_idx: End index for page
+ 
+        Returns:
+            dict: Dictionary with UOM packs totals for the page
+        """
+        page_packs_by_uom = {}
+ 
+        for line_data in processed_lines[start_idx:end_idx]:
+            uom = line_data['uom']
+            packs = line_data.get('total_units', 0)
+ 
+            if uom and packs:
+                if uom not in page_packs_by_uom:
+                    page_packs_by_uom[uom] = 0
+                page_packs_by_uom[uom] += packs
+ 
+        return page_packs_by_uom
     def get_pallet_count_for_page(self, processed_lines, start_idx, end_idx):
         """
         Calculate unique pallet count for a specific page range.
         Only counts pallets that appear for the FIRST time in the entire dataset
         and happen to be on this specific page.
-
+ 
         Args:
             processed_lines: List of processed line data
             start_idx: Start index for page
             end_idx: End index for page
-
+ 
         Returns:
             int: Number of unique pallets that first appear on this page
         """
-        # First, build a map of which line index each pallet first appears at
+        # Build a map of which line index each pallet first appears at
         first_occurrence = {}
-
+ 
         for idx, line_data in enumerate(processed_lines):
             line = line_data['original_line']
             pallet_id = None
-
-            # Get the pallet identifier using the same logic as the original
+ 
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('package', line.package_id.id)
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('result_package', line.result_package_id.id)
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
-
+ 
             if pallet_id and pallet_id not in first_occurrence:
                 first_occurrence[pallet_id] = idx
-
-        # Now count pallets that first appear in this page range
+ 
+        # Count pallets that first appear in this page range
         page_pallet_count = 0
-
+ 
         for line_idx in range(start_idx, min(end_idx, len(processed_lines))):
             line_data = processed_lines[line_idx]
             line = line_data['original_line']
@@ -1588,12 +1615,10 @@ class transfer_locations(models.Model):
                 ('picking_id.id', '!=', line.picking_id.id),
                 ('picking_id.picking_type_code', '=', 'outgoing')
             ])
-
-            # Check if this line contains a pallet's first occurrence
+ 
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('package', line.package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-
                     page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('result_package', line.result_package_id.id)
@@ -1603,8 +1628,9 @@ class transfer_locations(models.Model):
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
                 if first_occurrence.get(pallet_id) == line_idx:
                     page_pallet_count += 1
-
+ 
         return page_pallet_count
+ 
 
     def preprocess_stock_move_data(self, doc):
         """
@@ -1954,17 +1980,19 @@ class transfer_locations(models.Model):
         }
 
     # Picklist
-    def get_picklist_page_totals_by_uom(self, page_start_index, page_end_index):
+    def get_picklist_page_totals_by_uom(self, page_start_index, page_end_index, sorted_move_lines=None):
         """
         Calculate page totals grouped by UOM for picklist
         Returns dictionary with UOM as key and totals as values
         """
         page_totals = {}
-
-        for i in range(page_start_index, min(page_end_index, len(self.move_line_ids))):
-            move_line = self.move_line_ids[i]
+    
+        # Use sorted_move_lines if provided, otherwise fall back to self.move_line_ids
+        lines = sorted_move_lines if sorted_move_lines is not None else self.move_line_ids
+    
+        for i in range(page_start_index, min(page_end_index, len(lines))):
+            move_line = lines[i]
             uom_name = move_line.x_studio_quantity_uom_delivery.name if move_line.x_studio_quantity_uom_delivery else 'Unknown'
-
             if uom_name not in page_totals:
                 page_totals[uom_name] = {
                     'qty': 0,
@@ -1972,12 +2000,10 @@ class transfer_locations(models.Model):
                     'kg': 0,
                     'uom': move_line.x_studio_quantity_uom_delivery
                 }
-
-            # Add to totals
             page_totals[uom_name]['qty'] += move_line.x_studio_actual_packaging or 0
             page_totals[uom_name]['packs'] += move_line.x_studio_actual_min or 0
             page_totals[uom_name]['kg'] += move_line.x_studio_actual_kg or 0
-
+    
         return page_totals
 
     def get_picklist_grand_totals_by_uom(self):
