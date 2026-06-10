@@ -183,8 +183,7 @@ class StockQuantHistorySnapshot(models.Model):
             "inventory_date=%s UTC | started_by=%s =====",
             self.id, self.name, self.inventory_date, self.env.user.login,
         )
-        # Store Manila time (UTC+8) for generated_date
-        self.generated_date = _gen_start.replace(tzinfo=None)
+        self.generated_date = _gen_start.astimezone(pytz_utc).replace(tzinfo=None)
 
         try:
             # RC-3 fix: inventory_date is stored UTC-naive; compare against the same.
@@ -542,9 +541,9 @@ class StockQuantHistorySnapshot(models.Model):
                 inv_dt = pytz_utc.localize(inv_dt)
             existing_dates.add(inv_dt.astimezone(self.MANILA_TZ).date())
 
-        # Walk backwards from today, collect missing dates
+        # Walk backwards from yesterday (today is handled by the daily cron)
         missing = []
-        d = today
+        d = today - timedelta(days=1)
         while d >= cutoff and len(missing) < self.BACKFILL_BATCH:
             if d not in existing_dates:
                 missing.append(d)
