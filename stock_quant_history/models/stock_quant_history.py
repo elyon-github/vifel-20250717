@@ -172,3 +172,17 @@ class StockQuantHistory(models.Model):
         readonly=True,
         store=True,
     )
+
+    def init(self):
+        # Safety net against duplicated history lines: a snapshot may hold at
+        # most one line per (product, lot, location). ``lot_id`` is coalesced so
+        # that lot-less rows are deduplicated too (NULLs are otherwise distinct
+        # in a unique index). Generation is idempotent, so in normal operation
+        # this index should never actually reject a write.
+        self.env.cr.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS stock_quant_history_unique_key
+            ON stock_quant_history
+            (snapshot_id, product_id, COALESCE(lot_id, 0), location_id)
+            """
+        )
