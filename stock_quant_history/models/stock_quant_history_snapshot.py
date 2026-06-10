@@ -1,6 +1,7 @@
 # Copyright 2024 Foodles (https://www.foodles.co/).
 # @author Pierre Verkest <pierreverkest84@gmail.com>
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html).
+# Note: snapshots are regenerated manually after deploy (no build-time migration).
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
