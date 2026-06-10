@@ -292,13 +292,6 @@ class stock_move_line_Override(models.Model):
     x_studio_end_time = fields.Datetime(string="End Time")
     x_studio_truck_number = fields.Char(string="Truck's Plate")
     x_studio_record_reference = fields.Char(string="Record Reference")
-    x_studio_container_number = fields.Char(
-        string="Container #", compute="_compute_container_number", store=True)
-
-    x_studio_building_dropped = fields.Char(
-        string="Building", compute="_compute_x_studio_building_dropped", store=True)
-    original_record_reference = fields.Many2one(
-        'stock.picking', compute="_compute_x_studio_building_dropped", store=True)
 
     adjustment_reference_id = fields.Many2one(
         'stock.picking', string="Adjustment Referenced RR")
@@ -328,35 +321,157 @@ class stock_move_line_Override(models.Model):
     vifel_location_name = fields.Char(
         string="Vifel Location Name", related="location_id.vifel_location_name", readonly=True)
 
+    # x_studio_container_number = fields.Char(
+    #     string="Container #", compute="_compute_container_number", store=True)
+
+    # x_studio_building_dropped = fields.Char(
+    #     string="Building", compute="_compute_x_studio_building_dropped", store=True)
+
+    # x_studio_batch = fields.Char(string="Batch #", store=True, compute="_compute_x_studio_batch")
+    # x_studio_prodcode = fields.Char(string="Prodcode", store=True, compute="_compute_x_studio_prodcode")
+    # x_studio_for_tth = fields.Boolean(string="Is TTH", store=True, compute="_compute_x_studio_for_tth")
+    
+    # original_record_reference = fields.Many2one(
+    #     'stock.picking', compute="_compute_x_studio_building_dropped", store=True)
+    
+    # @api.depends('quant_id')
+    # def _compute_x_studio_for_tth(self):
+    #     for record in self:
+    #         if record['picking_code'] == 'outgoing' or not record['picking_code']:
+    #             location = self.env['stock.location'].browse(record['location_id'].id)
+                
+    #             for quants in location.quant_ids:
+    #                 if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+    #                     record['x_studio_for_tth'] = quants.x_studio_for_tth
+    #         else:
+    #             record['x_studio_for_tth'] = ''
+
+    
+    # @api.depends('quant_id')
+    # def _compute_x_studio_batch(self):
+    #     for record in self:
+    #         if record.owner_id.x_studio_has_batch_:
+    #             if record['picking_code'] == 'outgoing' or not record['picking_code']:
+    #                 location = self.env['stock.location'].browse(record['location_id'].id)
+                    
+    #                 for quants in location.quant_ids:
+    #                     if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+    #                         record['x_studio_batch'] = quants.x_studio_batch
+    #             else:
+    #                 record['x_studio_batch'] = ''
+    #         else:
+    #             record['x_studio_batch'] = ''
+
+    # @api.depends('quant_id')
+    # def _compute_x_studio_prodcode(self):
+    #     for record in self:
+    #         if record.owner_id.x_studio_has_batch_:
+    #             if record['picking_code'] == 'outgoing' or not record['picking_code']:
+    #                 location = self.env['stock.location'].browse(record['location_id'].id)
+                    
+    #                 for quants in location.quant_ids:
+    #                     if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+    #                         record['x_studio_prodcode'] = quants.x_studio_prodcode
+    #             else:
+    #                 record['x_studio_prodcode'] = ''
+    #         else:
+    #             record['x_studio_batch'] = ''     
+                
+    # @api.depends('quant_id')
+    # def _compute_container_number(self):
+    #     for record in self:
+    #         if record['picking_code'] == 'outgoing' or not record['picking_code']:
+    #             location = self.env['stock.location'].browse(
+    #                 record['location_id'].id)
+
+    #             for quants in location.quant_ids:
+    #                 if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+    #                     record['x_studio_container_number'] = quants.x_studio_container_number
+
+    #         else:
+    #             record['x_studio_container_number'] = ''
+
+    # @api.depends('quant_id')
+    # def _compute_x_studio_building_dropped(self):
+    #     for record in self:
+    #         if record['picking_code'] == 'outgoing' or not record['picking_code']:
+    #             location = self.env['stock.location'].browse(
+    #                 record['location_id'].id)
+
+    #             for quants in location.quant_ids:
+    #                 if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+    #                     record['x_studio_building_dropped'] = quants.x_studio_building_dropped
+    #                     record['original_record_reference'] = quants.original_record_reference
+    #         else:
+    #             record['x_studio_building_dropped'] = ''
+    #             record['original_record_reference'] = False
+
+    x_studio_container_number = fields.Char(string="Container #", store=True)
+    x_studio_building_dropped = fields.Char(string="Building", store=True)
+    x_studio_batch = fields.Char(string="Batch #", store=True)
+    x_studio_prodcode = fields.Char(string="Prodcode", store=True)
+    x_studio_for_tth = fields.Boolean(string="Is TTH", store=True, compute="_compute_from_quant")
+    original_record_reference = fields.Many2one('stock.picking', store=True)
+    
     @api.depends('quant_id')
-    def _compute_container_number(self):
-        for record in self:
-            if record['picking_code'] == 'outgoing' or not record['picking_code']:
-                location = self.env['stock.location'].browse(
-                    record['location_id'].id)
-
-                for quants in location.quant_ids:
-                    if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
-                        record['x_studio_container_number'] = quants.x_studio_container_number
-
-            else:
-                record['x_studio_container_number'] = ''
-
-    @api.depends('quant_id')
-    def _compute_x_studio_building_dropped(self):
-        for record in self:
-            if record['picking_code'] == 'outgoing' or not record['picking_code']:
-                location = self.env['stock.location'].browse(
-                    record['location_id'].id)
-
-                for quants in location.quant_ids:
-                    if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
-                        record['x_studio_building_dropped'] = quants.x_studio_building_dropped
-                        record['original_record_reference'] = quants.original_record_reference
-            else:
-                record['x_studio_building_dropped'] = ''
-                record['original_record_reference'] = False
-
+    def _compute_from_quant(self):
+        # --- 1. Filter to only records that need processing ---
+        relevant = self.filtered(
+            lambda r: r.picking_code == 'outgoing' or not r.picking_code
+        )
+    
+        # --- 2. Reset ALL records in one pass ---
+        self.update({
+            'x_studio_for_tth': False,
+            'x_studio_container_number': '',
+            'x_studio_building_dropped': '',
+            'original_record_reference': False,
+            'x_studio_batch': '',
+            'x_studio_prodcode': '',
+        })
+    
+        if not relevant:
+            return
+    
+        # --- 3. Collect keys for a SINGLE bulk quant search ---
+        location_ids = relevant.mapped('location_id').ids
+        product_ids = relevant.mapped('product_id').ids
+        owner_ids = relevant.mapped('owner_id').ids
+        lot_ids = relevant.filtered('lot_id').mapped('lot_id').ids
+    
+        quants = self.env['stock.quant'].search([
+            ('location_id', 'in', location_ids),
+            ('product_id', 'in', product_ids),
+            ('owner_id', 'in', owner_ids),
+        ])
+    
+        # --- 4. Build a lookup dict — O(1) per record match ---
+        quant_map = {
+            (q.location_id.id, q.product_id.id, q.owner_id.id, q.lot_id.id): q
+            for q in quants
+        }
+    
+        # --- 5. Assign in a single loop, no inner iteration ---
+        for record in relevant:
+            key = (
+                record.location_id.id,
+                record.product_id.id,
+                record.owner_id.id,
+                record.lot_id.id,
+            )
+            matched_quant = quant_map.get(key)
+            if not matched_quant:
+                continue
+    
+            record.x_studio_for_tth = matched_quant.x_studio_for_tth
+            record.x_studio_container_number = matched_quant.x_studio_container_number
+            record.x_studio_building_dropped = matched_quant.x_studio_building_dropped
+            record.original_record_reference = matched_quant.original_record_reference
+    
+            if record.owner_id.x_studio_has_batch_:
+                record.x_studio_batch = matched_quant.x_studio_batch
+                record.x_studio_prodcode = matched_quant.x_studio_prodcode
+            
     def get_second_top_parent(self, location_path):
         parts = location_path.split('/')
         if len(parts) >= 2:

@@ -1592,7 +1592,8 @@ class transfer_locations(models.Model):
                     'weight_uom': line.product_uom_id.name if line.product_uom_id else '',
                     'total_units': total_units,
                     'original_line': line,
-                    'is_new_page': is_new_page
+                    'is_new_page': is_new_page,
+                    'for_tth': line.x_studio_for_tth
                 })
     
             # Add "***Nothing Follows***" as a separate trailing line
@@ -2415,7 +2416,7 @@ class transfer_locations(models.Model):
             # Specify the editable tree view
             'view_id': self.env.ref('multiple_relocation.view_stock_quant_tree_custom_2').id,
             'domain': domain,
-            'context': {'create': False, 'picking_id': self.id, 'state': self.state},
+            'context': {'create': False, 'picking_id': self.id, 'state': self.state, 'has_batch': self.partner_id.x_studio_has_batch_},
         }
 
     @api.depends('location_id', 'location_dest_id', 'truck_type')
@@ -2529,6 +2530,7 @@ class transfer_locations(models.Model):
                 'x_studio_record_lines_counter': self.x_studio_record_lines_counter,
                 'state': self.state,
                 'is_blast_freeze': self.x_studio_is_a_blast_freezer,
+                'has_batch': self.partner_id.x_studio_has_batch_
                 # 'parent_location': self.location_dest_id,
             },
             'target': 'current'

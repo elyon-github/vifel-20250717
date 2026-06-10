@@ -573,6 +573,9 @@ class OverrideStockQuant(models.Model):
 
     x_studio_special_holding = fields.Boolean()
     bf_pallet_char = fields.Char(string="Pallet # - Text")
+    x_studio_for_tth = fields.Boolean(string="Is TTH")
+    x_studio_batch = fields.Char(string="Batch #", store=True)
+    x_studio_prodcode = fields.Char(string="Prodcode", store=True, compute="_compute_x_studio_prodcode")
     location_is_bf = fields.Boolean(
         string="Location is Blast Freezer",
         related='location_id.x_studio_is_a_blast_freezer',
@@ -600,6 +603,13 @@ class OverrideStockQuant(models.Model):
         group_operator='avg'  # or 'max', 'min', 'sum' depending on what makes sense
     )
 
+
+                
+    @api.depends('x_studio_expiration_date', 'x_studio_batch')
+    def _compute_x_studio_prodcode(self):
+        for record in self:
+            record['x_studio_prodcode'] = f"{record.x_studio_expiration_date.strftime('%d%b%Y').upper()}{record.x_studio_batch}{record.location_id.warehouse_id.code}" if record.x_studio_expiration_date and record.x_studio_batch else ''    
+    
     @api.onchange('x_studio_dest_relocation')
     def reserve_unreserve_location_onchange(self):
         for record in self:
