@@ -318,75 +318,71 @@ class StockQuantHistorySnapshot(models.Model):
     def _enrich_stock_quant_history(self, history_by_key):
         """Fill the additional (Studio) fields on freshly created history rows.
 
-        Values are taken, in priority order, from:
+        This reproduces the *original* enrichment strategy exactly (the
+        quantities are now rebuilt deterministically elsewhere; only the way
+        the Studio data is recovered matters here). For every generated row,
+        keyed by ``(product, lot, location)``:
 
-          1. the latest *done* destination move line at/before the inventory
-             date matching the (product, lot, location) of the row (point in
-             time accurate);
-          2. the current ``stock.quant`` properly scoped on
-             (product, lot, location) for the fields that only live on the
-             quant.
+          1. look up a ``stock.quant`` **by lot only** (the product/location
+             are intentionally NOT constrained, exactly like the original): if
+             one is found and it still carries an ``x_studio_pallet_series_id``,
+             copy the full additional field set from it
+             (:meth:`_quant_enrichment_vals`);
+          2. otherwise fall back to the latest *done* ``stock.move.line`` of
+             that lot which carries an ``x_studio_pallet_series_id`` at/before
+             the inventory date (walking ascending in time, keeping the last
+             match, falling back to the very first record), and copy the move
+             line field subset (:meth:`_move_line_enrichment_vals`).
 
-        Everything is read in two batched searches to avoid per-row queries.
+        Matching by lot (rather than the exact product/lot/location) is what
+        preserves the Studio details — including the Studio-computed
+        ``x_studio_details`` — even after the stock has relocated or shipped
+        out, and it is also how adjusted quants (``adjustment_batch_number``
+        corrections) keep their reference/owner data.
         """
         if not history_by_key:
             return
 
-        products = self.env["product.product"].browse()
-        locations = self.env["stock.location"].browse()
-        for product, lot, location in history_by_key:
-            products |= product
-            locations |= location
+        StockQuant = self.env["stock.quant"].sudo()
+        StockMoveLine = self.env["stock.move.line"].sudo()
 
-        # Latest done destination move line per (product, lot, location).
-        latest_move_line_by_key = {}
-        move_lines = (
-            self.env["stock.move.line"]
-            .sudo()
-            .search(
+        for (product, lot, location), history in history_by_key.items():
+            # The original only enriched rows that had a lot.
+            if not lot:
+                continue
+
+            # 1) Current quant of this lot (lot-only match, as the original).
+            related_quant = StockQuant.search([("lot_id", "=", lot.id)], limit=1)
+            if related_quant and self._src(
+                related_quant, "x_studio_pallet_series_id"
+            ):
+                history.write(self._quant_enrichment_vals(related_quant))
+                continue
+
+            # 2) Fallback: latest done move line of this lot carrying a pallet
+            #    series at/before the inventory date.
+            candidates = StockMoveLine.search(
                 [
-                    ("state", "=", "done"),
-                    ("date", "<=", self.inventory_date),
-                    ("product_id", "in", products.ids),
-                    ("location_dest_id", "in", locations.ids),
+                    ("x_studio_pallet_series_id", "!=", False),
+                    ("lot_id", "=", lot.id),
                 ],
-                order="date asc, id asc",
+                order="date asc",
             )
-        )
-        for move_line in move_lines:
-            key = (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
-            if key in history_by_key:
-                # ascending order => the last write wins => latest move line
-                latest_move_line_by_key[key] = move_line
-
-        # Current quants properly scoped on (product, lot, location).
-        quant_by_key = {}
-        quants = (
-            self.env["stock.quant"]
-            .sudo()
-            .search(
-                [
-                    ("product_id", "in", products.ids),
-                    ("location_id", "in", locations.ids),
-                ]
-            )
-        )
-        for quant in quants:
-            key = (quant.product_id, quant.lot_id, quant.location_id)
-            if key in history_by_key and key not in quant_by_key:
-                quant_by_key[key] = quant
-
-        for key, history in history_by_key.items():
-            vals = {}
-            quant = quant_by_key.get(key)
-            if quant:
-                vals.update(self._quant_enrichment_vals(quant))
-            move_line = latest_move_line_by_key.get(key)
-            if move_line:
-                # point in time move line data overrides the current quant data
-                vals.update(self._move_line_enrichment_vals(move_line))
-            if vals:
-                history.write(vals)
+            chosen = False
+            for candidate in candidates:
+                if (
+                    candidate.date
+                    and candidate.date <= self.inventory_date
+                    and self._src(candidate, "x_studio_pallet_series_id")
+                ):
+                    chosen = candidate
+                else:
+                    # past the inventory date => stop before it
+                    break
+            if not chosen and candidates:
+                chosen = candidates[0]
+            if chosen:
+                history.write(self._move_line_enrichment_vals(chosen))
 
     @api.model
     def _regenerate_all_snapshots(self):
