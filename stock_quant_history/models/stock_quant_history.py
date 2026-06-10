@@ -152,12 +152,35 @@ class StockQuantHistory(models.Model):
         string="Special Holding",
         readonly=True,
     )
-    x_studio_sh_reason = fields.Char(
+    # NOTE: x_studio_sh_reason is a `text` field on stock.quant (Studio/manual).
+    # Declared as Text here too so the type matches the source and dynamic copy
+    # never truncates / mis-casts. See FIX_PLAN.md (D5).
+    x_studio_sh_reason = fields.Text(
         string="SH Reason",
         readonly=True,
     )
     x_studio_container_number = fields.Char(
         string="Container #",
+        readonly=True,
+    )
+    # Additional high-value fields that exist on stock.quant via Studio but were
+    # previously not mirrored here, so they never reached the reports. Declared in
+    # code so the dynamic field discovery picks them up on both models. See
+    # FIX_PLAN.md (D2).
+    x_studio_building = fields.Char(
+        string="Building",
+        readonly=True,
+    )
+    x_studio_inbound_date = fields.Date(
+        string="Inbound Date",
+        readonly=True,
+    )
+    x_studio_remarks = fields.Char(
+        string="Remarks",
+        readonly=True,
+    )
+    x_studio_tally_sheet = fields.Char(
+        string="Tally Sheet",
         readonly=True,
     )
     owner_id = fields.Many2one(

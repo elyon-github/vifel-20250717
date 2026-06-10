@@ -112,232 +112,332 @@ class StockQuantHistorySnapshot(models.Model):
             "inventory",
         ]
 
+    # Field types that can be copied as a single scalar/id onto
+    # stock.quant.history. many2many / one2many are intentionally excluded.
+    _COPYABLE_TTYPES = frozenset({
+        "char", "text", "integer", "float", "monetary",
+        "boolean", "date", "datetime", "selection", "many2one",
+    })
+    # Non-x_studio fields we also mirror from stock.quant -> stock.quant.history.
+    _EXTRA_COPY_FIELDS = ("owner_id", "package_id")
+
+    def _get_quant_copy_fields(self):
+        """Dynamically discover which fields to copy from stock.quant onto
+        stock.quant.history.
+
+        Returns the list of field names that exist on BOTH models, so it works
+        whether an x_studio_* field was declared in code (state=base) or created
+        via Odoo Studio (state=manual). Self-heals when new Studio fields are
+        added on both models; safely skips (and logs once) any source field that
+        has no matching column on the history model. See FIX_PLAN.md (RC-5/D2).
+        """
+        quant_fields = self.env["stock.quant"]._fields
+        history_fields = self.env["stock.quant.history"]._fields
+        fields_to_copy = []
+        skipped = []
+        for name, field in quant_fields.items():
+            if not (name.startswith("x_studio_") or name in self._EXTRA_COPY_FIELDS):
+                continue
+            if field.type not in self._COPYABLE_TTYPES:
+                continue
+            target = history_fields.get(name)
+            if target is None:
+                if name.startswith("x_studio_"):
+                    skipped.append(name)
+                continue
+            # Allow char<->text interchange; otherwise require matching type.
+            if target.type != field.type and {field.type, target.type} != {"char", "text"}:
+                skipped.append("%s(%s!=%s)" % (name, field.type, target.type))
+                continue
+            fields_to_copy.append(name)
+        if skipped:
+            _logger.info(
+                "stock.quant.history: %d unmirrored/incompatible source field(s) "
+                "skipped during copy: %s",
+                len(skipped), ", ".join(sorted(skipped)),
+            )
+        return fields_to_copy
+
+    @api.model
+    def _copy_field_values(self, source, field_names):
+        """Read field_names off `source` (a stock.quant, stock.quant.history or
+        stock.move.line record) and return a write-ready vals dict, coercing
+        many2one values to ids. Fields absent on the source are skipped."""
+        vals = {}
+        source_fields = source._fields
+        for name in field_names:
+            field = source_fields.get(name)
+            if field is None:
+                continue
+            value = source[name]
+            if field.type == "many2one":
+                value = value.id if value else False
+            vals[name] = value
+        return vals
+
     def _generate_stock_quant_history(self):
         self.ensure_one()
+        _gen_start = datetime.now(self.MANILA_TZ)
+        _logger.info(
+            "[stock.quant.history] ===== START generation | snapshot_id=%s | %s | "
+            "inventory_date=%s UTC | started_by=%s =====",
+            self.id, self.name, self.inventory_date, self.env.user.login,
+        )
         # Store Manila time (UTC+8) for generated_date
-        self.generated_date = datetime.now(self.MANILA_TZ).replace(tzinfo=None)
-        inventory_date_manila = pytz_utc.localize(self.inventory_date).astimezone(self.MANILA_TZ).replace(tzinfo=None)
-        previous_quant_snapshot = self.search(
-            [
-                ("state", "=", "generated"),
-                ("inventory_date", "<=", inventory_date_manila),
-            ],
-            order="inventory_date desc",
-            limit=1,
-        )
-        
-        # Function to create new stock.quant.history records with all fields
-        def create_quant_history(product, lot, location, quant=None):
-            vals = {
-                "snapshot_id": self.id,
-                "product_id": product.id,
-                "lot_id": lot.id if lot else False,
-                "location_id": location.id,
-                "quantity": 0,
-            }
-            
-            # If a quant is provided, copy all the additional fields
-            if quant:
-                # Add all the additional fields from stock.quant
-                vals.update({
-                    "x_studio_record_reference": quant.x_studio_record_reference.id if quant.x_studio_record_reference else False,
-                    "x_studio_stock_code": quant.x_studio_stock_code or False,
-                    "x_studio_return_count": quant.x_studio_return_count or 0,
-                    "x_studio_pallet_series_id": quant.x_studio_pallet_series_id or False,
-                    "owner_id": quant.owner_id or False,
-                    "package_id": quant.package_id.id if quant.package_id else False,
-                    "x_studio_production_date": quant.x_studio_production_date or False,
-                    "x_studio_expiration_date": quant.x_studio_expiration_date or False,
-                    "x_studio_loading_dock_no": quant.x_studio_loading_dock_no or False,
-                    "x_studio_source": quant.x_studio_source or False,
-                    "x_studio_container_number": quant.x_studio_container_number or False,
-                    "x_studio_gate_pass": quant.x_studio_gate_pass or False,
-                    "x_studio_truck_time": quant.x_studio_truck_time or False,
-                    "x_studio_start_time": quant.x_studio_start_time or False,
-                    "x_studio_end_time": quant.x_studio_end_time or False,
-                    "x_studio_truck_number": quant.x_studio_truck_number or False,
-                    "x_studio_2nd_uom": quant.x_studio_2nd_uom or 0.0,
-                    "x_studio_quantity_uom": quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
-                    "x_studio_total_units": quant.x_studio_total_units or 0.0,
-                    "x_studio_min_quantity_uom": quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
-                    "x_studio_special_holding": quant.x_studio_special_holding if quant.x_studio_special_holding else False,
-                    "x_studio_sh_reason": quant.x_studio_sh_reason if quant.x_studio_sh_reason else ''
+        self.generated_date = _gen_start.replace(tzinfo=None)
+
+        try:
+            # RC-3 fix: inventory_date is stored UTC-naive; compare against the same.
+            # The previous code compared against a Manila-local naive datetime which
+            # introduced an 8h skew once multiple snapshots existed.
+            previous_quant_snapshot = self.search(
+                [
+                    ("state", "=", "generated"),
+                    ("inventory_date", "<", self.inventory_date),
+                    ("id", "!=", self.id),
+                ],
+                order="inventory_date desc",
+                limit=1,
+            )
+            self.previous_snapshot_id = previous_quant_snapshot
+
+            copy_fields = self._get_quant_copy_fields()
+
+            def create_quant_history(product, lot, location):
+                return self.env["stock.quant.history"].sudo().create({
+                    "snapshot_id": self.id,
+                    "product_id": product.id,
+                    "lot_id": lot.id if lot else False,
+                    "location_id": location.id,
+                    "quantity": 0,
                 })
-            
-            return self.env["stock.quant.history"].sudo().create(vals)
-        
-        # Modified DefaultDict to use our custom creation function
-        quant_history = DefaultDict(
-            lambda product, lot, location: create_quant_history(product, lot, location)
-        )
-        
-        self.previous_snapshot_id = previous_quant_snapshot
-    
-        _logger.info("Processing %s from %s", self.name, self.previous_snapshot_id.name)
+
+            quant_history = DefaultDict(
+                lambda product, lot, location: create_quant_history(product, lot, location)
+            )
+
+            # Decide reconstruction strategy. If no done move line happened after
+            # inventory_date, live stock.quant IS the trusted state at that date, so
+            # seed directly from it (Approach B). This eliminates the phantom stock
+            # from direct quant writes that never produced a move line (RC-1/RC-4).
+            latest_move = self.env["stock.move.line"].sudo().search(
+                [("state", "=", "done"), ("product_id.type", "=", "product")],
+                order="date desc",
+                limit=1,
+            )
+            is_current = (not latest_move) or (self.inventory_date >= latest_move.date)
+
+            if is_current:
+                _logger.info(
+                    "Seeding %s directly from live stock.quant (current-day baseline)",
+                    self.name,
+                )
+                self._seed_history_from_stock_quant(quant_history, copy_fields)
+            else:
+                _logger.info(
+                    "Reconstructing %s by move-line replay from %s",
+                    self.name, previous_quant_snapshot.name,
+                )
+                self._replay_into_quant_history(
+                    quant_history, previous_quant_snapshot, copy_fields
+                )
+                # Account for pallet-detail adjustments that the plain move-line
+                # replay cannot see (RC-2).
+                self._apply_adjustment_lot_remap(quant_history, previous_quant_snapshot)
+                self._apply_adjustment_metadata(
+                    quant_history, previous_quant_snapshot, copy_fields
+                )
+
+            # Remove zero-qty rows (save disk space) AND negative-qty rows.
+            # Negative on-hand KG is physically impossible and is treated as bad
+            # source data: per business rule, never store negative kilograms in the
+            # history. quantity <= 0 covers both cases. Done via direct SQL to avoid
+            # a per-record loop.
+            _logger.info("Remove stock_quant_history rows with quantity <= 0 (zero/negative KG)")
+            self.env["stock.quant.history"].flush_model()
+            self.env.cr.execute(
+                "DELETE FROM stock_quant_history where quantity <= 0 and snapshot_id = %s",
+                (self.id,),
+            )
+            self.state = "generated"
+
+            row_count = self.env["stock.quant.history"].sudo().search_count(
+                [("snapshot_id", "=", self.id)]
+            )
+            elapsed = (datetime.now(self.MANILA_TZ) - _gen_start).total_seconds()
+            _logger.info(
+                "[stock.quant.history] ===== FINISHED generation | snapshot_id=%s | %s | "
+                "mode=%s | rows=%s | duration=%.1fs =====",
+                self.id, self.name,
+                "seed-from-stock.quant" if is_current else "move-line-replay",
+                row_count, elapsed,
+            )
+
+        except Exception:
+            elapsed = (datetime.now(self.MANILA_TZ) - _gen_start).total_seconds()
+            _logger.exception(
+                "[stock.quant.history] ===== ERROR in generation | snapshot_id=%s | %s | "
+                "inventory_date=%s UTC | duration=%.1fs =====",
+                self.id, self.name, self.inventory_date, elapsed,
+            )
+            raise
+
+    def _seed_history_from_stock_quant(self, quant_history, copy_fields):
+        """Approach B: build the snapshot rows directly from live stock.quant.
+
+        Used when inventory_date is current (no later moves), so stock.quant is
+        the source of truth. Guarantees the snapshot matches the live inventory
+        by construction.
+        """
+        ignored_location_usage = self._ignored_location_usage()
+        quants = self.env["stock.quant"].sudo().search([
+            ("product_id.type", "=", "product"),
+            ("location_id.usage", "not in", ignored_location_usage),
+            ("quantity", "!=", 0),
+        ])
+        _logger.info("Seeding from %s stock.quant record(s)", len(quants))
+        for quant in quants:
+            rec = quant_history[
+                (quant.product_id, quant.lot_id, quant.location_id)
+            ]
+            vals = self._copy_field_values(quant, copy_fields)
+            vals["quantity"] = quant.quantity
+            rec.write(vals)
+
+    def _replay_into_quant_history(self, quant_history, previous_quant_snapshot, copy_fields):
+        """Backward/incremental reconstruction: start from the previous snapshot
+        (or zero) and replay stock.move.line deltas up to inventory_date."""
         if previous_quant_snapshot.stock_quant_history_ids.exists():
             _logger.info(
                 "Duplicate %s previous stock.quant.history...",
                 len(previous_quant_snapshot.stock_quant_history_ids),
             )
-            for stock_quant_history in previous_quant_snapshot.stock_quant_history_ids:
-                # copy is around 3x slower than create !
+            for prev in previous_quant_snapshot.stock_quant_history_ids:
                 quant_copy = quant_history[
-                    (
-                        stock_quant_history.product_id,
-                        stock_quant_history.lot_id,
-                        stock_quant_history.location_id,
-                    )
+                    (prev.product_id, prev.lot_id, prev.location_id)
                 ]
-                
-                # Copy all the fields from previous history record
-                quant_copy.write({
-                    "quantity": stock_quant_history.quantity,
-                    "x_studio_record_reference": stock_quant_history.x_studio_record_reference.id if stock_quant_history.x_studio_record_reference else False,
-                    "x_studio_stock_code": stock_quant_history.x_studio_stock_code or False,
-                    "x_studio_return_count": stock_quant_history.x_studio_return_count or 0,
-                    "x_studio_pallet_series_id": stock_quant_history.x_studio_pallet_series_id or False,
-                    "owner_id": stock_quant_history.owner_id or False,
-                    "package_id": stock_quant_history.package_id.id if stock_quant_history.package_id else False,
-                    "x_studio_production_date": stock_quant_history.x_studio_production_date or False,
-                    "x_studio_expiration_date": stock_quant_history.x_studio_expiration_date or False,
-                    "x_studio_loading_dock_no": stock_quant_history.x_studio_loading_dock_no or False,
-                    "x_studio_source": stock_quant_history.x_studio_source or False,
-                    "x_studio_container_number": stock_quant_history.x_studio_container_number or False,
-                    "x_studio_gate_pass": stock_quant_history.x_studio_gate_pass or False,
-                    "x_studio_truck_time": stock_quant_history.x_studio_truck_time or False,
-                    "x_studio_start_time": stock_quant_history.x_studio_start_time or False,
-                    "x_studio_end_time": stock_quant_history.x_studio_end_time or False,
-                    "x_studio_truck_number": stock_quant_history.x_studio_truck_number or False,
-                    "x_studio_2nd_uom": stock_quant_history.x_studio_2nd_uom or 0.0,
-                    "x_studio_quantity_uom": stock_quant_history.x_studio_quantity_uom.id if stock_quant_history.x_studio_quantity_uom else False,
-                    "x_studio_total_units": stock_quant_history.x_studio_total_units or 0.0,
-                    "x_studio_min_quantity_uom": stock_quant_history.x_studio_min_quantity_uom.id if stock_quant_history.x_studio_min_quantity_uom else False,
-                    "x_studio_special_holding": stock_quant_history.x_studio_special_holding if stock_quant_history.x_studio_special_holding else False,
-                    "x_studio_sh_reason": stock_quant_history.x_studio_sh_reason if stock_quant_history.x_studio_sh_reason else ''
-                })
-    
-        # For new records from stock move lines, we need to attempt to get the quant information
+                vals = self._copy_field_values(prev, copy_fields)
+                vals["quantity"] = prev.quantity
+                quant_copy.write(vals)
+
         stock_move_lines = (
             self.env["stock.move.line"]
             .sudo()
-            .search(
-                self._prepare_stock_move_line_filter(previous_quant_snapshot),
-            )
+            .search(self._prepare_stock_move_line_filter(previous_quant_snapshot))
         )
-        # raise UserError(len(stock_move_lines))
         _logger.info(
             "Apply %s stock.move.line since previous snapshot", len(stock_move_lines)
         )
         ignored_location_usage = self._ignored_location_usage()
         for move_line in stock_move_lines:
+            qty_in_product_uom = move_line.product_uom_id._compute_quantity(
+                move_line.quantity, move_line.product_id.uom_id
+            )
             if move_line.location_id.usage not in ignored_location_usage:
-                quant_history[
-                    (move_line.product_id, move_line.lot_id, move_line.location_id)
-                ].quantity = tools.float_round(
-                    quant_history[
-                        (move_line.product_id, move_line.lot_id, move_line.location_id)
-                    ].quantity
-                    - move_line.product_uom_id._compute_quantity(
-                        move_line.quantity, move_line.product_id.uom_id
-                    ),
+                key = (move_line.product_id, move_line.lot_id, move_line.location_id)
+                quant_history[key].quantity = tools.float_round(
+                    quant_history[key].quantity - qty_in_product_uom,
                     precision_rounding=move_line.product_id.uom_id.rounding,
                 )
-    
+
             if move_line.location_dest_id.usage not in ignored_location_usage:
-                quant_history[
-                    (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
-                ].quantity = tools.float_round(
-                    quant_history[
-                        (
-                            move_line.product_id,
-                            move_line.lot_id,
-                            move_line.location_dest_id,
-                        )
-                    ].quantity
-                    + move_line.product_uom_id._compute_quantity(
-                        move_line.quantity, move_line.product_id.uom_id
-                    ),
+                key = (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
+                rec = quant_history[key]
+                rec.quantity = tools.float_round(
+                    rec.quantity + qty_in_product_uom,
                     precision_rounding=move_line.product_id.uom_id.rounding,
                 )
-                
-                # Try to get additional fields from related quant if this is a new record
-                if move_line.lot_id and move_line.location_dest_id:
-                    related_quant = self.env["stock.quant"].sudo().search([
-                        # ("product_id", "=", move_line.product_id.id),
-                        ("lot_id", "=", move_line.lot_id.id),
-                        # ("location_id", "=", move_line.location_dest_id.id)
-                    ], limit=1)
-                    
-                    if related_quant and related_quant.x_studio_pallet_series_id:
-                        # Update the fields from the related quant
-                        quant_history[
-                            (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
-                        ].write({
-                            "x_studio_record_reference": related_quant.x_studio_record_reference.id if related_quant.x_studio_record_reference else False,
-                            "x_studio_stock_code": related_quant.x_studio_stock_code or False,
-                            "x_studio_return_count": related_quant.x_studio_return_count or 0,
-                            "x_studio_pallet_series_id": related_quant.x_studio_pallet_series_id or False,
-                            "owner_id": related_quant.owner_id or False,
-                            "package_id": related_quant.package_id.id if related_quant.package_id else False,
-                            "x_studio_production_date": related_quant.x_studio_production_date or False,
-                            "x_studio_expiration_date": related_quant.x_studio_expiration_date or False,
-                            "x_studio_loading_dock_no": related_quant.x_studio_loading_dock_no or False,
-                            "x_studio_source": related_quant.x_studio_source or False,
-                            "x_studio_container_number": related_quant.x_studio_container_number or False,
-                            "x_studio_gate_pass": related_quant.x_studio_gate_pass or False,
-                            "x_studio_truck_time": related_quant.x_studio_truck_time or False,
-                            "x_studio_start_time": related_quant.x_studio_start_time or False,
-                            "x_studio_end_time": related_quant.x_studio_end_time or False,
-                            "x_studio_truck_number": related_quant.x_studio_truck_number or False,
-                            "x_studio_2nd_uom": related_quant.x_studio_2nd_uom or 0.0,
-                            "x_studio_quantity_uom": related_quant.x_studio_quantity_uom.id if related_quant.x_studio_quantity_uom else False,
-                            "x_studio_total_units": related_quant.x_studio_total_units or 0.0,
-                            "x_studio_min_quantity_uom": related_quant.x_studio_min_quantity_uom.id if related_quant.x_studio_min_quantity_uom else False,
-                            "x_studio_special_holding": related_quant.x_studio_special_holding if related_quant.x_studio_special_holding else False,
-                            "x_studio_sh_reason": related_quant.x_studio_sh_reason if related_quant.x_studio_sh_reason else ''
-                        })
-                    else:
-                        related_quants = self.env["stock.move.line"].search([
-                            ("x_studio_pallet_series_id", "!=", False),
-                            ("lot_id", "=", move_line.lot_id.id),
-                        ], order="date asc")
-                        
-                        related_quant = False
-                        for rq in related_quants:
-                            if rq.date and rq.date <= self.inventory_date and rq.x_studio_pallet_series_id:
-                                related_quant = rq
-                            else:
-                                # We've reached beyond the target date — stop before it
-                                break
-                        
-                        # Ensure we always have at least one (fallback to first record if none matched)
-                        if not related_quant and related_quants:
-                            related_quant = related_quants[0]
-                        
-                        if related_quant:
-                            quant_history[
-                                (move_line.product_id, move_line.lot_id, move_line.location_dest_id)
-                            ].write({
-                                "owner_id": related_quant.owner_id.id if related_quant.owner_id else False,
-                                "x_studio_container_number": related_quant.x_studio_container_number or False,
-                                "x_studio_production_date": related_quant.x_studio_production_date or False,
-                                "x_studio_expiration_date": related_quant.x_studio_expiration_date or False,
-                                "x_studio_loading_dock_no": related_quant.picking_id.x_studio_loading_dock_no or False,
-                                "x_studio_2nd_uom": related_quant.x_studio_2nd_uom or related_quant.x_studio_affected_2nd_uom or 0.0,
-                                "x_studio_quantity_uom": related_quant.x_studio_quantity_uom.id if related_quant.x_studio_quantity_uom else (related_quant.x_studio_quantity_uom_delivery.id if related_quant.x_studio_quantity_uom_delivery else False),
-                                "x_studio_pallet_series_id": related_quant.x_studio_pallet_series_id or False,
-                                "package_id": related_quant.result_package_id.id if related_quant.result_package_id else (related_quant.package_id.id if related_quant.package_id else False),
-                            })
-        
-        # remove line with zero to save same disk space
-        # avoid loop with direct SQL query
-        _logger.info("Remove useless stock_quant_history with quantity == 0")
-        self.env["stock.quant.history"].flush_model()
-        self.env.cr.execute(
-            "DELETE FROM stock_quant_history where quantity = 0 and snapshot_id = %s",
-            (self.id,),
-        )
-        self.state = "generated"
+                # Enrich metadata straight from the move line (owner, pallet,
+                # dates, container...). The move line itself carries these
+                # x_studio_* values, so we no longer need the slow/brittle
+                # related-quant lookup. Only non-empty values are written so we
+                # never clobber good data with blanks.
+                ml_vals = self._move_line_metadata_vals(move_line, copy_fields)
+                if ml_vals:
+                    rec.write(ml_vals)
+
+    def _move_line_metadata_vals(self, move_line, copy_fields):
+        """Build a vals dict of non-empty metadata from a stock.move.line,
+        mapping the destination package from result_package_id."""
+        vals = self._copy_field_values(move_line, copy_fields)
+        if "package_id" in copy_fields:
+            vals["package_id"] = (
+                move_line.result_package_id.id
+                or (move_line.package_id.id if move_line.package_id else False)
+            )
+        return {k: v for k, v in vals.items() if v not in (False, "", 0, 0.0)}
+
+    def _apply_adjustment_lot_remap(self, quant_history, previous_quant_snapshot):
+        """RC-2: pallet-detail adjustments approved via multiple_relocation can
+        change a quant's lot/product in place. The original receipt move line
+        still references the OLD lot, so the replay parks the quantity under the
+        old (product, lot, location) key. Move that quantity to the new key
+        using the approved stock.quant.adjustment.line records in range."""
+        AdjLine = self.env.get("stock.quant.adjustment.line")
+        if AdjLine is None:
+            return  # multiple_relocation not installed
+        AdjLine = AdjLine.sudo()
+        domain = [
+            ("line_state", "=", "approved"),
+            ("request_id.approved_date", "<=", self.inventory_date),
+        ]
+        if previous_quant_snapshot.exists():
+            domain.append(
+                ("request_id.approved_date", ">", previous_quant_snapshot.inventory_date)
+            )
+        adj_lines = AdjLine.search(domain, order="request_id")
+        for adj in adj_lines:
+            quant = adj.quant_id
+            if not quant:
+                continue
+            location = quant.location_id
+            old_product = adj.old_product_id or quant.product_id
+            new_product = adj.new_product_id or old_product
+            old_lot = adj.old_lot_id
+            new_lot = adj.new_lot_id or old_lot
+            lot_changed = bool(adj.old_lot_id and adj.new_lot_id and adj.old_lot_id != adj.new_lot_id)
+            product_changed = old_product != new_product
+            if not (lot_changed or product_changed):
+                continue
+            old_key = (old_product, old_lot, location)
+            if old_key not in quant_history:
+                continue
+            qty = quant_history[old_key].quantity
+            if not qty:
+                continue
+            new_key = (new_product, new_lot, location)
+            quant_history[old_key].quantity = 0  # emptied -> dropped by cleanup
+            rounding = new_product.uom_id.rounding or 0.01
+            quant_history[new_key].quantity = tools.float_round(
+                quant_history[new_key].quantity + qty,
+                precision_rounding=rounding,
+            )
+
+    def _apply_adjustment_metadata(self, quant_history, previous_quant_snapshot, copy_fields):
+        """RC-2: metadata-only pallet adjustments create a zero-quantity
+        correction move line carrying the NEW x_studio_* values. The plain
+        replay ignores zero-qty lines, discarding those changes. Re-apply the
+        metadata onto the matching existing history row (latest move wins)."""
+        domain = [
+            ("is_quant_detail_adjusted", "=", True),
+            ("quantity", "=", 0),
+            ("state", "=", "done"),
+            ("date", "<=", self.inventory_date),
+        ]
+        if previous_quant_snapshot.exists():
+            domain.append(("date", ">", previous_quant_snapshot.inventory_date))
+        adj_moves = self.env["stock.move.line"].sudo().search(domain, order="date asc")
+        ignored_location_usage = self._ignored_location_usage()
+        for ml in adj_moves:
+            if ml.location_dest_id.usage in ignored_location_usage:
+                continue
+            key = (ml.product_id, ml.lot_id, ml.location_dest_id)
+            if key not in quant_history:
+                # Don't fabricate phantom rows from metadata-only moves.
+                continue
+            vals = self._move_line_metadata_vals(ml, copy_fields)
+            if vals:
+                quant_history[key].write(vals)
 
     def action_related_stock_quant_history_tree_view(self):
         action = self.env["ir.actions.actions"]._for_xml_id(
@@ -417,7 +517,7 @@ class StockQuantHistorySnapshot(models.Model):
     #  CRON: backfill 5 snapshots per run (every 20 min)
     #  Auto-deactivates once all 60 days are covered.
     # ──────────────────────────────────────────────
-    BACKFILL_BATCH = 5
+    BACKFILL_BATCH = 2
 
     @api.model
     def _cron_backfill_snapshots(self):
@@ -482,8 +582,15 @@ class StockQuantHistorySnapshot(models.Model):
                 "Backfill CRON: created snapshot for %s (inventory_date=%s)",
                 target_date, utc_dt,
             )
-            snapshot._generate_stock_quant_history()
-            created += 1
+            try:
+                snapshot._generate_stock_quant_history()
+                created += 1
+            except Exception:
+                _logger.exception(
+                    "Backfill CRON: FAILED to generate snapshot for %s (snapshot_id=%s) "
+                    "— skipping to next date",
+                    target_date, snapshot.id,
+                )
 
         # Count how many days still missing after this batch
         remaining = 0
