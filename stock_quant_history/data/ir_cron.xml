@@ -19,7 +19,7 @@
     <!-- Backfill CRON: generate 5 snapshots per run every 20 mins,
          auto-deactivates when all 60 days are covered -->
     <record id="ir_cron_backfill_snapshots" model="ir.cron">
-        <field name="name">Inventory Snapshot: Backfill (5 per run)</field>
+        <field name="name">Inventory Snapshot: Backfill (2 per run)</field>
         <field name="model_id" ref="model_stock_quant_history_snapshot"/>
         <field name="state">code</field>
         <field name="code">model._cron_backfill_snapshots()</field>

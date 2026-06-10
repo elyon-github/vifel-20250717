@@ -706,3 +706,297 @@ class OccupancyXlsxReport(models.AbstractModel):
                 sheet.write(row, col + 1, 0, fmt['total_label'])
 
             row += 2  # spacing before next building
+
+        # ── Second sheet: per-building + overall occupancy breakdown & charts ──
+        building_caps = self._get_building_capacities()
+        self._write_occupancy_chart_sheet(
+            workbook, building_data, snapshot_dates, building_caps
+        )
+
+    # ──────────────────────────────────────────────
+    #  Capacity = pallet slots (P1/P2) per building
+    # ──────────────────────────────────────────────
+    BUILDING_ORDER = ['MAIN', 'EXPANSION', 'ANNEX']
+    BUILDING_COLORS = {
+        'MAIN': '#4472C4', 'EXPANSION': '#ED7D31', 'ANNEX': '#70AD47',
+    }
+    OVERALL_COLOR = '#C00000'
+
+    def _get_building_capacities(self):
+        """{building_name: capacity} where capacity = count of active internal
+        P1/P2 pallet slots in that building (each slot = one pallet position).
+
+        Mirrors the per-building / OVERALL CAPACITY of the Daily Pallet
+        Utilization report. Sum of the values = overall capacity. NOT the flat
+        'Max Pallets' static var.
+        """
+        self.env.cr.execute("""
+            SELECT COALESCE(wb.x_name->>'en_US', 'MAIN') AS bname, COUNT(*)
+            FROM stock_location sl
+            JOIN x_warehouse_building wb ON sl.x_studio_building = wb.id
+            WHERE sl.active AND sl.usage = 'internal'
+              AND sl.name IN ('P1', 'P2')
+            GROUP BY 1
+        """)
+        return {row[0]: row[1] for row in self.env.cr.fetchall()}
+
+    # ──────────────────────────────────────────────
+    #  Second sheet: per-building + overall occupancy
+    # ──────────────────────────────────────────────
+    def _write_occupancy_chart_sheet(self, workbook, building_data,
+                                     snapshot_dates, building_caps):
+        """Second worksheet: a per-building breakdown table (pallet position +
+        kilograms + % per building, plus overall %) followed by line charts —
+        one combined (all buildings + overall) and one per building.
+
+        Per-building %  = building pallets that date / building capacity.
+        Overall %       = total pallets that date / total capacity.
+        """
+        if not snapshot_dates:
+            return
+
+        # building order: known order first, then any extras present
+        present = set(building_data) | set(building_caps)
+        buildings = [b for b in self.BUILDING_ORDER if b in present]
+        buildings += [b for b in sorted(present) if b not in buildings]
+        nb = len(buildings)
+        if nb == 0:
+            return
+
+        overall_cap = sum(building_caps.get(b, 0) for b in buildings)
+
+        # per-building, per-date pallet count + kilos
+        data = {b: {d: {'pallets': 0, 'kilos': 0.0} for d in snapshot_dates}
+                for b in buildings}
+        for b, owners in building_data.items():
+            if b not in data:
+                continue
+            for dates in owners.values():
+                for d, day in dates.items():
+                    if d in data[b]:
+                        data[b][d]['pallets'] += len(day['pallet_series'])
+                        data[b][d]['kilos'] += day['kilos'] or 0.0
+
+        sheet = workbook.add_worksheet('Occupancy Breakdown')
+        sheet.hide_gridlines(2)
+        sheet.set_tab_color('#C00000')
+
+        base = {'font_name': 'Aptos', 'font_size': 10}
+        f = {
+            'title': workbook.add_format({
+                **base, 'bold': True, 'font_size': 14, 'font_color': '#FFFFFF',
+                'bg_color': '#1F3864', 'align': 'center', 'valign': 'vcenter'}),
+            'cap_label': workbook.add_format({
+                **base, 'bold': True, 'bg_color': '#2F5496',
+                'font_color': '#FFFFFF', 'border': 1, 'align': 'center',
+                'valign': 'vcenter'}),
+            'cap_value': workbook.add_format({
+                **base, 'bold': True, 'bg_color': '#D6E4F0',
+                'font_color': '#1F3864', 'border': 1, 'align': 'center',
+                'valign': 'vcenter'}),
+            'cap_total': workbook.add_format({
+                **base, 'bold': True, 'bg_color': '#C00000',
+                'font_color': '#FFFFFF', 'border': 1, 'align': 'center',
+                'valign': 'vcenter'}),
+            'hdr': workbook.add_format({
+                **base, 'bold': True, 'bg_color': '#2F5496',
+                'font_color': '#FFFFFF', 'border': 1, 'border_color': '#1F3864',
+                'align': 'center', 'valign': 'vcenter', 'text_wrap': True}),
+            'hdr_sub': workbook.add_format({
+                **base, 'bold': True, 'font_size': 8, 'bg_color': '#4472C4',
+                'font_color': '#FFFFFF', 'border': 1, 'border_color': '#2F5496',
+                'align': 'center', 'valign': 'vcenter', 'text_wrap': True}),
+            'hdr_overall': workbook.add_format({
+                **base, 'bold': True, 'bg_color': '#C00000',
+                'font_color': '#FFFFFF', 'border': 1, 'align': 'center',
+                'valign': 'vcenter', 'text_wrap': True}),
+            'date': workbook.add_format({
+                **base, 'border': 1, 'border_color': '#D9E2F3',
+                'align': 'center'}),
+            'int': workbook.add_format({
+                **base, 'num_format': '#,##0', 'border': 1,
+                'border_color': '#D9E2F3', 'align': 'center'}),
+            'kg': workbook.add_format({
+                **base, 'num_format': '#,##0.00', 'border': 1,
+                'border_color': '#D9E2F3', 'align': 'right',
+                'font_color': '#2F5496'}),
+            'pct': workbook.add_format({
+                **base, 'num_format': '0.00%', 'border': 1,
+                'border_color': '#D9E2F3', 'align': 'center',
+                'font_color': '#2F5496'}),
+            'pct_overall': workbook.add_format({
+                **base, 'num_format': '0.00%', 'border': 1, 'bold': True,
+                'border_color': '#D9E2F3', 'align': 'center',
+                'bg_color': '#FDECEC', 'font_color': '#C00000'}),
+            'avg_label': workbook.add_format({
+                **base, 'bold': True, 'italic': True, 'font_size': 11,
+                'font_color': '#C00000', 'border': 1, 'border_color': '#D9E2F3',
+                'align': 'center', 'valign': 'vcenter'}),
+            'avg_num': workbook.add_format({
+                **base, 'bold': True, 'num_format': '#,##0.00',
+                'font_color': '#C00000', 'border': 1, 'border_color': '#D9E2F3',
+                'align': 'right'}),
+            'avg_pct': workbook.add_format({
+                **base, 'bold': True, 'num_format': '0.00%',
+                'font_color': '#C00000', 'border': 1, 'border_color': '#D9E2F3',
+                'align': 'center'}),
+            'avg_pct_overall': workbook.add_format({
+                **base, 'bold': True, 'num_format': '0%',
+                'font_color': '#C00000', 'bg_color': '#FDECEC', 'border': 1,
+                'border_color': '#D9E2F3', 'align': 'center'}),
+        }
+
+        # column layout
+        col_pallet, col_kg = {}, {}
+        c = 1
+        for b in buildings:
+            col_pallet[b] = c
+            col_kg[b] = c + 1
+            c += 2
+        pct_start = c
+        col_pct = {b: pct_start + i for i, b in enumerate(buildings)}
+        col_overall_pct = pct_start + nb
+        last_col = col_overall_pct
+
+        # widths
+        sheet.set_column(0, 0, 13)
+        for b in buildings:
+            sheet.set_column(col_pallet[b], col_pallet[b], 13)
+            sheet.set_column(col_kg[b], col_kg[b], 15)
+        sheet.set_column(pct_start, last_col, 12)
+
+        # title
+        sheet.set_row(0, 26)
+        sheet.merge_range(0, 0, 0, last_col, 'VIFEL OVERALL OCCUPANCY', f['title'])
+
+        # capacity summary
+        sheet.set_row(1, 20)
+        sheet.write(1, 0, 'CAPACITY', f['cap_label'])
+        for b in buildings:
+            sheet.merge_range(
+                1, col_pallet[b], 1, col_kg[b],
+                '%s: %s' % (b, '{:,}'.format(building_caps.get(b, 0))),
+                f['cap_value'])
+        sheet.merge_range(1, pct_start, 1, last_col,
+                          'TOTAL: %s' % '{:,}'.format(overall_cap), f['cap_total'])
+
+        # header rows
+        hrow1, hrow2 = 3, 4
+        sheet.merge_range(hrow1, 0, hrow2, 0, 'DATE', f['hdr'])
+        for b in buildings:
+            sheet.merge_range(hrow1, col_pallet[b], hrow1, col_kg[b], b, f['hdr'])
+            sheet.write(hrow2, col_pallet[b], 'PALLET POSITION', f['hdr_sub'])
+            sheet.write(hrow2, col_kg[b], 'KILOGRAMS', f['hdr_sub'])
+            sheet.merge_range(hrow1, col_pct[b], hrow2, col_pct[b],
+                              '%s\n%%' % b, f['hdr'])
+        sheet.merge_range(hrow1, col_overall_pct, hrow2, col_overall_pct,
+                          'OVERALL\n%', f['hdr_overall'])
+
+        # data rows
+        first_data = hrow2 + 1
+        r = first_data
+        for d in snapshot_dates:
+            sheet.write_string(r, 0, d.strftime('%d-%b-%Y'), f['date'])
+            total_pallets = 0
+            for b in buildings:
+                p = data[b][d]['pallets']
+                total_pallets += p
+                sheet.write_number(r, col_pallet[b], p, f['int'])
+                sheet.write_number(r, col_kg[b], data[b][d]['kilos'], f['kg'])
+            for b in buildings:
+                cap_b = building_caps.get(b, 0)
+                sheet.write_number(
+                    r, col_pct[b],
+                    (data[b][d]['pallets'] / cap_b) if cap_b else 0, f['pct'])
+            sheet.write_number(
+                r, col_overall_pct,
+                (total_pallets / overall_cap) if overall_cap else 0,
+                f['pct_overall'])
+            r += 1
+        last_data = r - 1
+
+        # ── AVERAGE OCCUPANCY row (mean over dates that have data) ──
+        active_dates = [d for d in snapshot_dates
+                        if sum(data[b][d]['pallets'] for b in buildings) > 0]
+        n_active = len(active_dates) or 1
+        avg_row = last_data + 1
+        sheet.set_row(avg_row, 20)
+        sheet.write_string(avg_row, 0, 'AVERAGE OCCUPANCY', f['avg_label'])
+        total_avg_pallets = 0.0
+        for b in buildings:
+            avg_p = sum(data[b][d]['pallets'] for d in active_dates) / n_active
+            avg_k = sum(data[b][d]['kilos'] for d in active_dates) / n_active
+            total_avg_pallets += avg_p
+            sheet.write_number(avg_row, col_pallet[b], avg_p, f['avg_num'])
+            sheet.write_number(avg_row, col_kg[b], avg_k, f['avg_num'])
+            cap_b = building_caps.get(b, 0)
+            sheet.write_number(avg_row, col_pct[b],
+                               (avg_p / cap_b) if cap_b else 0, f['avg_pct'])
+        sheet.write_number(
+            avg_row, col_overall_pct,
+            (total_avg_pallets / overall_cap) if overall_cap else 0,
+            f['avg_pct_overall'])
+
+        sheet.freeze_panes(first_data, 1)
+
+        # ── charts ──
+        sname = 'Occupancy Breakdown'
+        chart_col = last_col + 2
+
+        # combined: all buildings + overall
+        combo = workbook.add_chart({'type': 'line'})
+        for b in buildings:
+            color = self.BUILDING_COLORS.get(b, '#7F7F7F')
+            combo.add_series({
+                'name':       b,
+                'categories': [sname, first_data, 0, last_data, 0],
+                'values':     [sname, first_data, col_pct[b], last_data, col_pct[b]],
+                'line':   {'color': color, 'width': 1.5},
+                'marker': {'type': 'circle', 'size': 4,
+                           'fill': {'color': color}, 'border': {'color': color}},
+            })
+        combo.add_series({
+            'name':       'OVERALL',
+            'categories': [sname, first_data, 0, last_data, 0],
+            'values':     [sname, first_data, col_overall_pct, last_data, col_overall_pct],
+            'line':   {'color': self.OVERALL_COLOR, 'width': 2.5},
+            'marker': {'type': 'circle', 'size': 5,
+                       'fill': {'color': self.OVERALL_COLOR},
+                       'border': {'color': self.OVERALL_COLOR}},
+            'data_labels': {'value': True, 'num_format': '0%',
+                            'font': {'size': 8, 'bold': True}},
+        })
+        combo.set_title({'name': 'VIFEL OCCUPANCY — PER BUILDING & OVERALL',
+                         'name_font': {'color': self.OVERALL_COLOR,
+                                       'bold': True, 'size': 13}})
+        combo.set_x_axis({'name': 'Date', 'num_font': {'rotation': -45, 'size': 7}})
+        combo.set_y_axis({'name': 'Occupancy %', 'num_format': '0%',
+                          'min': 0, 'max': 1.4, 'major_unit': 0.2})
+        combo.set_legend({'position': 'bottom'})
+        combo.set_size({'width': 980, 'height': 460})
+        sheet.insert_chart(first_data, chart_col, combo, {'x_offset': 12, 'y_offset': 4})
+
+        # one chart per building
+        per_row = first_data + 24
+        for b in buildings:
+            color = self.BUILDING_COLORS.get(b, '#7F7F7F')
+            ch = workbook.add_chart({'type': 'line'})
+            ch.add_series({
+                'name':       '%s OCCUPANCY' % b,
+                'categories': [sname, first_data, 0, last_data, 0],
+                'values':     [sname, first_data, col_pct[b], last_data, col_pct[b]],
+                'line':   {'color': color, 'width': 2},
+                'marker': {'type': 'circle', 'size': 4,
+                           'fill': {'color': color}, 'border': {'color': color}},
+                'data_labels': {'value': True, 'num_format': '0%',
+                                'font': {'size': 7, 'bold': True}},
+            })
+            ch.set_title({'name': '%s OCCUPANCY' % b,
+                          'name_font': {'color': color, 'bold': True, 'size': 12}})
+            ch.set_x_axis({'name': 'Date', 'num_font': {'rotation': -45, 'size': 7}})
+            ch.set_y_axis({'name': 'Occupancy %', 'num_format': '0%',
+                           'min': 0, 'max': 1.4, 'major_unit': 0.2})
+            ch.set_legend({'none': True})
+            ch.set_size({'width': 480, 'height': 300})
+            sheet.insert_chart(per_row, chart_col, ch, {'x_offset': 12, 'y_offset': 4})
+            per_row += 16

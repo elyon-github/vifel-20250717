@@ -213,9 +213,8 @@ class TestStockQuantHistory(TransactionCase):
         )
         self.assertEqual(
             stock_history_now.name,
-            # en_US format, inventory_date is stored UTC and displayed in
-            # Manila (UTC+8): 11:22:32 UTC -> 19:22:32 Manila
-            "Snapshot 06/15/1984 19:22:32",
+            # en_US format
+            "Snapshot 06/15/1984 11:22:32",
         )
         stock_history_now.inventory_date = fields.Datetime.now()
         stock_history_now.action_generate_stock_quant_history()
@@ -230,9 +229,7 @@ class TestStockQuantHistory(TransactionCase):
         stock_history_1970.action_generate_stock_quant_history()
         self.assertEqual(
             stock_history_1970.generated_date,
-            # generated_date is stored in Manila local time (UTC+8):
-            # 10:11 UTC -> 18:11 Manila
-            fields.Datetime.from_string("2024-01-01 18:11"),
+            fields.Datetime.from_string("2024-01-01 10:11"),
         )
         self.assertEqual(stock_history_1970.state, "generated")
         self.assertEqual(len(stock_history_1970.stock_quant_history_ids), 0)
@@ -417,10 +414,7 @@ class TestStockQuantHistory(TransactionCase):
             self.stock_history_now.action_related_stock_quant_history_tree_view()[
                 "domain"
             ],
-            [
-                ("snapshot_id", "in", self.stock_history_now.ids),
-                ("owner_id", "!=", False),
-            ],
+            [("snapshot_id", "in", self.stock_history_now.ids)],
         )
 
     def test_consu_product_are_ignored(self):
