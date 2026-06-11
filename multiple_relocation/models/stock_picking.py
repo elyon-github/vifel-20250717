@@ -1516,8 +1516,25 @@ class transfer_locations(models.Model):
                 description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
     
                 description_parts = []
+                def _wrap_text(text, max_chars=45):
+                    """Break text into lines at word boundaries, max_chars per line."""
+                    words = text.split()
+                    lines = []
+                    current = ''
+                    for word in words:
+                        if not current:
+                            current = word
+                        elif len(current) + 1 + len(word) <= max_chars:
+                            current += ' ' + word
+                        else:
+                            lines.append(current)
+                            current = word
+                    if current:
+                        lines.append(current)
+                    return '<br/>'.join(lines)
+                    
                 if product_name:
-                    description_parts.append(product_name)
+                    description_parts.append(_wrap_text(product_name, max_chars=45))
                 if container_number:
                     description_parts.append(container_number)
                 if production_date and expiration_date:
