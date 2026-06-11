@@ -60,6 +60,7 @@ class transfer_locations(models.Model):
     next_operation_source_document = fields.Many2one(
         'stock.picking', compute="_compute_next_operation_source_document")
 
+
     def _compute_next_operation_source_document(self):
         for record in self:
             next_picking = self.env['stock.picking'].search([
@@ -224,6 +225,23 @@ class transfer_locations(models.Model):
         tracking=True,
         help="Documentation staff responsible for processing this picking. Can be set after validation to track who handled the documentation."
     )
+
+    def _wrap_text(self, text, max_chars=45):
+        """Break text into lines at word boundaries, max_chars per line."""
+        words = text.split()
+        lines = []
+        current = ''
+        for word in words:
+            if not current:
+                current = word
+            elif len(current) + 1 + len(word) <= max_chars:
+                current += ' ' + word
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return '<br/>'.join(lines)
 
     @api.depends("return_ids.state", "return_ids.return_reason")
     def _compute_show_return_alert(self):
@@ -1838,12 +1856,12 @@ class transfer_locations(models.Model):
                     if date_info:
                         if cont_number:
                             grouped_moves[key][
-                                'product_name'] = f"{base_name} <br/>{cont_number} <br/>{' '.join(date_info)} "
+                                'product_name'] = f"{self._wrap_text(base_name, max_chars=45)} <br/>{cont_number} <br/>{' '.join(date_info)} "
                         else:
                             grouped_moves[key][
-                                'product_name'] = f"{base_name} <br/>{', '.join(date_info)} "
+                                'product_name'] = f"{self._wrap_text(base_name, max_chars=45)} <br/>{', '.join(date_info)} "
                     else:
-                        grouped_moves[key]['product_name'] = base_name
+                        grouped_moves[key]['product_name'] = self._wrap_text(base_name, max_chars=45)
 
                     grouped_moves[key]['production_date'] = prod_date
                     grouped_moves[key]['expiration_date'] = exp_date
