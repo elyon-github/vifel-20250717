@@ -22,6 +22,22 @@ class StockQuantCorrectionWizard(models.TransientModel):
         default=False,
         help="If checked, changes will be applied immediately without approval workflow. Only available for Stock Managers."
     )
+    is_blast_freeze = fields.Boolean(
+        string="Is Blast Freeze",
+        help="True when all selected quants are blast-freeze pallets (identified by BF Pallet #, no pallet series / package). Drives which columns the wizard shows."
+    )
+
+    @api.model
+    def _pallet_label(self, quant):
+        """Human-facing identity of a quant regardless of pallet type.
+
+        Regular pallets are identified by their pallet series ID (PSI); blast-freeze
+        pallets have no PSI/package and are identified by the free-text bf_pallet_char.
+        Falls back to the quant id so user-facing messages never crash on blank values.
+        """
+        if quant.location_is_bf:
+            return quant.bf_pallet_char or f"BF Quant #{quant.id}"
+        return quant.x_studio_pallet_series_id or f"Quant #{quant.id}"
 
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
@@ -29,40 +45,60 @@ class StockQuantCorrectionWizard(models.TransientModel):
         quant_ids = self.env.context.get('active_ids', [])
         quants = self.env['stock.quant'].browse(quant_ids)
 
+        # Block mixing blast-freeze and regular pallets in a single correction.
+        # They use different identity models (PSI/package vs bf_pallet_char) and the
+        # wizard shows a different column set for each, so they must be adjusted apart.
+        bf_quants = quants.filtered(lambda q: q.location_is_bf)
+        if bf_quants and (quants - bf_quants):
+            raise UserError(_(
+                "You selected both Blast Freeze pallets and regular pallets.\n\n"
+                "Please adjust Blast Freeze pallets separately from regular "
+                "(pallet-series) pallets."))
+        is_bf = bool(bf_quants)
+        res['is_blast_freeze'] = is_bf
+
         # Check 1: Reserved quantities
         reserved_quants = quants.filtered(lambda q: q.reserved_quantity > 0)
         if reserved_quants:
             raise UserError(_("Cannot modify Pallet details with reserved quantities. "
                               "\nPlease unreserve the following Pallets first:\n• %s") %
-                            '\n• '.join(reserved_quants.mapped('x_studio_pallet_series_id')))
+                            '\n• '.join(self._pallet_label(q) for q in reserved_quants))
 
-        # Check 2: Active pending adjustment requests
-        pallet_series_ids = quants.mapped('x_studio_pallet_series_id')
-
-        # Search for any pending adjustment lines for these pallet series
-        pending_lines = self.env['stock.quant.adjustment.line'].search([
-            ('quant_id.x_studio_pallet_series_id', 'in', pallet_series_ids),
-            ('line_state', 'in', ['pending', 'draft']),
-            ('request_id.state', 'in', ['draft', 'pending', 'partial'])
-        ])
+        # Check 2: Active pending adjustment requests.
+        # Regular pallets are matched by pallet series (PSI) across requests; blast-freeze
+        # pallets have no PSI, so they are matched by lot_id (unique per quant in this DB).
+        if is_bf:
+            lot_ids = quants.mapped('lot_id').ids
+            pending_lines = self.env['stock.quant.adjustment.line'].search([
+                ('quant_id.lot_id', 'in', lot_ids),
+                ('line_state', 'in', ['pending', 'draft']),
+                ('request_id.state', 'in', ['draft', 'pending', 'partial'])
+            ]) if lot_ids else self.env['stock.quant.adjustment.line']
+        else:
+            pallet_series_ids = quants.mapped('x_studio_pallet_series_id')
+            pending_lines = self.env['stock.quant.adjustment.line'].search([
+                ('quant_id.x_studio_pallet_series_id', 'in', pallet_series_ids),
+                ('line_state', 'in', ['pending', 'draft']),
+                ('request_id.state', 'in', ['draft', 'pending', 'partial'])
+            ])
 
         if pending_lines:
-            # Group by pallet series for clear error message
+            # Group by pallet label for a clear error message
             pallets_with_requests = {}
             for line in pending_lines:
-                series_id = line.quant_id.x_studio_pallet_series_id
+                label = self._pallet_label(line.quant_id)
                 request_name = line.request_id.name
 
-                if series_id not in pallets_with_requests:
-                    pallets_with_requests[series_id] = []
-                if request_name not in pallets_with_requests[series_id]:
-                    pallets_with_requests[series_id].append(request_name)
+                if label not in pallets_with_requests:
+                    pallets_with_requests[label] = []
+                if request_name not in pallets_with_requests[label]:
+                    pallets_with_requests[label].append(request_name)
 
             # Build error message
             error_lines = []
-            for series_id, request_names in pallets_with_requests.items():
+            for label, request_names in pallets_with_requests.items():
                 requests_str = ', '.join(request_names)
-                error_lines.append(f"• {series_id} (Request: {requests_str})")
+                error_lines.append(f"• {label} (Request: {requests_str})")
 
             raise UserError(_(
                 "Cannot modify Pallet details with active pending adjustment requests.\n"
@@ -76,6 +112,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 'quant_id': quant.id,
                 'package_id': quant.package_id.id,
                 'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
+                'bf_pallet_char': quant.bf_pallet_char,
                 'product_id': quant.product_id.id,
                 'x_studio_production_date': quant.x_studio_production_date,
                 'x_studio_expiration_date': quant.x_studio_expiration_date,
@@ -132,22 +169,23 @@ class StockQuantCorrectionWizard(models.TransientModel):
         for line in lines_with_changes:
             changes = line._get_changes()
             if changes and 'product_id' in changes and line.quant_id.x_studio_return_count > 0:
-                series_id = line.quant_id.x_studio_pallet_series_id
-                if series_id not in restricted_pallets:
-                    restricted_pallets[series_id] = []
-                restricted_pallets[series_id].append(
+                label = self._pallet_label(line.quant_id)
+                if label not in restricted_pallets:
+                    restricted_pallets[label] = []
+                restricted_pallets[label].append(
                     line.quant_id.x_studio_record_reference or f"Quant {line.quant_id.id}")
 
         if restricted_pallets:
             error_msg = "You cannot change product of Pallets already with return count history:\n\n"
-            for series_id, pallet_refs in restricted_pallets.items():
-                error_msg += f"Series ID: {series_id}\n"
+            for label, pallet_refs in restricted_pallets.items():
+                error_msg += f"Pallet: {label}\n"
             raise UserError(error_msg)
 
         request_vals = {
             'reason_for_adjustment': self.reason_for_adjustment,
             'requested_by': self.env.user.id,
             'requested_date': fields.Datetime.now(),
+            'is_blast_freeze': self.is_blast_freeze,
         }
 
         request = self.env['stock.quant.adjustment.request'].create(
@@ -181,6 +219,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'write_date': str(quant.write_date),
             'x_studio_2nd_uom': quant.x_studio_2nd_uom,
             'x_studio_total_units': quant.x_studio_total_units,
+            'bf_pallet_char': quant.bf_pallet_char,
         }
 
         line_vals = {
@@ -188,6 +227,9 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'quant_id': quant.id,
             'quant_snapshot': json.dumps(snapshot_data, sort_keys=True),
             'line_state': 'draft',
+            'is_blast_freeze': quant.location_is_bf,
+            'old_bf_pallet_char': quant.bf_pallet_char,
+            'new_bf_pallet_char': wizard_line.bf_pallet_char,
             'old_package_id': quant.package_id.id if quant.package_id else False,
             'old_product_id': quant.product_id.id,
             'old_quantity': quant.quantity,
@@ -228,16 +270,16 @@ class StockQuantCorrectionWizard(models.TransientModel):
         for line in self.line_ids:
             changes = line._get_changes()
             if changes and 'product_id' in changes and line.quant_id.x_studio_return_count > 0:
-                series_id = line.quant_id.x_studio_pallet_series_id
-                if series_id not in restricted_pallets:
-                    restricted_pallets[series_id] = []
-                restricted_pallets[series_id].append(
+                label = self._pallet_label(line.quant_id)
+                if label not in restricted_pallets:
+                    restricted_pallets[label] = []
+                restricted_pallets[label].append(
                     line.quant_id.x_studio_record_reference or f"Quant {line.quant_id.id}")
 
         if restricted_pallets:
             error_msg = "You cannot change product of Pallets already with return count history:\n\n"
-            for series_id, pallet_refs in restricted_pallets.items():
-                error_msg += f"Series ID: {series_id}\n"
+            for label, pallet_refs in restricted_pallets.items():
+                error_msg += f"Pallet: {label}\n"
             raise UserError(error_msg)
 
         for line in self.line_ids:
@@ -325,6 +367,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'is_quant_detail_adjusted': True,
             'reference': self._format_quantity_change_reference(old_quantity, new_quantity),
             'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
+            'bf_pallet_char': quant.bf_pallet_char,
             'x_studio_production_date': quant.x_studio_production_date,
             'x_studio_expiration_date': quant.x_studio_expiration_date,
             'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
@@ -391,6 +434,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'adjustment_batch_number': batch_number,
             'adjustment_reference_id': quant.x_studio_record_reference.id if quant.x_studio_record_reference else False,
             'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
+            'bf_pallet_char': quant.bf_pallet_char,
             'x_studio_production_date': quant.x_studio_production_date,
             'x_studio_expiration_date': quant.x_studio_expiration_date,
             'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
@@ -606,6 +650,9 @@ class StockQuantCorrectionLine(models.TransientModel):
         'stock.quant', string='Original Quant', required=True)
     package_id = fields.Many2one('stock.quant.package', string='Pallet #')
     x_studio_pallet_series_id = fields.Char(string='Placeholder')
+    is_blast_freeze = fields.Boolean(
+        related='quant_id.location_is_bf', string="Is Blast Freeze")
+    bf_pallet_char = fields.Char(string="BF Pallet #")
     product_id = fields.Many2one(
         'product.product', string='Product', required=True)
     x_studio_production_date = fields.Date(string='Production Date')
@@ -673,6 +720,7 @@ class StockQuantCorrectionLine(models.TransientModel):
         field_mapping = {
             'package_id': ('package_id', lambda x: x.id if x else False),
             'x_studio_pallet_series_id': ('x_studio_pallet_series_id', str),
+            'bf_pallet_char': ('bf_pallet_char', str),
             'product_id': ('product_id', lambda x: x.id),
             'x_studio_2nd_uom': ('x_studio_2nd_uom', float),
             'x_studio_quantity_uom': ('x_studio_quantity_uom', lambda x: x.id if x else False),
@@ -698,6 +746,14 @@ class StockQuantCorrectionLine(models.TransientModel):
             except (ValueError, TypeError):
                 old_converted = old_value
                 new_converted = new_value
+
+            # Treat blank values uniformly: '' (empty string the web client sends
+            # for a cleared Char like Container #), None and False all mean "no
+            # value", so they must compare equal and never register a phantom change.
+            if old_converted in ('', None):
+                old_converted = False
+            if new_converted in ('', None):
+                new_converted = False
 
             if old_converted != new_converted:
                 changes[quant_field] = (old_converted, new_converted)
@@ -780,6 +836,9 @@ class StockQuantAdjustmentRequest(models.Model):
     rejection_reason = fields.Text(string='Rejection Reason', tracking=True)
     batch_number = fields.Char(
         string='Batch Number', readonly=True, help='Batch number assigned when approved')
+    is_blast_freeze = fields.Boolean(
+        string='Is Blast Freeze', readonly=True,
+        help='True when this request adjusts blast-freeze pallets (BF Pallet #) instead of pallet-series pallets.')
     line_ids = fields.One2many(
         'stock.quant.adjustment.line', 'request_id', string='Adjustment Lines')
     line_count = fields.Integer(string='Lines', compute='_compute_line_count')
@@ -1136,6 +1195,8 @@ class StockQuantAdjustmentLine(models.Model):
         string='Pallet Series', readonly=True)
     display_location = fields.Char(
         string='Location', readonly=True)
+    is_blast_freeze = fields.Boolean(
+        string='Is Blast Freeze', readonly=True)
 
     # OLD VALUES
     old_package_id = fields.Many2one(
@@ -1161,6 +1222,8 @@ class StockQuantAdjustmentLine(models.Model):
         'uom.uom', string='Old Heads UOM', readonly=True)
     old_x_studio_container_number = fields.Char(
         string='Old Container #', readonly=True)
+    old_bf_pallet_char = fields.Char(
+        string='Old BF Pallet #', readonly=True)
 
     # NEW VALUES
     new_package_id = fields.Many2one(
@@ -1181,6 +1244,7 @@ class StockQuantAdjustmentLine(models.Model):
     new_x_studio_min_quantity_uom = fields.Many2one(
         'uom.uom', string='New Heads UOM')
     new_x_studio_container_number = fields.Char(string='New Container #')
+    new_bf_pallet_char = fields.Char(string='New BF Pallet #')
 
     changed_fields_display = fields.Html(
         string='Changes', compute='_compute_changed_fields_display')
@@ -1193,7 +1257,8 @@ class StockQuantAdjustmentLine(models.Model):
                  'old_owner_id', 'new_owner_id',
                  'old_x_studio_production_date', 'new_x_studio_production_date',
                  'old_x_studio_expiration_date', 'new_x_studio_expiration_date',
-                 'old_x_studio_container_number', 'new_x_studio_container_number')
+                 'old_x_studio_container_number', 'new_x_studio_container_number',
+                 'old_bf_pallet_char', 'new_bf_pallet_char')
     def _compute_changed_fields_display(self):
         """Compute HTML display of only the fields that changed"""
         for line in self:
@@ -1215,6 +1280,7 @@ class StockQuantAdjustmentLine(models.Model):
                 'x_studio_production_date': 'Production Date',
                 'x_studio_expiration_date': 'Expiration Date',
                 'x_studio_container_number': 'Container #',
+                'bf_pallet_char': 'BF Pallet #',
             }
 
             for field_name, (old_val, new_val) in changes.items():
@@ -1336,6 +1402,7 @@ class StockQuantAdjustmentLine(models.Model):
             'write_date': str(quant.write_date),
             'x_studio_2nd_uom': quant.x_studio_2nd_uom,
             'x_studio_total_units': quant.x_studio_total_units,
+            'bf_pallet_char': quant.bf_pallet_char,
         }
         return json.dumps(snapshot_data, sort_keys=True)
 
@@ -1345,6 +1412,7 @@ class StockQuantAdjustmentLine(models.Model):
 
         field_mapping = {
             'package_id': ('package_id', lambda x: x.id if x else False),
+            'bf_pallet_char': ('bf_pallet_char', str),
             'product_id': ('product_id', lambda x: x.id),
             'quantity': ('quantity', float),
             'owner_id': ('owner_id', lambda x: x.id if x else False),
@@ -1369,6 +1437,14 @@ class StockQuantAdjustmentLine(models.Model):
             except (ValueError, TypeError):
                 old_converted = old_value
                 new_converted = new_value
+
+            # Treat blank values uniformly: '' (empty string the web client sends
+            # for a cleared Char like Container #), None and False all mean "no
+            # value", so they must compare equal and never register a phantom change.
+            if old_converted in ('', None):
+                old_converted = False
+            if new_converted in ('', None):
+                new_converted = False
 
             if old_converted != new_converted:
                 changes[field_name] = (old_converted, new_converted)
@@ -1433,6 +1509,7 @@ class StockQuantAdjustmentLine(models.Model):
             'x_studio_total_units': self.new_x_studio_total_units if self.new_x_studio_total_units else quant.x_studio_total_units,
             'x_studio_quantity_uom': self.new_x_studio_quantity_uom.id if self.new_x_studio_quantity_uom else (quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False),
             'x_studio_min_quantity_uom': self.new_x_studio_min_quantity_uom.id if self.new_x_studio_min_quantity_uom else (quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False),
+            'bf_pallet_char': self.new_bf_pallet_char if self.new_bf_pallet_char else quant.bf_pallet_char,
             'x_studio_return_count': quant.x_studio_return_count if quant.x_studio_return_count else 0,
         }
 
