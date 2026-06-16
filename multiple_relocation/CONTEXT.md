@@ -285,6 +285,25 @@ WR (done) → void_transfer()
   → User validates void return RR → auto-marks both as voided
 ```
 
+### Blast-freeze (BF) support
+Blast-freeze pallets have **no package and no pallet series** — only a free-text
+`bf_pallet_char` + a unique `lot_id`. The void quant pickup, guard rails, and the
+related-quant smart button branch on `is_blast_freeze` (`operation_type_checker`)
+and match BF stock by **`lot_id` in blast-freezer locations** (`stock.quant.location_is_bf = True`,
+`quantity > 0`) instead of PSI/package. See `_void_wr_quant_domain()` /
+`_void_wr_has_lines_to_checkout()`. The regular PSI/package path is unchanged.
+The WR-void path already carries `bf_pallet_char`/`lot_id` through the Return
+Packages wizard, so it works for BF without structural change.
+
+**RR-void guard rails** (both BF and regular):
+1. *Existence* — block if the received stock no longer exists / was already withdrawn
+   by an active WR (BF checked by lot, regular by PSI).
+2. *Reservation* — `_void_rr_reservation_conflicts()` blocks if the stock is still
+   reserved/picked into an active (non-done, non-voided) withdrawal. Detected via
+   `stock.quant.reserved_quantity`; holding WR resolved via
+   `stock.move.quant_ids_picked`. Error asks the user to unpick the BF Pallet # / PSI
+   from that WR first.
+
 ### Key Fields
 | Field | Model | Purpose |
 |---|---|---|
