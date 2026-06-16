@@ -4,9 +4,43 @@
 > **Odoo version**: 17 Enterprise
 > **Author**: Mark Angelo S. Templanza
 > **Depends on**: `base`, `stock`, `web`, `report_xlsx`
-> **Last updated**: 2026-06-15
+> **Last updated**: 2026-06-16
 
 ---
+
+## Recent change (2026-06-16): Void & Return is now blast-freeze capable
+
+`models/stock_picking.py` void workflow previously matched stock by pallet series +
+package only, so voiding a **BF receiving (BFRR)** produced an **empty void WR**
+(no moves) and the related-quant smart button showed nothing (BF quants have no
+`package_id`). Now:
+
+- New helpers `_void_wr_quant_domain()` / `_void_wr_has_lines_to_checkout()` branch on
+  `is_blast_freeze` (`operation_type_checker`): regular pallets matched by PSI+package
+  (**unchanged**); BF matched by `lot_id` + **`x_studio_record_reference = this RR`** in
+  BF locations (`location_is_bf=True`, `quantity>0`). The `x_studio_record_reference`
+  scope is essential: a BF `lot_id`/`bf_pallet_char` can be **reused across receipts**
+  (verified: lot 86745 appears on both M/BF/RR/00032 and M/BF/RR/00034), so matching by
+  lot alone would reverse another receipt's stock. The field is copied on relocation, so
+  it still identifies the originating RR after a chamber move. No child-location filter
+  for BF (stock lands in the chamber, not under the building preset). Used in both the
+  reuse-existing-void-WR and fresh-create blocks of `_create_void_wr_from_rr()`, and the
+  BF incoming smart button is scoped the same way.
+- `void_transfer()` gains a **lot-based BFRR guard rail** mirroring the regular one
+  (blocks if BF stock is gone / already withdrawn by an active WR; messages list
+  `bf_pallet_char`).
+- `void_transfer()` also gains a **reservation guard rail** (both BF and regular):
+  `_void_rr_reservation_conflicts()` blocks voiding an RR whose received stock is
+  still reserved/picked into an active (non-done, non-voided) withdrawal. Reservation
+  is detected via the standard `stock.quant.reserved_quantity`; the holding WR is
+  resolved via `stock.move.quant_ids_picked`. The error tells the user to unpick the
+  **BF Pallet #** (BF) / **Pallet Series ID** (regular) from that WR first.
+- Smart button `_compute_quant_count()` + `action_open_related_quant()`: BF incoming
+  drops the `package_id != False` requirement and filters `location_is_bf=True`;
+  BF outgoing also adds `location_is_bf=True` so a BF WR shows only BF stock.
+- WR-void (`_create_return_rr_from_wr` + Return Packages wizard) already carried
+  `bf_pallet_char`/`lot_id`, so it works for BF without structural change.
+- Regular PSI path is byte-identical — all BF logic is gated behind `is_blast_freeze`.
 
 ## Recent change (2026-06-15): Quant correction is now blast-freeze capable
 

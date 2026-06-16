@@ -643,6 +643,95 @@ class transfer_locations(models.Model):
             _logger.warning(
                 "No pallet kilos record found for transfer: %s", record.name)
 
+    def _void_rr_reservation_conflicts(self, record, is_blast_freeze):
+        """Return [(pallet_label, wr_name), ...] for the RR's received stock that is
+        currently reserved/picked into an active (non-done, non-voided) withdrawal.
+
+        A quant can still be on-hand yet already reserved by a draft/assigned WR; the
+        existence guard would pass but the void WR would fight over the same stock.
+        Reservation is detected by the standard ``reserved_quantity`` on the quant;
+        the holding WR is resolved via the custom ``stock.move.quant_ids_picked`` link.
+        """
+        conflicts = []
+        Move = self.env['stock.move']
+        Quant = self.env['stock.quant']
+        for ml in record.move_line_ids:
+            if not ml.lot_id:
+                continue
+            if is_blast_freeze:
+                label = ml.bf_pallet_char or _("Lot %s") % ml.lot_id.name
+                quant = Quant.search([
+                    ('lot_id', '=', ml.lot_id.id),
+                    ('x_studio_record_reference', '=', record.id),
+                    ('location_is_bf', '=', True),
+                    ('quantity', '>', 0),
+                ], limit=1)
+            else:
+                if not ml.x_studio_pallet_series_id:
+                    continue
+                label = ml.x_studio_pallet_series_id
+                quant = Quant.search([
+                    ('x_studio_pallet_series_id', '=', ml.x_studio_pallet_series_id),
+                    ('quantity', '>', 0),
+                ], limit=1)
+            if quant and quant.reserved_quantity > 0:
+                holding = Move.search([
+                    ('quant_ids_picked', 'in', quant.ids),
+                    ('picking_id.picking_type_id.code', '=', 'outgoing'),
+                    ('picking_id.state', 'not in', ('done', 'cancel')),
+                    ('picking_id.x_studio_voided', '=', False),
+                    ('picking_id', '!=', record.id),
+                ])
+                wr_name = ', '.join(sorted(set(holding.mapped('picking_id.name')))) \
+                    or _("another active withdrawal")
+                conflicts.append((label, wr_name))
+        return conflicts
+
+    def _void_wr_quant_domain(self, record, child_location_ids, is_blast_freeze):
+        """Build the stock.quant search domain used to find which quants the void
+        WR should check out when reversing a voided RR.
+
+        Regular (PSI) pallets are matched by pallet series + package exactly as
+        before. Blast-freeze pallets have neither a package nor a pallet series,
+        so they are matched by lot_id (unique per quant in this DB) restricted to
+        blast-freezer locations and on-hand (positive) quantity.
+        """
+        if is_blast_freeze:
+            # BF stock can sit in any blast-freezer chamber (lands in the chamber,
+            # not under the building preset, and may be relocated between chambers),
+            # so we don't restrict by child location. A bf lot_id can be REUSED across
+            # receipts, so we scope by x_studio_record_reference = this RR to avoid
+            # reversing another receipt's stock; this field is copied on relocation,
+            # so it still identifies the originating RR after a chamber move.
+            lot_ids = [l for l in record.move_line_ids.mapped('lot_id').ids if l]
+            domain = [
+                ('lot_id', 'in', lot_ids),
+                ('x_studio_record_reference', '=', record.id),
+                ('location_is_bf', '=', True),
+                ('quantity', '>', 0),
+            ]
+        else:
+            # UNCHANGED regular domain (PSI + package)
+            pallet_series = [
+                p for p in record.move_line_ids.mapped('x_studio_pallet_series_id') if p]
+            package_ids = record.move_line_ids.mapped('result_package_id')
+            domain = [
+                ('location_id', 'in', child_location_ids),
+                ('x_studio_pallet_series_id', 'in', pallet_series),
+                ('package_id', 'in', package_ids.ids),
+                ('quantity', '!=', 0),
+            ]
+        if record.partner_id:
+            domain.append(('owner_id', '=', record.partner_id.id))
+        return domain
+
+    def _void_wr_has_lines_to_checkout(self, record, is_blast_freeze):
+        """Whether the voided RR carries any identifiable pallets to check out.
+        BF is keyed on lot_id; regular on pallet series."""
+        if is_blast_freeze:
+            return bool([l for l in record.move_line_ids.mapped('lot_id').ids if l])
+        return bool([p for p in record.move_line_ids.mapped('x_studio_pallet_series_id') if p])
+
     def _create_void_wr_from_rr(self, record):
         """
         Create an outgoing (WR) picking to reverse the inventory from a voided RR/BFRR.
@@ -670,25 +759,12 @@ class transfer_locations(models.Model):
             existing_void_wr.x_studio_voided = False
 
             # Re-populate stock moves from current quants
-            rr_pallet_series_ids = record.move_line_ids.mapped(
-                'x_studio_pallet_series_id')
-            rr_pallet_series_ids = [p for p in rr_pallet_series_ids if p]
-            package_ids = record.move_line_ids.mapped(
-                'result_package_id')
-            
-            if rr_pallet_series_ids:
+            if self._void_wr_has_lines_to_checkout(record, is_blast_freeze):
                 child_location_ids = self.env['stock.location'].search([
                     ('id', 'child_of', existing_void_wr.location_id.id)
                 ]).ids
-                quant_domain = [
-                    ('location_id', 'in', child_location_ids),
-                    ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
-                    ('package_id', 'in', package_ids.ids),
-                    ('quantity', '!=', 0),
-                ]
-                if record.partner_id:
-                    quant_domain.append(
-                        ('owner_id', '=', record.partner_id.id))
+                quant_domain = self._void_wr_quant_domain(
+                    record, child_location_ids, is_blast_freeze)
                 quants_to_checkout = self.env['stock.quant'].search(
                     quant_domain)
                 if quants_to_checkout:
@@ -718,14 +794,20 @@ class transfer_locations(models.Model):
         # algorithm as the return wizard's _compute_location_and_packages).
         # Fall back to the RR's own destination location, then id 7, if nothing
         # resolves.
-        wr_source_location = False
-        for ml in record.move_line_ids:
-            building = ml.location_dest_id.x_studio_building
-            if building and building.x_studio_preset_location:
-                wr_source_location = building.x_studio_preset_location.id
-                break
-        if not wr_source_location:
+        # Blast-freeze stock lands directly in the chamber (the RR's
+        # location_dest_id), which is NOT under the building preset, so source the
+        # void WR from the RR destination instead.
+        if is_blast_freeze:
             wr_source_location = record.location_dest_id.id or 7
+        else:
+            wr_source_location = False
+            for ml in record.move_line_ids:
+                building = ml.location_dest_id.x_studio_building
+                if building and building.x_studio_preset_location:
+                    wr_source_location = building.x_studio_preset_location.id
+                    break
+            if not wr_source_location:
+                wr_source_location = record.location_dest_id.id or 7
 
         wr_dest_location = 5  # Customer location — semantically correct for outgoing
 
@@ -761,19 +843,12 @@ class transfer_locations(models.Model):
         _logger.info("Created void WR %s from voided RR %s",
                      wr_picking.name, record.name)
 
-        # Find the stock quants that were received by this RR
-        # These are quants at the RR's destination location, owned by the same partner,
-        # with pallet_series_ids matching the RR's move lines
-        rr_pallet_series_ids = record.move_line_ids.mapped(
-            'x_studio_pallet_series_id')
-        # Filter out empty strings
-        rr_pallet_series_ids = [p for p in rr_pallet_series_ids if p]
-        package_ids = record.move_line_ids.mapped(
-                'result_package_id')
-        
-        if not rr_pallet_series_ids:
+        # Find the stock quants that were received by this RR.
+        # Regular pallets are matched by pallet series + package; blast-freeze
+        # pallets (no package/series) are matched by lot_id in BF locations.
+        if not self._void_wr_has_lines_to_checkout(record, is_blast_freeze):
             _logger.warning(
-                "No pallet series IDs found on voided RR %s, cannot auto-checkout quants", record.name)
+                "No identifiable pallets found on voided RR %s, cannot auto-checkout quants", record.name)
             return wr_picking
 
         # Get child locations of the RR destination (where goods landed)
@@ -781,16 +856,8 @@ class transfer_locations(models.Model):
             ('id', 'child_of', wr_source_location)
         ]).ids
 
-        # Find quants with matching pallet series in those locations (include negative qty)
-        quant_domain = [
-            ('location_id', 'in', child_location_ids),
-            ('x_studio_pallet_series_id', 'in', rr_pallet_series_ids),
-            ('package_id', 'in', package_ids.ids),
-            ('quantity', '!=', 0),
-        ]
-
-        if record.partner_id:
-            quant_domain.append(('owner_id', '=', record.partner_id.id))
+        quant_domain = self._void_wr_quant_domain(
+            record, child_location_ids, is_blast_freeze)
 
         quants_to_checkout = self.env['stock.quant'].search(quant_domain)
 
@@ -1037,6 +1104,81 @@ class transfer_locations(models.Model):
 
             # === GUARD RAILS ===
             if is_receiving:
+                # Reservation Guard Rail (both BF and regular): block voiding when
+                # the received stock is already reserved/picked into an active
+                # (non-done) withdrawal. The user must unpick it from that WR first,
+                # otherwise the void WR would fight over the same reserved stock.
+                reservation_conflicts = record._void_rr_reservation_conflicts(
+                    record, is_blast_freeze)
+                if reservation_conflicts:
+                    id_label = "BF Pallet #" if is_blast_freeze else "Pallet Series ID"
+                    details = '\n'.join(
+                        [f"  - {id_label} {lbl} → reserved in {wr}" for lbl, wr in reservation_conflicts])
+                    raise UserError(_(
+                        "Cannot void this receiving record.\n\n"
+                        "The following pallet(s) are currently reserved/picked in an active withdrawal record:\n"
+                        "%(details)s\n\n"
+                        "Please unpick the %(id_label)s from that withdrawal record first, "
+                        "then void this receiving record.",
+                        details=details,
+                        id_label=id_label,
+                    ))
+
+            if is_receiving and is_blast_freeze:
+                # BFRR Guard Rail (lot-based): blast-freeze pallets have no pallet
+                # series/package, so existence is checked by lot_id in BF locations.
+                excluded_picking_ids = [record.id]
+                if record.return_id:
+                    excluded_picking_ids.append(record.return_id.id)
+
+                missing_pallets = []
+                used_in_wr_pallets = []
+                for move_line in record.move_line_ids:
+                    if not move_line.lot_id:
+                        continue
+                    label = move_line.bf_pallet_char or _("Lot %s") % move_line.lot_id.name
+                    quant = self.env['stock.quant'].search([
+                        ('lot_id', '=', move_line.lot_id.id),
+                        ('x_studio_record_reference', '=', record.id),
+                        ('location_is_bf', '=', True),
+                        ('quantity', '>', 0),
+                    ], limit=1)
+                    if not quant:
+                        # Quant is gone - was it withdrawn by a still-active WR?
+                        used_in_wr = self.env['stock.move.line'].search([
+                            ('lot_id', '=', move_line.lot_id.id),
+                            ('picking_id', 'not in', excluded_picking_ids),
+                            ('picking_id.picking_type_id.code', '=', 'outgoing'),
+                            ('picking_id.x_studio_voided', '=', False),
+                            ('state', '=', 'done'),
+                        ], limit=1)
+                        if used_in_wr:
+                            used_in_wr_pallets.append(
+                                (label, used_in_wr.picking_id.name))
+                        else:
+                            missing_pallets.append(label)
+
+                if used_in_wr_pallets:
+                    details = '\n'.join(
+                        [f"  - Pallet {pallet} → used in {wr}" for pallet, wr in used_in_wr_pallets])
+                    raise UserError(_(
+                        "Cannot void this receiving record.\n\n"
+                        "The following pallet(s) have been used in withdrawal record(s) that are still active:\n"
+                        "%(details)s\n\n"
+                        "Please void those withdrawal record(s) first before voiding this receiving record.",
+                        details=details,
+                    ))
+
+                if missing_pallets:
+                    raise UserError(_(
+                        "Cannot void this receiving record.\n\n"
+                        "The following pallet(s) no longer have available stock at the destination location:\n"
+                        "%(pallet_names)s\n\n"
+                        "This stock may have been moved or consumed. "
+                        "Please check and resolve any dependent transactions first.",
+                        pallet_names=', '.join(missing_pallets),
+                    ))
+            elif is_receiving:
                 # RR/BFRR Guard Rail: Check if stock quants with pallet series still exist at destination
                 pallet_series_ids = record.move_line_ids.mapped(
                     'x_studio_pallet_series_id')
@@ -2357,7 +2499,13 @@ class transfer_locations(models.Model):
             if not is_receiving and picking.state == 'done':
                 picking.quant_count = False
                 return
-            if picking.picking_type_id.code == 'incoming':
+            if picking.picking_type_id.code == 'incoming' and is_blast_freeze:
+                # BF receiving: no package; a bf lot can be reused across receipts, so
+                # scope to this RR via x_studio_record_reference, BF location, on-hand
+                domain = [('lot_id', 'in', lot_ids),
+                          ('x_studio_record_reference', '=', picking.id),
+                          ('location_is_bf', '=', True), ('quantity', '>', 0)]
+            elif picking.picking_type_id.code == 'incoming':
                 domain = [('lot_id', 'in', lot_ids), ('package_id',
                                                       '!=', False),  ('quantity', '!=', 0)]
             elif picking.picking_type_id.code == 'outgoing' and not is_blast_freeze:
@@ -2397,6 +2545,7 @@ class transfer_locations(models.Model):
                     ('lot_id', 'not in', lot_ids),
                     ('quantity', '>', 0),
                     # ('package_id', '!=', False),
+                    ('location_is_bf', '=', True),  # BF WR shows only BF stock
                     ('lot_id', '!=', False),
                     # ('x_studio_record_reference', '!=', False),
                     ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
@@ -2410,7 +2559,13 @@ class transfer_locations(models.Model):
         domain = []
         is_blast_freeze, is_receiving = self.operation_type_checker(
             self.picking_type_id)
-        if self.picking_type_id.code == 'incoming':
+        if self.picking_type_id.code == 'incoming' and is_blast_freeze:
+            # BF receiving: no package; a bf lot can be reused across receipts, so
+            # scope to this RR via x_studio_record_reference, BF location, on-hand
+            domain = [('lot_id', 'in', lot_ids),
+                      ('x_studio_record_reference', '=', self.id),
+                      ('location_is_bf', '=', True), ('quantity', '>', 0)]
+        elif self.picking_type_id.code == 'incoming':
             domain = [('lot_id', 'in', lot_ids), ('package_id',
                                                   '!=', False), ('quantity', '!=', 0)]
         elif self.picking_type_id.code == 'outgoing' and not is_blast_freeze:
@@ -2438,6 +2593,7 @@ class transfer_locations(models.Model):
                 ('lot_id', 'not in', lot_ids),
                 ('quantity', '>', 0),
                 # ('package_id', '!=', False),
+                ('location_is_bf', '=', True),  # BF WR shows only BF stock
                 ('lot_id', '!=', False),
                 # ('x_studio_record_reference', '!=', False),
                 ('id', 'not in', self.move_line_ids.mapped('computed_quant_id.id'))]
