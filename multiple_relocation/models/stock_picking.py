@@ -1340,7 +1340,7 @@ class transfer_locations(models.Model):
         If pages still overflow lower MAX_PIXEL_HEIGHT.
         If there is still too much empty space raise it.
         """
-        MAX_PIXEL_HEIGHT = 700
+        MAX_PIXEL_HEIGHT = 600
 
         sorted_lines = list(self.get_picklist_sorted_move_line_ids())
         n = len(sorted_lines)
