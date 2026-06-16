@@ -1330,6 +1330,37 @@ class OverrideStockQuant(models.Model):
         }
 
 
+    # Studio / custom fields that must follow a pallet when it is relocated.
+    # These used to be copied to the destination quant by a post-hoc Studio
+    # automation ("On State Done - Relocation ...", server action #307) that
+    # re-matched records via a non-unique constant message ("RELOCATION") on a
+    # transient wizard with `order id desc limit 1` -> unreliable under any
+    # concurrency. We now copy them deterministically inside move_quants(), in the
+    # same transaction, by direct reference to the source quant. The automation
+    # rule should be archived (deactivated) once this is in place.
+    _RELOCATION_STUDIO_FIELDS = [
+        'x_studio_truck_number', 'x_studio_container_number', 'x_studio_production_date',
+        'x_studio_expiration_date', 'x_studio_2nd_uom', 'x_studio_total_units',
+        'x_studio_quantity_uom', 'x_studio_min_quantity_uom', 'x_studio_end_time',
+        'x_studio_gate_pass', 'x_studio_loading_dock_no', 'x_studio_start_time',
+        'x_studio_tally_sheet', 'x_studio_truck_time', 'x_studio_source',
+        'x_studio_record_reference', 'x_studio_special_holding', 'x_studio_sh_reason',
+        'x_studio_pallet_series_id', 'bf_pallet_char', 'truck_type',
+        'x_studio_building_dropped', 'original_record_reference',
+    ]
+
+    def _relocation_studio_vals(self):
+        """Snapshot a source quant's studio/custom fields as writeable vals."""
+        self.ensure_one()
+        vals = {}
+        for fname in self._RELOCATION_STUDIO_FIELDS:
+            field = self._fields.get(fname)
+            if not field:
+                continue
+            value = self[fname]
+            vals[fname] = value.id if field.type == 'many2one' else value
+        return vals
+
     def move_quants(self, location_dest_id=False, package_dest_id=False, message=False, unpack=False, warehouseman=False, x_reloc_batch_number=False, x_studio_pallet_series_id=False, bf_pallet_char=False):
         """ Directly move a stock.quant to another location and/or package by creating a stock.move.
 
@@ -1341,6 +1372,10 @@ class OverrideStockQuant(models.Model):
 
         message = message or _('Quantity Relocated')
         move_vals = []
+        # Capture each source quant's studio fields + the destination identity BEFORE
+        # the move, so they can be copied onto the resulting destination quant after
+        # _action_done(). Only built for relocations (x_reloc_batch_number set).
+        reloc_plan = []
         for quant in self:
             result_package_id = package_dest_id  # temp variable to kAeep package_dest_id unchanged
             if not unpack and not package_dest_id:
@@ -1358,9 +1393,38 @@ class OverrideStockQuant(models.Model):
                 quant.x_studio_2nd_uom,
                 quant.x_studio_quantity_uom.id,
             ))
-        
+            if x_reloc_batch_number:
+                reloc_plan.append({
+                    'vals': quant._relocation_studio_vals(),
+                    'product_id': quant.product_id.id,
+                    'lot_id': quant.lot_id.id,
+                    'owner_id': quant.owner_id.id,
+                    'location_dest_id': (location_dest_id or quant.location_id).id,
+                    'package_id': result_package_id.id if result_package_id else False,
+                })
+
         moves = self.env['stock.move'].create(move_vals)
         moves._action_done()
+
+        # Deterministic studio-field transfer to the destination quant. Replaces the
+        # unreliable "On State Done - Relocation" automation: same transaction, direct
+        # reference, matched on the unique lot (per-quant) + destination identity.
+        if x_reloc_batch_number:
+            Quant = self.env['stock.quant']
+            for plan in reloc_plan:
+                if not plan['vals']:
+                    continue
+                domain = [
+                    ('location_id', '=', plan['location_dest_id']),
+                    ('product_id', '=', plan['product_id']),
+                    ('owner_id', '=', plan['owner_id'] or False),
+                    ('package_id', '=', plan['package_id'] or False),
+                ]
+                if plan['lot_id']:
+                    domain.append(('lot_id', '=', plan['lot_id']))
+                dest_quant = Quant.search(domain, limit=1)
+                if dest_quant:
+                    dest_quant.write(plan['vals'])
 
 
     reservation_tags = fields.Many2many(

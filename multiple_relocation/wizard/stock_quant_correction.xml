@@ -27,11 +27,12 @@
                            required="1"/>
                     
                     <!-- Skip Approval Toggle (Only for Managers) -->
-                    <field name="skip_approval" 
+                    <field name="skip_approval"
                            widget="boolean_toggle"
                            invisible="not reason_for_adjustment or 1"
                            string="Apply Immediately (Skip Approval)"
                            help="If checked, changes will be applied immediately without approval. Only available for Inventory Suprvisor."/>
+                    <field name="is_blast_freeze" invisible="1"/>
                 <!-- </group> -->
                 
                 <!-- Info Messages -->
@@ -51,15 +52,22 @@
                         <field name="quant_id" column_invisible="1"/>
                         <field name="lot_id" column_invisible="1"/>
                         <field name="x_studio_pallet_series_id" column_invisible="1"/>
-                        
+                        <field name="is_blast_freeze" column_invisible="1"/>
+
                         <!-- Visible fields -->
-                        
+
                         <field name="owner_id" optional="show" force_save="1" readonly="1"/>
                         <field name="product_id" required="1"/>
-                        <field name="display_pallet_series_id" string="Pallet Series" readonly="1"/>
-                        <field name="package_id" 
-                               string="Pallet #" 
-                               domain="[('location_id', '=', False), ('x_studio_receiving_report_id', '=', False), ('package_type_id.name', '=', 'Pallet')]"/>
+                        <!-- Regular pallets: pallet series + package. Hidden for blast-freeze. -->
+                        <field name="display_pallet_series_id" string="Pallet Series" readonly="1"
+                               column_invisible="parent.is_blast_freeze"/>
+                        <field name="package_id"
+                               string="Pallet #"
+                               domain="[('location_id', '=', False), ('x_studio_receiving_report_id', '=', False), ('package_type_id.name', '=', 'Pallet')]"
+                               column_invisible="parent.is_blast_freeze"/>
+                        <!-- Blast-freeze pallets: editable BF Pallet # text. Hidden for regular. -->
+                        <field name="bf_pallet_char" string="BF Pallet #"
+                               column_invisible="not parent.is_blast_freeze"/>
                         <field name="x_studio_2nd_uom" string="Quantity"/>
                         <field name="x_studio_quantity_uom" 
                                string="Quantity UOM" 
@@ -279,6 +287,7 @@ else:
                     <sheet>
                         <!-- Alert Banners -->
                         <field name="has_conflicts" invisible="1"/>
+                        <field name="is_blast_freeze" invisible="1"/>
                         <div class="alert alert-warning" role="alert" 
                              invisible="not has_conflicts or state not in ['pending', 'partial']">
                             <i class="fa fa-exclamation-triangle" title="Warning"/> 
@@ -347,14 +356,17 @@ else:
                                           delete="false">
                                         
                                         <!-- Selection Checkbox -->
-                                        <field name="selected" 
+                                        <field name="selected"
                                                widget="boolean_toggle"
                                                readonly="line_state != 'pending'"/>
-                                        
+
                                         <!-- Pallet Info -->
-                                        <field name="display_pallet_series" string="Pallet Series"/>
+                                        <field name="display_pallet_series" string="Pallet Series"
+                                               column_invisible="parent.is_blast_freeze"/>
+                                        <field name="old_bf_pallet_char" string="BF Pallet #"
+                                               column_invisible="not parent.is_blast_freeze"/>
                                         <field name="display_location" string="Location" optional="hide"/>
-                                        
+
                                         <!-- CHANGED: Show dynamic changes instead of all old/new fields -->
                                         <field name="changed_fields_display" string="Changes" widget="html"/>
                                         
@@ -410,9 +422,12 @@ else:
                                                readonly="1"/> -->
                                         
                                         <!-- Pallet Info -->
-                                        <field name="display_pallet_series" string="Pallet Series"/>
+                                        <field name="display_pallet_series" string="Pallet Series"
+                                               column_invisible="parent.is_blast_freeze"/>
+                                        <field name="old_bf_pallet_char" string="BF Pallet #"
+                                               column_invisible="not parent.is_blast_freeze"/>
                                         <field name="display_location" string="Location" optional="hide"/>
-                                        
+
                                         <!-- Show Changes using the same HTML field -->
                                         <field name="changed_fields_display" string="Changes" widget="html"/>
                                         
@@ -483,8 +498,12 @@ else:
 
                         <group>
                             <group string="Pallet Information">
+                                <field name="is_blast_freeze" invisible="1"/>
                                 <field name="quant_id" readonly="1" groups="multiple_relocation.inventory_super_admin"/>
-                                <field name="display_pallet_series" readonly="1"/>
+                                <field name="display_pallet_series" readonly="1"
+                                       invisible="is_blast_freeze"/>
+                                <field name="old_bf_pallet_char" string="BF Pallet #" readonly="1"
+                                       invisible="not is_blast_freeze"/>
                                 <field name="display_location" readonly="1"/>
                             </group>
                             <group string="Status">
@@ -530,7 +549,11 @@ else:
                         <!-- Lines to be Rejected with Changes -->
                         <field name="line_ids" nolabel="1" readonly="1" mode="tree">
                             <tree decoration-warning="1" create="false" delete="false" edit="false">
-                                <field name="display_pallet_series" string="Pallet Series"/>
+                                <field name="is_blast_freeze" column_invisible="1"/>
+                                <field name="display_pallet_series" string="Pallet Series"
+                                       invisible="is_blast_freeze"/>
+                                <field name="old_bf_pallet_char" string="BF Pallet #"
+                                       invisible="not is_blast_freeze"/>
                                 <field name="display_location" string="Location" optional="hide"/>
                                 <field name="changed_fields_display" string="Changes" widget="html"/>
                                 <field name="line_state" widget="badge"/>

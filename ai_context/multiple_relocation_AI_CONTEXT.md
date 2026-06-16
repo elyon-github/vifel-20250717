@@ -4,9 +4,33 @@
 > **Odoo version**: 17 Enterprise
 > **Author**: Mark Angelo S. Templanza
 > **Depends on**: `base`, `stock`, `web`, `report_xlsx`
-> **Last updated**: 2026-05-16
+> **Last updated**: 2026-06-15
 
 ---
+
+## Recent change (2026-06-15): Quant correction is now blast-freeze capable
+
+`wizard/stock_quant_correction.py` + `.xml` previously only handled regular pallets
+(identity = `package_id` + `x_studio_pallet_series_id`). It now also adjusts
+**blast-freeze (BF) pallets**, whose identity is the free-text `bf_pallet_char`
+(no package, no PSI). Key points:
+
+- BF-ness per record comes from `stock.quant.location_is_bf`. A `_pallet_label(quant)`
+  helper returns PSI for regular pallets and `bf_pallet_char` for BF (fallback
+  `Quant #id`) — used in every user-facing message so blank PSI never crashes.
+- `default_get` **blocks mixing** BF and regular quants in one correction, and sets
+  `is_blast_freeze` on the wizard. Pending-adjustment conflict detection matches
+  regular pallets by PSI and BF pallets by `lot_id` (unique per quant here).
+- `bf_pallet_char` is threaded through the correction line, the persistent
+  `stock.quant.adjustment.line` (`old/new_bf_pallet_char`, `is_blast_freeze`), both
+  snapshot builders, `_get_changes`, the HTML change diff, and both history
+  move-line builders (`_handle_quantity_adjustment`, `_create_correction_move`) so
+  BF identity survives on the audit move lines.
+- Views show columns per type via `column_invisible="parent.is_blast_freeze"` (wizard
+  + request trees) or per-row `invisible` (reject wizard, line form): regular rows
+  show PSI + Pallet #, BF rows show an editable **BF Pallet #** (`bf_pallet_char`).
+- The regular/PSI path is unchanged — `bf_pallet_char` is empty on both sides for
+  regular quants, so it can never register as a change.
 
 ## 1. Purpose (1-paragraph elevator pitch)
 
