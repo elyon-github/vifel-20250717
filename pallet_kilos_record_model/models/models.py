@@ -301,9 +301,125 @@ class PalletKilosRecordModel(models.Model):
 
 
     def _recalculate_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
+        """Owner-level running-balance engine (per-building breakdown retired).
+
+        Rebuilds the cumulative balance series for one (warehouse, is_blast_freezer)
+        partition directly from each record's stored operation totals:
+            total_X = beginning_X + (X_received - X_withdrawn) + adjustment_X
+        where beginning_X is the previous record's total for the same owner. This is
+        internal-consistency only: it never compares to or forces physical stock --
+        genuine ledger-vs-stock gaps are surfaced by Get Unsynced, not corrected here.
         """
-        Fixed version: Properly calculate beginning balances for both main fields and building JSON
-        """
+        return self._recompute_owner_running_balances(
+            warehouse_id, blast_freezer_flag,
+            from_datetime=from_datetime, from_create_date=from_create_date)
+
+    def _recompute_owner_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
+        domain = [
+            ('warehouse', '=', warehouse_id),
+            ('is_blast_freezer', '=', blast_freezer_flag),
+            ('active', '=', True),
+        ]
+        if from_datetime and from_create_date:
+            domain.extend([
+                '|',
+                ('start_time', '>=', from_datetime),
+                ('create_date', '>=', from_create_date),
+            ])
+        elif from_datetime:
+            domain.append(('start_time', '>=', from_datetime))
+
+        records_to_update = self.search(domain, order='start_time asc, id asc')
+        if not records_to_update:
+            return
+
+        # Warehouse-wide running totals (all owners) seeded from the most recent prior record
+        running_pallets = running_kilos = 0.0
+        if from_datetime:
+            prev_wh = self.search([
+                ('warehouse', '=', warehouse_id),
+                ('is_blast_freezer', '=', blast_freezer_flag),
+                ('active', '=', True),
+                ('start_time', '<', from_datetime),
+            ], order='start_time desc, id desc', limit=1)
+            if prev_wh:
+                running_pallets = prev_wh.overall_pallets
+                running_kilos = prev_wh.overall_kilos
+
+        # Per-owner beginning balances, seeded from each owner's most recent prior record
+        owner_running = {}
+        if from_datetime:
+            for owner in records_to_update.mapped('owner_id'):
+                if not owner:
+                    continue
+                prev = self.search([
+                    ('warehouse', '=', warehouse_id),
+                    ('is_blast_freezer', '=', blast_freezer_flag),
+                    ('active', '=', True),
+                    ('owner_id', '=', owner.id),
+                    ('start_time', '<', from_datetime),
+                ], order='start_time desc, id desc', limit=1)
+                if prev:
+                    owner_running[owner.id] = {
+                        'units': prev.total_balance_in_units or 0.0,
+                        'packaging': prev.total_balance_in_packaging or 0.0,
+                        'kilos': prev.total_balance_in_kilos or 0.0,
+                        'pallets': prev.total_balance_in_pallets or 0.0,
+                    }
+
+        updates = []
+        for record in records_to_update:
+            # Warehouse-wide cumulative (all owners) -- unchanged behavior
+            running_pallets += (record.pallets_received - record.pallets_withdrawn + record.adjustment_pallets)
+            running_kilos += (record.kilos_received - record.kilos_withdrawn + record.adjustment_kilos)
+
+            if not record.owner_id:
+                updates.append({
+                    'id': record.id,
+                    'overall_pallets': running_pallets,
+                    'overall_kilos': running_kilos,
+                    'beginning_balance_in_pallets': 0,
+                    'beginning_balance_in_kilos': 0,
+                    'total_balance_in_units': 0,
+                    'total_balance_in_packaging': 0,
+                    'total_balance_in_kilos': 0,
+                    'total_balance_in_pallets': 0,
+                    'total_balances': {},
+                })
+                continue
+
+            oid = record.owner_id.id
+            begin = owner_running.get(
+                oid, {'units': 0.0, 'packaging': 0.0, 'kilos': 0.0, 'pallets': 0.0})
+
+            total = {
+                'units': begin['units'] + record.units_received - record.units_withdrawn + record.adjustment_heads,
+                'packaging': begin['packaging'] + record.packaging_received - record.packaging_withdrawn + record.adjustment_packaging,
+                'kilos': begin['kilos'] + record.kilos_received - record.kilos_withdrawn + record.adjustment_kilos,
+                'pallets': begin['pallets'] + record.pallets_received - record.pallets_withdrawn + record.adjustment_pallets,
+            }
+            owner_running[oid] = total
+
+            updates.append({
+                'id': record.id,
+                'overall_pallets': running_pallets,
+                'overall_kilos': running_kilos,
+                'beginning_balance_in_pallets': begin['pallets'],
+                'beginning_balance_in_kilos': begin['kilos'],
+                'total_balance_in_units': total['units'],
+                'total_balance_in_packaging': total['packaging'],
+                'total_balance_in_kilos': total['kilos'],
+                'total_balance_in_pallets': total['pallets'],
+                'total_balances': {},
+            })
+
+        for update in updates:
+            rid = update.pop('id')
+            self.browse(rid).write(update)
+
+    def _dead_recalculate_running_balances_legacy(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
+        # RETIRED per-building implementation -- no longer called (kept temporarily for
+        # reference; superseded by _recompute_owner_running_balances above).
         domain = [
             ('warehouse', '=', warehouse_id),
             ('is_blast_freezer', '=', blast_freezer_flag),
@@ -767,6 +883,107 @@ class PalletKilosRecordModel(models.Model):
         for warehouse in warehouses:
             for blast_freezer in [True, False]:
                 self._recalculate_running_balances(warehouse.id, blast_freezer)
+
+    def action_recompute_selected_balances(self):
+        """Server-action target: rebuild the running-balance series for every
+        (warehouse, is_blast_freezer) partition represented in the selection.
+
+        Balances-only / fast: it uses the already-stored per-record operation
+        totals (it does NOT re-read source documents) and NEVER forces the ledger
+        to match physical stock. Each affected partition is rebuilt in full from
+        the beginning, so selecting all rows cleanly rebuilds everything.
+        """
+        partitions = set()
+        for rec in self:
+            if rec.warehouse:
+                partitions.add((rec.warehouse.id, rec.is_blast_freezer))
+        if not partitions:
+            raise UserError("No records with a warehouse were selected.")
+        for wh_id, bf in partitions:
+            self._recalculate_running_balances(wh_id, bf)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Balances Recomputed',
+                'message': 'Recomputed %d record(s) across %d partition(s).' % (
+                    len(self), len(partitions)),
+                'type': 'success',
+                'sticky': False,
+            },
+        }
+
+    def action_get_unsynced(self):
+        """Server-action target (READ-ONLY): print ledger-vs-physical-stock
+        discrepancies per (owner, warehouse, is_blast_freezer) partition.
+
+        Ledger side = the latest active record's total_balance_in_kilos for the
+        partition. Actual side = sum of on-hand stock.quant.quantity for that owner
+        in that warehouse's internal locations, split by blast-freezer flag (so BF
+        stock, which has no package, is INCLUDED). Writes nothing -- genuine
+        imbalances are surfaced here, never auto-corrected.
+        """
+        if not self:
+            raise UserError("No records selected.")
+        Quant = self.env['stock.quant']
+
+        candidates = self.filtered(
+            lambda r: r.owner_id and r.warehouse and r.start_time)
+        latest = {}
+        for rec in candidates.sorted(key=lambda r: (r.start_time, r.id), reverse=True):
+            key = (rec.owner_id.id, rec.warehouse.id, rec.is_blast_freezer)
+            if key not in latest:
+                latest[key] = rec
+
+        rows = []
+        for (owner_id, wh_id, bf), rec in latest.items():
+            ledger_kilos = rec.total_balance_in_kilos or 0.0
+            quants = Quant.search([
+                ('owner_id', '=', owner_id),
+                ('location_id.usage', '=', 'internal'),
+                ('location_id.warehouse_id', '=', wh_id),
+                ('location_is_bf', '=', bf),
+                ('quantity', '!=', 0),
+            ])
+            actual_kilos = sum(quants.mapped('quantity'))
+            if round(abs(ledger_kilos - actual_kilos), 2) == 0.0:
+                continue
+            rows.append((
+                rec.owner_id.name or 'Unknown',
+                rec.warehouse.name or '',
+                'BF' if bf else 'Reg',
+                ledger_kilos, actual_kilos, ledger_kilos - actual_kilos,
+            ))
+
+        if not rows:
+            raise UserError("All partitions match. No discrepancies found.")
+
+        rows.sort(key=lambda r: r[0])
+        w = (28, 14, 5, 16, 16, 14)
+        sep = '+' + '+'.join('-' * x for x in w) + '+'
+        header = (
+            '| ' + 'Owner'.ljust(w[0] - 2)
+            + ' | ' + 'Warehouse'.ljust(w[1] - 2)
+            + ' | ' + 'BF'.ljust(w[2] - 2)
+            + ' | ' + 'Ledger (kg)'.rjust(w[3] - 2)
+            + ' | ' + 'Actual (kg)'.rjust(w[4] - 2)
+            + ' | ' + 'Diff'.rjust(w[5] - 2) + ' |'
+        )
+        lines = [sep, header, sep]
+        for owner, wh, bf_label, led, act, diff in rows:
+            lines.append(
+                '| ' + owner[:w[0] - 2].ljust(w[0] - 2)
+                + ' | ' + wh[:w[1] - 2].ljust(w[1] - 2)
+                + ' | ' + bf_label.ljust(w[2] - 2)
+                + ' | ' + '{:,.2f}'.format(led).rjust(w[3] - 2)
+                + ' | ' + '{:,.2f}'.format(act).rjust(w[4] - 2)
+                + ' | ' + '{:+,.2f}'.format(diff).rjust(w[5] - 2) + ' |'
+            )
+            lines.append(sep)
+        table = '\n'.join(lines)
+        raise UserError(
+            "Unsynced partitions: %d of %d (from %d selected)\n\n%s" % (
+                len(rows), len(latest), len(self), table))
 
     def resync_all(self):
         """Resync current record"""

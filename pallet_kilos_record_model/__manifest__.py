@@ -26,6 +26,7 @@ Long description of module's purpose
         'wizard/pkr_report_wizard.xml',
         'views/views.xml',
         'reports/pallet_kilos_xlsx_report.xml',
+        'data/pkr_server_actions.xml',
     ],
     'assets': {
         'web.assets_backend': [

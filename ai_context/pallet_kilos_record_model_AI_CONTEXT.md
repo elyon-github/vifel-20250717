@@ -3,7 +3,33 @@
 > **Module path**: `addons/custom_addons/consultant-test/pallet_kilos_record_model/`
 > **Odoo version**: 17 Enterprise
 > **Depends on**: `report_xlsx`, `stock` (and implicitly the data produced by `multiple_relocation`)
-> **Last updated**: 2026-05-16
+> **Last updated**: 2026-06-17
+
+---
+
+## Recent change (2026-06-17): owner-level balance engine + occupancy report retired + new server actions
+
+- **Balance engine simplified to owner-level.** `_recalculate_running_balances` now delegates to
+  `_recompute_owner_running_balances`, which computes each row directly as
+  `total_X = beginning_X + (X_received − X_withdrawn) + adjustment_X` (beginning = previous record's total for the same
+  owner, carried in-memory in processing order). The **per-building breakdown is retired**: `total_balances` is written
+  as `{}` and is no longer read by anything. This eliminates the two old imbalance bugs (pallet-drop fallback in
+  `_calculate_building_operations_for_record`; equal-split adjustments) and the same-`start_time` tiebreaker mismatch.
+  The old per-building implementation remains as dead code `_dead_recalculate_running_balances_legacy` (no longer
+  called); `_calculate_building_operations_for_record` and the `building_operations_temp` write are now vestigial.
+  Verified on `vifel_06_17_2026`: warehouse-wide `overall_*` unchanged, pallets unchanged, every row internally
+  consistent; the only owner-total changes were 47 FOSTER FOODS rows that the old engine had **understated** (proven:
+  new latest total = independent cumulative of all their net ops).
+- **Principle: never force-balance.** The engine/recompute fix *internal ledger drift only* (cumulative of recorded
+  operations). They never compare to or force physical stock. Genuine ledger-vs-stock gaps are surfaced by Get Unsynced.
+- **Legacy occupancy report removed** (`xlsx_occupancy_report` + `occupany_xlsx_report.py`) — it was the only reader of
+  the per-building `total_balances`, was not in the wizard `REPORT_MAP`, and is superseded by the independent
+  `stock_quant_history` occupancy report.
+- **Two new Action-menu server actions** (`data/pkr_server_actions.xml` + model methods): **Recompute Balances**
+  (`action_recompute_selected_balances`) rebuilds every selected row's (warehouse, BF) partition from the stored
+  operation totals (balances-only/fast); **Get Unsynced** (`action_get_unsynced`) reimplements the old DB action #502
+  read-only and accurately — per (owner, warehouse, is_blast_freezer), it includes BF stock and sums on-hand
+  `stock.quant.quantity` from internal locations. Retire the old DB action #502 per DB to avoid a duplicate.
 
 ---
 

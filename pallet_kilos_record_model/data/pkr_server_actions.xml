@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Recompute Balances: rebuild running balances for the selected rows'
+         partitions (balances-only, from stored operation totals). -->
+    <record id="action_recompute_pkr_balances" model="ir.actions.server">
+        <field name="name">Recompute Balances</field>
+        <field name="model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_recompute_selected_balances()</field>
+    </record>
+
+    <!-- Get Unsynced: read-only report of ledger-vs-physical-stock discrepancies
+         per (owner, warehouse, BF) partition. Includes blast-freeze stock. -->
+    <record id="action_get_unsynced_pkr" model="ir.actions.server">
+        <field name="name">Get Unsynced</field>
+        <field name="model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_get_unsynced()</field>
+    </record>
+
+</odoo>
