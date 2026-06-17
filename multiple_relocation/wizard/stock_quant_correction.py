@@ -424,7 +424,14 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'location_id': inventory_location.id,
             'location_dest_id': quant.location_id.id,
             'lot_id': quant.lot_id.id if quant.lot_id else False,
-            'package_id': original_state.get('package_id') if original_state.get('package_id') else None,
+            # NOTE: source here is the Inventory virtual location, which never
+            # physically holds the pallet. Carrying a source package_id makes Odoo
+            # register a 0-qty package quant at that virtual location (the empty
+            # records seen in the Quants view). Leave it False -- mirrors how the
+            # KG/quantity path behaves (no package at the inventory side). The
+            # package is still preserved for audit/history/snapshots via
+            # result_package_id below (stock_quant_history reads result_package_id).
+            'package_id': False,
             'result_package_id': quant.package_id.id if quant.package_id else False,
             'reference': self._format_changes_reference(changes, original_state),
             'x_studio_reason_for_adjustment': self.reason_for_adjustment,
