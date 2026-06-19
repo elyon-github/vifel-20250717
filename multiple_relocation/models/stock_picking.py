@@ -687,14 +687,18 @@ class transfer_locations(models.Model):
                 conflicts.append((label, wr_name))
         return conflicts
 
-    def _void_wr_quant_domain(self, record, child_location_ids, is_blast_freeze):
+    def _void_wr_quant_domain(self, record, child_location_ids, is_blast_freeze,
+                              include_package=True):
         """Build the stock.quant search domain used to find which quants the void
         WR should check out when reversing a voided RR.
 
-        Regular (PSI) pallets are matched by pallet series + package exactly as
-        before. Blast-freeze pallets have neither a package nor a pallet series,
-        so they are matched by lot_id (unique per quant in this DB) restricted to
-        blast-freezer locations and on-hand (positive) quantity.
+        Regular (PSI) pallets are matched by pallet series + package. The package
+        recorded on the RR can DRIFT after receipt (the pallet gets re-packaged, or
+        the package label is reused on another pallet), so ``include_package=False``
+        produces a fallback domain keyed on pallet series + location + owner only.
+        Blast-freeze pallets have neither a package nor a pallet series, so they are
+        matched by lot_id restricted to blast-freezer locations and on-hand
+        (positive) quantity. (See _find_void_wr_quants for the package fallback.)
         """
         if is_blast_freeze:
             # BF stock can sit in any blast-freezer chamber (lands in the chamber,
@@ -711,19 +715,44 @@ class transfer_locations(models.Model):
                 ('quantity', '>', 0),
             ]
         else:
-            # UNCHANGED regular domain (PSI + package)
+            # Regular domain (PSI + package). Pallet series is the stable identity;
+            # the package is added for precision but may have drifted (see fallback).
             pallet_series = [
                 p for p in record.move_line_ids.mapped('x_studio_pallet_series_id') if p]
-            package_ids = record.move_line_ids.mapped('result_package_id')
             domain = [
                 ('location_id', 'in', child_location_ids),
                 ('x_studio_pallet_series_id', 'in', pallet_series),
-                ('package_id', 'in', package_ids.ids),
                 ('quantity', '!=', 0),
             ]
+            if include_package:
+                package_ids = record.move_line_ids.mapped('result_package_id')
+                domain.append(('package_id', 'in', package_ids.ids))
         if record.partner_id:
             domain.append(('owner_id', '=', record.partner_id.id))
         return domain
+
+    def _find_void_wr_quants(self, record, child_location_ids, is_blast_freeze):
+        """Find the quants the void WR should check out for a voided RR.
+
+        Regular (PSI) pallets are matched by pallet series + package first; if that
+        finds nothing the package recorded on the RR has drifted (re-packaging or a
+        reused package label), so we fall back to pallet series + location + owner.
+        The existence/reservation guards already key on pallet series alone, so this
+        keeps the actual checkout consistent with the guards. BF is unchanged
+        (lot + record reference), with no package to drift.
+        """
+        Quant = self.env['stock.quant']
+        quants = Quant.search(
+            self._void_wr_quant_domain(record, child_location_ids, is_blast_freeze))
+        if not quants and not is_blast_freeze:
+            quants = Quant.search(self._void_wr_quant_domain(
+                record, child_location_ids, is_blast_freeze, include_package=False))
+            if quants:
+                _logger.info(
+                    "Void WR for %s: recorded package no longer matches; matched %d "
+                    "quant(s) by pallet series + location + owner instead",
+                    record.name, len(quants))
+        return quants
 
     def _void_wr_has_lines_to_checkout(self, record, is_blast_freeze):
         """Whether the voided RR carries any identifiable pallets to check out.
@@ -763,10 +792,8 @@ class transfer_locations(models.Model):
                 child_location_ids = self.env['stock.location'].search([
                     ('id', 'child_of', existing_void_wr.location_id.id)
                 ]).ids
-                quant_domain = self._void_wr_quant_domain(
+                quants_to_checkout = self._find_void_wr_quants(
                     record, child_location_ids, is_blast_freeze)
-                quants_to_checkout = self.env['stock.quant'].search(
-                    quant_domain)
                 if quants_to_checkout:
                     self._checkout_quants_to_picking(
                         existing_void_wr, quants_to_checkout)
@@ -856,10 +883,8 @@ class transfer_locations(models.Model):
             ('id', 'child_of', wr_source_location)
         ]).ids
 
-        quant_domain = self._void_wr_quant_domain(
+        quants_to_checkout = self._find_void_wr_quants(
             record, child_location_ids, is_blast_freeze)
-
-        quants_to_checkout = self.env['stock.quant'].search(quant_domain)
 
         if not quants_to_checkout:
             _logger.warning("No quants found for voided RR %s at location %s",
