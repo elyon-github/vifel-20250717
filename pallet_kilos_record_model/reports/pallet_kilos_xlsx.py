@@ -6,7 +6,7 @@ import pytz
 import logging
 
 _logger = logging.getLogger(__name__)
-
+# Pallet Monitoring XLSX
 class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_report_xlsx'
     _inherit = 'report.report_xlsx.abstract'
@@ -627,7 +627,9 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.set_column(18, 20, 14) # Net columns
             sheet.set_column(21, 24, 16) # Balance columns
 
-            sorted_records = sorted(owner_records, key=lambda x: x.start_time)
+            # Same ordering as the Billing XLSX: earliest start_time first, and on a start_time
+            # tie, fall back to the PKR log's create_date (unset create_date sorts earliest).
+            sorted_records = sorted(owner_records, key=lambda x: (x.start_time, x.create_date or datetime.datetime.min))
             beginning_pallets, beginning_kilos = self.calculate_beginning_balances(sorted_records)
 
             # Get today's date in user timezone for extended date range
