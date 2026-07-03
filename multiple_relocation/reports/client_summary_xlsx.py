@@ -61,14 +61,22 @@ class InventorySummary(models.AbstractModel):
             'valign': 'vcenter'
         })
 
-        grouped_records = {}
-        for record in records:
-            customer_name = record.owner_id.name
-            if customer_name not in grouped_records:
-                grouped_records[customer_name] = []
-            grouped_records[customer_name].append(record)
+        Quant = self.env['stock.quant']
 
-        for customer_name, moves in grouped_records.items():
+        for owner in records.mapped('owner_id'):
+            # Re-fetch each owner's COMPLETE on-hand internal inventory instead of trusting the
+            # ticked selection. Selecting "all owners" in the list only passes a page/limit-bound
+            # subset, so per-owner totals came out inaccurate; selecting one owner at a time
+            # happened to pass everything. Re-querying here makes the report always match the
+            # Inventory Overview for every owner present in the selection.
+            moves = Quant.search([
+                ('owner_id', '=', owner.id),
+                ('location_id.usage', '=', 'internal'),
+                ('quantity', '!=', 0),
+            ])
+            if not moves:
+                continue
+            customer_name = owner.name or 'Unknown'
             sorted_moves = sorted(moves, key=lambda move: move.x_studio_expiration_date or date.max)
             sheet = workbook.add_worksheet(customer_name[:31])
             
@@ -100,11 +108,11 @@ class InventorySummary(models.AbstractModel):
             # Summary row with proper titles and formatting - Adjusted to span all columns
             sheet.merge_range('A5:G5', 'SUMMARY', header_format)
             sheet.write(5, 0, 'Total Quantity:', right_text_format)
-            sheet.write(5, 1, sum(m.x_studio_2nd_uom for m in sorted_moves), summary_format)
+            sheet.write(5, 1, sum(m.x_studio_2nd_uom or 0 for m in sorted_moves), summary_format)
             sheet.write(5, 2, 'Total Heads:', right_text_format)
-            sheet.write(5, 3, sum(m.x_studio_total_units for m in sorted_moves), summary_format)
+            sheet.write(5, 3, sum(m.x_studio_total_units or 0 for m in sorted_moves), summary_format)
             sheet.write(5, 4, 'Total Weight (KG):', right_text_format)
-            sheet.write(5, 5, sum(m.quantity for m in sorted_moves), summary_format)
+            sheet.write(5, 5, sum(m.quantity or 0 for m in sorted_moves), summary_format)
             sheet.write(5, 6, '', summary_format)  # Extra cell for alignment
             
             # Add a blank row for spacing
@@ -129,12 +137,12 @@ class InventorySummary(models.AbstractModel):
                        move.x_studio_production_date, move.x_studio_expiration_date)
                 if key not in grouped_data:
                     grouped_data[key] = {'quantity': 0, 'pcs': 0, 'weight': 0}
-                grouped_data[key]['quantity'] += move.x_studio_2nd_uom
-                grouped_data[key]['pcs'] += move.x_studio_total_units
-                grouped_data[key]['weight'] += move.quantity
+                grouped_data[key]['quantity'] += move.x_studio_2nd_uom or 0
+                grouped_data[key]['pcs'] += move.x_studio_total_units or 0
+                grouped_data[key]['weight'] += move.quantity or 0
 
             # Sort by product name alphabetically
-            sorted_keys = sorted(grouped_data.keys(), key=lambda k: k[0].lower())
+            sorted_keys = sorted(grouped_data.keys(), key=lambda k: (k[0] or '').lower())
             
             # Add data rows
             for key in sorted_keys:
