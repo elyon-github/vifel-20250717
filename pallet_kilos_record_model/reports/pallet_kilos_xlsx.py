@@ -6,7 +6,7 @@ import pytz
 import logging
 
 _logger = logging.getLogger(__name__)
-
+# Pallet Monitoring XLSX
 class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_report_xlsx'
     _inherit = 'report.report_xlsx.abstract'
