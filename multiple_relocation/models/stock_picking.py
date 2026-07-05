@@ -1890,6 +1890,7 @@ class transfer_locations(models.Model):
                 page_packs_by_uom[uom] += packs
  
         return page_packs_by_uom
+        
     def get_pallet_count_for_page(self, processed_lines, start_idx, end_idx):
         """
         Calculate unique pallet count for a specific page range.
@@ -1934,18 +1935,22 @@ class transfer_locations(models.Model):
                 ('picking_id.picking_type_code', '=', 'outgoing')
             ])
  
+            # Same counting rule as the summary report
+            # (preprocess_stock_move_data): a pallet counts as withdrawn
+            # only when it really left FULLY (0 KG remaining at validation)
+            # AND no other pending outgoing picking still holds the lot.
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('package', line.package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('result_package', line.result_package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
  
         return page_pallet_count
  
