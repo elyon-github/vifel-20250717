@@ -5,6 +5,11 @@ from odoo.exceptions import ValidationError, UserError
 import pytz
 import logging
 
+# Adjustment columns (Adjustment Pallets/Quantity/Packs/Weight + Remarks,
+# cols 25-29) are built but NOT yet enabled in the generated file. Flip to
+# True when ready to deploy them.
+SHOW_ADJUSTMENT_COLUMNS = False
+
 _logger = logging.getLogger(__name__)
 
 class PalletKilosXlsx(models.AbstractModel):
@@ -403,7 +408,8 @@ class PalletKilosXlsx(models.AbstractModel):
         normal_format = formats[3]
         
         # Professional company name header - Updated to span all columns including new ones
-        sheet.merge_range('A1:Y1', records[0].owner_id.name or '', header_format)
+        sheet.merge_range('A1:AD1' if SHOW_ADJUSTMENT_COLUMNS else 'A1:Y1',
+                          records[0].owner_id.name or '', header_format)
         sheet.set_row(0, 30)  # Increase row height
         
         # Date range with proper timezone conversion
@@ -430,8 +436,12 @@ class PalletKilosXlsx(models.AbstractModel):
             'total_returned_heads': 0,
             'total_returned_kilos': 0,
             'total_returned_pallets': 0,
+            'total_adjustment_pallets': 0,
+            'total_adjustment_packaging': 0,
+            'total_adjustment_heads': 0,
+            'total_adjustment_kilos': 0,
         }
-        
+
         for record in all_records:
             totals['total_packaging_received'] += record.packaging_received or 0
             totals['total_units_received'] += record.units_received or 0
@@ -445,6 +455,10 @@ class PalletKilosXlsx(models.AbstractModel):
             totals['total_returned_heads'] += record.return_heads or 0
             totals['total_returned_kilos'] += record.return_kilos or 0
             totals['total_returned_pallets'] += record.return_pallets or 0
+            totals['total_adjustment_pallets'] += record.adjustment_pallets or 0
+            totals['total_adjustment_packaging'] += record.adjustment_packaging or 0
+            totals['total_adjustment_heads'] += record.adjustment_heads or 0
+            totals['total_adjustment_kilos'] += record.adjustment_kilos or 0
 
         # Calculate net totals
         net_qty_out = totals['total_packaging_withdrawn'] - totals['total_returned_qty']
@@ -480,6 +494,14 @@ class PalletKilosXlsx(models.AbstractModel):
         # Empty balance columns in summary
         for col in range(21, 25):
             sheet.write(4, col, '', summary_format)
+
+        # Adjustment columns
+        if SHOW_ADJUSTMENT_COLUMNS:
+            sheet.write(4, 25, totals['total_adjustment_pallets'], summary_format)
+            sheet.write(4, 26, totals['total_adjustment_packaging'], summary_format)
+            sheet.write(4, 27, totals['total_adjustment_heads'], summary_format)
+            sheet.write(4, 28, totals['total_adjustment_kilos'], summary_format)
+            sheet.write(4, 29, '', summary_format)
             
         sheet.set_row(4, 25)  # Set row height
 
@@ -512,8 +534,16 @@ class PalletKilosXlsx(models.AbstractModel):
             'Remaining PALLET COUNT',
             'Remaining QUANTITY',
             'Remaining PACKS',
-            'Remaining WEIGHT (KG)'
+            'Remaining WEIGHT (KG)',
         ]
+        if SHOW_ADJUSTMENT_COLUMNS:
+            headers += [
+                'Adjustment (Pallets)',
+                'Adjustment (Quantity)',
+                'Adjustment (Packs)',
+                'Adjustment (Weight KG)',
+                'Adjustment Remarks',
+            ]
         
         for col, header in enumerate(headers):
             sheet.write(row_index, col, header, table_header_format)
@@ -528,16 +558,23 @@ class PalletKilosXlsx(models.AbstractModel):
         if sorted_records:
             first_record = sorted_records[0]
             
-            # Calculate beginning balance before first transaction
+            # Calculate beginning balance before first transaction. The stored
+            # balance already includes the row's adjustment_* leg, so it must
+            # be backed out too — otherwise a first-row adjustment silently
+            # inflates the printed beginning balance.
             current_balance_pallets = first_record.total_balance_in_pallets or 0
             pallets_received = first_record.pallets_received or 0
             pallets_withdrawn = first_record.pallets_withdrawn or 0
-            beginning_pallets = current_balance_pallets - pallets_received + pallets_withdrawn
-            
+            beginning_pallets = (current_balance_pallets - pallets_received
+                                 + pallets_withdrawn
+                                 - (first_record.adjustment_pallets or 0))
+
             current_balance_kilos = first_record.total_balance_in_kilos or 0
             kilos_received = first_record.kilos_received or 0
             kilos_withdrawn = first_record.kilos_withdrawn or 0
-            beginning_kilos = current_balance_kilos - kilos_received + kilos_withdrawn
+            beginning_kilos = (current_balance_kilos - kilos_received
+                               + kilos_withdrawn
+                               - (first_record.adjustment_kilos or 0))
         
         return beginning_pallets, beginning_kilos
 
@@ -626,8 +663,13 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.set_column(10, 17, 14) # Transaction columns
             sheet.set_column(18, 20, 14) # Net columns
             sheet.set_column(21, 24, 16) # Balance columns
+            if SHOW_ADJUSTMENT_COLUMNS:
+                sheet.set_column(25, 28, 16) # Adjustment columns
+                sheet.set_column(29, 29, 34) # Adjustment remarks
 
-            sorted_records = sorted(owner_records, key=lambda x: x.start_time)
+            # Same ordering as the Billing XLSX: earliest start_time first, and on a start_time
+            # tie, fall back to the PKR log's create_date (unset create_date sorts earliest).
+            sorted_records = sorted(owner_records, key=lambda x: (x.start_time, x.create_date or datetime.datetime.min))
             beginning_pallets, beginning_kilos = self.calculate_beginning_balances(sorted_records)
 
             # Get today's date in user timezone for extended date range
@@ -666,7 +708,11 @@ class PalletKilosXlsx(models.AbstractModel):
                 'total_kilos_withdrawn': 0,
                 'total_net_qty_out': 0,
                 'total_net_weight_out': 0,
-                'total_net_pallet_out': 0
+                'total_net_pallet_out': 0,
+                'total_adjustment_pallets': 0,
+                'total_adjustment_packaging': 0,
+                'total_adjustment_heads': 0,
+                'total_adjustment_kilos': 0
             }
 
             # Track last known balances for gap filling
@@ -748,6 +794,27 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 23, line.total_balance_in_units or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
                         sheet.write(row_index, 24, line.total_balance_in_kilos or 0, gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
 
+                        # Adjustment columns: explain any balance change not
+                        # covered by the RR/WR/Return movement columns
+                        adj_pallets = line.adjustment_pallets or 0
+                        adj_packaging = line.adjustment_packaging or 0
+                        adj_heads = line.adjustment_heads or 0
+                        adj_kilos = line.adjustment_kilos or 0
+                        if SHOW_ADJUSTMENT_COLUMNS:
+                            sheet.write(row_index, 25, adj_pallets, net_fmt if adj_pallets else float_fmt)
+                            sheet.write(row_index, 26, adj_packaging, net_fmt if adj_packaging else float_fmt)
+                            sheet.write(row_index, 27, adj_heads, net_fmt if adj_heads else float_fmt)
+                            sheet.write(row_index, 28, adj_kilos, net_fmt if adj_kilos else float_fmt)
+                            remark_bits = []
+                            if 'adjustment_line_ids' in line._fields and line.adjustment_line_ids:
+                                batches = sorted({b for b in line.adjustment_line_ids.mapped(
+                                    'request_id.batch_number') if b})
+                                if batches:
+                                    remark_bits.append('Adj batch(es): %s' % ', '.join(batches))
+                            if line.remarks:
+                                remark_bits.append(line.remarks)
+                            sheet.write(row_index, 29, ' | '.join(remark_bits), normal_fmt)
+
                         # Update last known balances
                         last_known_balances.update({
                             'total_balance_in_pallets': line.total_balance_in_pallets or 0,
@@ -764,6 +831,10 @@ class PalletKilosXlsx(models.AbstractModel):
                         summation['total_net_qty_out'] += net_qty_out
                         summation['total_net_weight_out'] += net_weight_out
                         summation['total_net_pallet_out'] += total_pallet_out
+                        summation['total_adjustment_pallets'] += adj_pallets
+                        summation['total_adjustment_packaging'] += adj_packaging
+                        summation['total_adjustment_heads'] += adj_heads
+                        summation['total_adjustment_kilos'] += adj_kilos
 
                         # Reduced row height for better compactness
                         sheet.set_row(row_index, 18)
@@ -793,6 +864,12 @@ class PalletKilosXlsx(models.AbstractModel):
                     sheet.write(row_index, 22, last_known_balances['total_balance_in_packaging'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
                     sheet.write(row_index, 23, last_known_balances['total_balance_in_units'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
                     sheet.write(row_index, 24, last_known_balances['total_balance_in_kilos'], gray_bg_format_float_bold_italic)  # Gray BG, Bold, ITALIC
+
+                    # Adjustment columns: nothing on gap-fill rows
+                    if SHOW_ADJUSTMENT_COLUMNS:
+                        for col in range(25, 29):
+                            sheet.write(row_index, col, 0, float_fmt)
+                        sheet.write(row_index, 29, '', normal_fmt)
                     
                     # Reduced row height for better compactness
                     sheet.set_row(row_index, 18)
@@ -808,6 +885,13 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.write(row_index, 18, summation['total_net_qty_out'], net_format_bold)
             sheet.write(row_index, 19, summation['total_net_weight_out'], net_format_bold)
             sheet.write(row_index, 20, summation['total_net_pallet_out'], net_format_bold)
+
+            # Adjustment totals
+            if SHOW_ADJUSTMENT_COLUMNS:
+                sheet.write(row_index, 25, summation['total_adjustment_pallets'], net_format_bold)
+                sheet.write(row_index, 26, summation['total_adjustment_packaging'], net_format_bold)
+                sheet.write(row_index, 27, summation['total_adjustment_heads'], net_format_bold)
+                sheet.write(row_index, 28, summation['total_adjustment_kilos'], net_format_bold)
 
             # Professional footer
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)

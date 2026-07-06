@@ -12,6 +12,18 @@
         <field name="code">action = records.action_recompute_selected_balances()</field>
     </record>
 
+    <!-- Re-sync Pallet Counts: rebuild pallets received/withdrawn from the
+         documents and adjustment_pallets from recorded history; anchor any
+         untraceable residual on the owner's latest row (remarked). -->
+    <record id="action_resync_pallet_counts_pkr" model="ir.actions.server">
+        <field name="name">Re-sync Pallet Counts</field>
+        <field name="model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_resync_pallet_counts()</field>
+    </record>
+
     <!-- Get Unsynced: read-only report of ledger-vs-physical-stock discrepancies
          per (owner, warehouse, BF) partition. Includes blast-freeze stock. -->
     <record id="action_get_unsynced_pkr" model="ir.actions.server">

@@ -45,6 +45,14 @@ class PkrReportWizard(models.TransientModel):
         string='Buildings',
         help='Leave empty to include all buildings.',
     )
+    warehouse_ids = fields.Many2many(
+        'stock.warehouse',
+        'pkr_wizard_warehouse_rel',
+        'wizard_id',
+        'warehouse_id',
+        string='Warehouses',
+        help='Leave empty to include all warehouses.',
+    )
     date_from = fields.Date(string='Start Date')
     date_to = fields.Date(string='End Date')
 
@@ -92,6 +100,8 @@ class PkrReportWizard(models.TransientModel):
         ]
         if self.partner_ids:
             domain.append(('owner_id', 'in', self.partner_ids.ids))
+        if self.warehouse_ids:
+            domain.append(('warehouse', 'in', self.warehouse_ids.ids))
 
         records = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search(
             domain, order='start_time asc'
