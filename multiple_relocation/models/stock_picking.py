@@ -536,6 +536,15 @@ class transfer_locations(models.Model):
 
     @api.depends(
         'state',
+        # AR#6 stamps reserved_quantity_on_validation on the lines AFTER the
+        # picking flips to done; depending on it re-runs this compute with
+        # the stamped values, so partial pallets (reserved > 0) drop out.
+        # Depending only on 'state' froze the pre-stamp over-count (NULL
+        # reads as 0, so every pallet counted).
+        'move_line_ids.reserved_quantity_on_validation',
+        'move_line_ids.package_id',
+        'move_line_ids.result_package_id',
+        'move_line_ids.bf_pallet_char',
     )
     def _compute_transacted_pallet_count(self):
         # Count unique pallets transacted on this picking. Only validated
@@ -612,8 +621,20 @@ class transfer_locations(models.Model):
             is_blast_freezer = pallet_record.is_blast_freezer
             start_time = pallet_record.start_time
 
-            if pallet_record.readjustment_document and pallet_record.readjustment_document.id == record.id:
+            if (pallet_record.readjustment_document
+                    and pallet_record.readjustment_document.id == record.id
+                    and pallet_record.record_reference):
+                # Voiding the REVISION document only: revert the ledger row to its
+                # original document and keep it active. Archiving here would erase
+                # the original receipt from the ledger entirely. Clearing the field
+                # triggers write() which re-populates from the original and
+                # recalculates the running balances.
                 pallet_record.readjustment_document = False
+                _logger.info(
+                    "Voided revision %s: reverted pallet kilos record %s to original document %s",
+                    record.name, pallet_record.id, pallet_record.record_reference.name)
+                return
+
             pallet_record.active = False
 
             _logger.info("Deactivated pallet kilos record: %s",
@@ -978,6 +999,34 @@ class transfer_locations(models.Model):
         if all_move_lines:
             StockMoveLine.create(all_move_lines)
 
+    def _find_psi_remainder_quant(self, owner, psi, prefer_package=None):
+        """Locate the remaining stocked quant of a pallet series (PSI) for an
+        owner — the merge target a void/partial return MUST land on. Reusing
+        its package + location (with the preserved lot) keeps all five quant
+        merge keys intact, so the KG merges natively and AR#2 adds the
+        2nd UOM / packs onto the same quant instead of creating a same-PSI
+        duplicate on another pallet. Prefers the quant on `prefer_package`
+        (the WR line's original pallet), else the one holding the most
+        stock. Returns an empty recordset when the PSI has fully left."""
+        Quant = self.env['stock.quant']
+        if not owner or not psi:
+            return Quant
+        quants = Quant.search([
+            ('owner_id', '=', owner.id),
+            ('x_studio_pallet_series_id', '=', psi),
+            ('quantity', '>', 0),
+            ('location_id.usage', '=', 'internal'),
+            ('package_id', '!=', False),
+        ])
+        if not quants:
+            return quants
+        if prefer_package:
+            preferred = quants.filtered(
+                lambda q: q.package_id == prefer_package)
+            if preferred:
+                return preferred[0]
+        return quants.sorted(key=lambda q: -q.quantity)[0]
+
     def _create_return_rr_from_wr(self, record):
         """
         Create a return RR from a voided WR by programmatically invoking the
@@ -1010,40 +1059,52 @@ class transfer_locations(models.Model):
         for move_line in record.move_line_ids:
             location_dest_id = False
             pallet_result_id = False
-            if not move_line.location_id.x_studio_is_reserved:
-                occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
-                package_occupying_owners = (move_line.package_id.quant_ids.mapped(
-                    'x_studio_pallet_series_id') if move_line.package_id else [])
-                if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
-                    location_dest_id = move_line.location_id.id
+            # PSI-REMAINDER-FIRST: when this line's pallet series still has
+            # stock (a partial withdrawal being voided), the restored stock
+            # MUST land on that remainder's pallet # and location so the
+            # quants merge back into one — no reservation/occupancy
+            # heuristics apply, the pallet is physically standing there.
+            remainder = record._find_psi_remainder_quant(
+                move_line.owner_id, move_line.x_studio_pallet_series_id,
+                prefer_package=move_line.package_id)
+            if remainder:
+                location_dest_id = remainder.location_id.id
+                pallet_result_id = remainder.package_id.id
             else:
-                package_occupying_owners = []
-            if (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners) or not move_line.package_id.location_id.id:
-                pallet_result_id = move_line.package_id.id
+                if not move_line.location_id.x_studio_is_reserved:
+                    occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
+                    package_occupying_owners = (move_line.package_id.quant_ids.mapped(
+                        'x_studio_pallet_series_id') if move_line.package_id else [])
+                    if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
+                        location_dest_id = move_line.location_id.id
+                else:
+                    package_occupying_owners = []
+                if (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners) or not move_line.package_id.location_id.id:
+                    pallet_result_id = move_line.package_id.id
 
-            if move_line.location_id.x_studio_is_an_aisle:
-                location_dest_id = move_line.location_id.id
+                if move_line.location_id.x_studio_is_an_aisle:
+                    location_dest_id = move_line.location_id.id
 
-            # Fallback: if location_dest_id is still blank (source bin is
-            # reserved or occupied by a different owner), drop the line into an
-            # aisle. Prefer one in the same building so the stock at least
-            # lands in the right zone; fall back to any aisle if that fails.
-            # Same algorithm as ReturnPackageWizard._compute_location_and_packages.
-            if not location_dest_id and move_line.location_id:
-                building = move_line.location_id.x_studio_building
-                if building:
-                    aisle_location = self.env['stock.location'].search([
-                        ('x_studio_is_an_aisle', '=', True),
-                        ('x_studio_building', '=', building.id),
-                    ], limit=1)
-                    if aisle_location:
-                        location_dest_id = aisle_location.id
-                if not location_dest_id:
-                    aisle_location = self.env['stock.location'].search([
-                        ('x_studio_is_an_aisle', '=', True),
-                    ], limit=1)
-                    if aisle_location:
-                        location_dest_id = aisle_location.id
+                # Fallback: if location_dest_id is still blank (source bin is
+                # reserved or occupied by a different owner), drop the line into an
+                # aisle. Prefer one in the same building so the stock at least
+                # lands in the right zone; fall back to any aisle if that fails.
+                # Same algorithm as ReturnPackageWizard._compute_location_and_packages.
+                if not location_dest_id and move_line.location_id:
+                    building = move_line.location_id.x_studio_building
+                    if building:
+                        aisle_location = self.env['stock.location'].search([
+                            ('x_studio_is_an_aisle', '=', True),
+                            ('x_studio_building', '=', building.id),
+                        ], limit=1)
+                        if aisle_location:
+                            location_dest_id = aisle_location.id
+                    if not location_dest_id:
+                        aisle_location = self.env['stock.location'].search([
+                            ('x_studio_is_an_aisle', '=', True),
+                        ], limit=1)
+                        if aisle_location:
+                            location_dest_id = aisle_location.id
 
             lines.append((0, 0, {
                 'select_package': True,  # Auto-select all
@@ -1934,18 +1995,22 @@ class transfer_locations(models.Model):
                 ('picking_id.picking_type_code', '=', 'outgoing')
             ])
  
+            # Same counting rule as the summary report
+            # (preprocess_stock_move_data): a pallet counts as withdrawn
+            # only when it really left FULLY (0 KG remaining at validation)
+            # AND no other pending outgoing picking still holds the lot.
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('package', line.package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('result_package', line.result_package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 or not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1
+                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
  
         return page_pallet_count
  

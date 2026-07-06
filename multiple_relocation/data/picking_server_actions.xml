@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Recompute Transacted Pallet Count: re-runs the stored compute on the
+         selected pickings (validated ones only contribute). Use after the
+         reserved_quantity_on_validation timing fix to repair historical
+         over-counts: select the pickings (or all via the list select-all)
+         and run this from the Actions menu. -->
+    <record id="action_recompute_transacted_pallet_count" model="ir.actions.server">
+        <field name="name">Recompute Transacted Pallet Count</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">
+records._compute_transacted_pallet_count()
+action = {
+    'type': 'ir.actions.client',
+    'tag': 'display_notification',
+    'params': {
+        'title': 'Transacted Pallet Count',
+        'message': '%d picking(s) recomputed.' % len(records),
+        'type': 'success',
+        'sticky': False,
+    },
+}
+        </field>
+    </record>
+
+</odoo>

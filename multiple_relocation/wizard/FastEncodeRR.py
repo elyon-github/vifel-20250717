@@ -397,7 +397,9 @@ class FastEncodeRRWizardLine(models.TransientModel):
     quantity = fields.Float(string="Quantity")
     min_uom_unit = fields.Float(string="Packs")
     kilogram = fields.Float(string="Weight (KG)", digits=(12, 3))
-    location_dest_id = fields.Many2one('stock.location', string='Destination Location')
+    location_dest_id = fields.Many2one(
+        'stock.location', string='Destination Location',
+        domain=[('usage', '=', 'internal'), ('child_ids', '=', False)])
     container_number = fields.Char(string='Container #')
     production_date = fields.Date(string='Production Date')
     expiration_date = fields.Date(string='Expiration Date')

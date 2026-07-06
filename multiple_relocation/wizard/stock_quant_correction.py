@@ -3,6 +3,7 @@
 from odoo.exceptions import UserError
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools import html_escape
 from datetime import datetime
 import json
 import logging
@@ -282,9 +283,26 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 error_msg += f"Pallet: {label}\n"
             raise UserError(error_msg)
 
+        # Even skip-approval corrections leave the SAME persistent audit
+        # trail as the approval flow: one request + one approved line per
+        # change, each linked to the PKR row it was posted against — so
+        # EVERY correction (quantity, pallet #, product, owner, ...) is
+        # referenced on the Pallet Kilos Record.
+        request = self.env['stock.quant.adjustment.request'].create({
+            'reason_for_adjustment': (self.reason_for_adjustment or
+                                      'Correction') + ' (applied immediately)',
+            'requested_by': self.env.user.id,
+            'requested_date': fields.Datetime.now(),
+            'is_blast_freeze': self.is_blast_freeze,
+            'batch_number': batch_number,
+        })
+
         for line in self.line_ids:
             changes = line._get_changes()
             if changes:
+                # snapshot BEFORE applying: the audit line stores old values
+                adj_line = self._create_adjustment_line(request, line)
+
                 original_state = line._capture_original_state()
 
                 if 'quantity' in changes:
@@ -299,7 +317,21 @@ class StockQuantCorrectionWizard(models.TransientModel):
                     self._create_correction_move(
                         line, non_quantity_changes, original_state, batch_number, line.quant_id.x_studio_record_reference)
 
-                self._update_pallet_kilos_record(line, changes, batch_number)
+                pallet_record = self._update_pallet_kilos_record(
+                    line, changes, batch_number)
+
+                adj_line.write({
+                    'line_state': 'approved',
+                    'approved_by': self.env.user.id,
+                    'approved_date': fields.Datetime.now(),
+                    'pallet_kilos_record_id': (pallet_record.id
+                                               if pallet_record else False),
+                })
+
+                self._release_pallet_if_emptied(line, changes)
+
+        if not request.line_ids:
+            request.unlink()
 
         return {'type': 'ir.actions.act_window_close'}
 
@@ -387,6 +419,21 @@ class StockQuantCorrectionWizard(models.TransientModel):
 
         self.env['stock.move.line'].sudo().create(move_line_vals)
 
+    def _release_pallet_if_emptied(self, line, changes):
+        """Free the package of a pallet that this adjustment emptied.
+
+        Called LAST (after the correction move and the PKR posting) so the
+        correction move still records the pallet via result_package_id and the
+        pallet leg in _calculate_adjustment_values still sees the package.
+        """
+        if self._is_pallet_emptied_by_adjustment(line, changes):
+            quant = line.quant_id
+            pallet_name = quant.package_id.name
+            quant.sudo().write({'package_id': False})
+            _logger.info(
+                "Correction emptied pallet %s (quant %s): package released "
+                "and -1 pallet adjustment posted.", pallet_name, quant.id)
+
     def _create_correction_move(self, line, changes, original_state, batch_number, picking_id):
         """Create stock move to track the correction in history"""
         quant = line.quant_id
@@ -433,7 +480,9 @@ class StockQuantCorrectionWizard(models.TransientModel):
             # result_package_id below (stock_quant_history reads result_package_id).
             'package_id': False,
             'result_package_id': quant.package_id.id if quant.package_id else False,
-            'reference': self._format_changes_reference(changes, original_state),
+            'reference': self._format_changes_reference(changes, original_state) + (
+                ' | Pallet %s released (adjusted to 0)' % quant.package_id.name
+                if self._is_pallet_emptied_by_adjustment(line, changes) else ''),
             'x_studio_reason_for_adjustment': self.reason_for_adjustment,
             'is_quant_detail_adjusted': True,
             'owner_id': quant.owner_id.id if quant.owner_id else False,
@@ -569,7 +618,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             if not pallet_record:
                 _logger.warning(
                     f"No pallet kilos record found for effective_document "
-                    f"{quant.original_record_reference.id}, falling back to oldest by owner")
+                    f"{quant.original_record_reference.id}, falling back to oldest in partition")
         else:
             pallet_record = None
 
@@ -579,23 +628,39 @@ class StockQuantCorrectionWizard(models.TransientModel):
                     f"Quant {quant.id} has no original_record_reference and no owner_id, "
                     f"skipping pallet kilos update")
                 return
-            pallet_record = PKR.search([
-                ('owner_id', '=', quant.owner_id.id),
-            ], order='start_time asc', limit=1)
+            # Fallback: post the adjustment to the OPENING-BALANCE record of
+            # the quant's own (owner, warehouse, blast-freeze) partition —
+            # the row with no stock.picking reference. Quants without a
+            # record reference are almost always opening-balance/import
+            # stock, and the PKR re-sync anchors its residuals on the same
+            # row, so corrections and explanations stay together. Falls back
+            # to the oldest row when no opening-balance row exists.
+            fallback_domain = [('owner_id', '=', quant.owner_id.id)]
+            if quant.location_id.warehouse_id:
+                fallback_domain.append(
+                    ('warehouse', '=', quant.location_id.warehouse_id.id))
+            fallback_domain.append(
+                ('is_blast_freezer', '=', bool(getattr(quant, 'location_is_bf', False))))
+            pallet_record = PKR.search(
+                fallback_domain + [('effective_document', '=', False)],
+                order='start_time asc, id asc', limit=1) or PKR.search(
+                fallback_domain, order='start_time asc, id asc', limit=1)
             if not pallet_record:
                 _logger.warning(
                     f"No pallet kilos record found for owner {quant.owner_id.name} "
-                    f"(quant {quant.id}), skipping pallet kilos update")
+                    f"(quant {quant.id}) in its warehouse/BF partition, "
+                    f"skipping pallet kilos update")
                 return
             _logger.info(
                 f"Quant {quant.id} has no original_record_reference; "
-                f"using oldest pallet kilos record {pallet_record.id} for owner {quant.owner_id.name}"
+                f"using oldest pallet kilos record {pallet_record.id} in the quant's "
+                f"partition for owner {quant.owner_id.name}"
             )
 
         adjustment_values = self._calculate_adjustment_values(line, changes)
 
         if not adjustment_values:
-            return
+            return pallet_record
 
         update_vals = {}
 
@@ -617,6 +682,29 @@ class StockQuantCorrectionWizard(models.TransientModel):
 
         if update_vals:
             pallet_record.write(update_vals)
+            # explain a pallet-count change right on the PKR row, in the
+            # same HTML explanation block the re-sync maintains
+            pallet_delta = adjustment_values.get('pallets')
+            if pallet_delta:
+                if pallet_delta < 0 and self._is_pallet_emptied_by_adjustment(line, changes):
+                    why = 'adjusted to 0 quantity — the pallet left without a WR'
+                elif pallet_delta > 0:
+                    why = ('pallet split: stock was moved onto a new pallet '
+                           'number by this correction, creating a pallet no '
+                           'RR ever counted in')
+                else:
+                    why = ('pallet merge/removal: this correction emptied '
+                           'the pallet into another one, removing a pallet '
+                           'no WR ever counted out')
+                entry = (
+                    '<p><b>%+g pallet(s)</b> — batch %s, PSI %s: %s</p>'
+                    % (pallet_delta,
+                       html_escape(str(batch_number or '')),
+                       html_escape(str(self._pallet_label(quant))),
+                       html_escape(why)))
+                pallet_record.write({
+                    'adjustment_reason_html':
+                        (pallet_record.adjustment_reason_html or '') + entry})
             pallet_record._recalculate_running_balances(
                 pallet_record.warehouse.id,
                 pallet_record.is_blast_freezer,
@@ -624,6 +712,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             )
             _logger.info(
                 f"Updated pallet kilos record {pallet_record.id} with adjustments: {update_vals}")
+        return pallet_record
 
     def _calculate_adjustment_values(self, line, changes):
         """Calculate adjustment values"""
@@ -644,7 +733,74 @@ class StockQuantCorrectionWizard(models.TransientModel):
             units_diff = new_units - old_units
             adjustments['units'] = units_diff
 
+        # Pallet leg: an adjustment that EMPTIES a regular pallet (KG and
+        # packaging both end at 0) counts the pallet out of the ledger.
+        # The picking-based tally can never see this exit (no WR is created),
+        # which was proven to cause pallet-balance drift (e.g. NB 5817).
+        # Guards: fires only when this adjustment did the emptying (old had
+        # stock), only for regular pallets (a package, not BF), never twice
+        # (re-adjusting an already-empty quant has old values of 0).
+        if self._is_pallet_emptied_by_adjustment(line, changes):
+            adjustments['pallets'] = -1
+
+        # Pallet split/merge leg: a "Pallet #: A -> B" change either CREATES
+        # a physical pallet (split: the source pallet keeps stock and the
+        # destination was empty => +1), REMOVES one (merge: the source is
+        # emptied into an already-stocked destination => -1), or is a plain
+        # renumber/transfer between two live pallets (net 0). Without this,
+        # split-off pallets get counted -1 by their eventual WR while their
+        # birth was never counted (+2 drift proven on Mommy Loida NP 2134).
+        split_delta = self._package_change_pallet_delta(line, changes)
+        if split_delta:
+            adjustments['pallets'] = (
+                adjustments.get('pallets', 0) + split_delta)
+
         return adjustments
+
+    def _package_change_pallet_delta(self, line, changes):
+        """Pallet-count effect of a package change, owner-scoped, evaluated
+        AFTER _apply_changes (the quant already sits on the new package)."""
+        quant = line.quant_id
+        if ('package_id' not in changes or line.is_blast_freeze
+                or not quant or not quant.owner_id):
+            return 0
+        old_id, new_id = changes['package_id']
+        if not old_id or not new_id or old_id == new_id:
+            return 0
+        Quant = self.env['stock.quant']
+        source_has_stock = bool(Quant.search_count([
+            ('package_id', '=', old_id), ('quantity', '>', 0),
+            ('owner_id', '=', quant.owner_id.id),
+            ('location_id.usage', '=', 'internal')]))
+        dest_other_stock = bool(Quant.search_count([
+            ('package_id', '=', new_id), ('quantity', '>', 0),
+            ('owner_id', '=', quant.owner_id.id),
+            ('location_id.usage', '=', 'internal'),
+            ('id', '!=', quant.id)]))
+        if source_has_stock and not dest_other_stock:
+            return 1    # split: new pallet born without a receiving document
+        if not source_has_stock and dest_other_stock:
+            return -1   # merge: a counted pallet vanished without a WR
+        return 0        # renumber or transfer between two live pallets
+
+    def _is_pallet_emptied_by_adjustment(self, line, changes):
+        """True when this adjustment set both KG and packaging to zero on a
+        stocked, regular (packaged) pallet. Evaluated AFTER _apply_changes,
+        so the quant already carries the final values."""
+        quant = line.quant_id
+        if not quant or not quant.package_id or line.is_blast_freeze:
+            return False
+        if 'quantity' not in changes:
+            return False
+        old_qty, new_qty = changes['quantity']
+        if (new_qty or 0) != 0:
+            return False
+        final_packaging = quant.x_studio_2nd_uom or 0
+        if final_packaging != 0:
+            return False
+        old_packaging = changes.get(
+            'x_studio_2nd_uom', (quant.x_studio_2nd_uom, 0))[0] or 0
+        return (old_qty or 0) > 0 or old_packaging > 0
 
 
 class StockQuantCorrectionLine(models.TransientModel):
@@ -1186,6 +1342,44 @@ class StockQuantAdjustmentLine(models.Model):
     approved_by = fields.Many2one(
         'res.users', string='Approved By', readonly=True)
     approved_date = fields.Datetime(string='Approved Date', readonly=True)
+    # PKR row this adjustment was posted to (set on approval; re-linked by
+    # the PKR "Re-sync Pallet Counts" action). The approved lines shown on
+    # the PKR form ARE the adjustment audit trail — no shadow log model.
+    pallet_kilos_record_id = fields.Many2one(
+        'pallet_kilos_record_model.pallet_kilos_record_model',
+        string='Pallet Kilos Record', index=True, copy=False, readonly=True)
+    reason_for_adjustment = fields.Char(
+        related='request_id.reason_for_adjustment',
+        string='Reason', readonly=True)
+    correction_move_reference = fields.Text(
+        string='Stock Move Reference',
+        compute='_compute_correction_move_reference',
+        help='Reference of the CORRECTION stock move line(s) created when '
+             'this adjustment was applied (found via the batch number).')
+
+    def _compute_correction_move_reference(self):
+        MoveLine = self.env['stock.move.line']
+        for line in self:
+            refs = []
+            batch = line.request_id.batch_number
+            if batch and line.line_state == 'approved':
+                dom = [('adjustment_batch_number', '=', batch),
+                       ('state', '=', 'done')]
+                pkgs = [p.id for p in (line.old_package_id,
+                                       line.new_package_id) if p]
+                if pkgs:
+                    dom += ['|', ('package_id', 'in', pkgs),
+                            ('result_package_id', 'in', pkgs)]
+                elif line.display_pallet_series:
+                    dom.append(('x_studio_pallet_series_id', '=',
+                                line.display_pallet_series))
+                elif line.old_bf_pallet_char:
+                    dom.append(('bf_pallet_char', '=',
+                                line.old_bf_pallet_char))
+                for ml in MoveLine.search(dom, limit=5):
+                    if ml.reference and ml.reference not in refs:
+                        refs.append(ml.reference)
+            line.correction_move_reference = '\n'.join(refs) or False
     quant_id = fields.Many2one('stock.quant', string='Pallet Quant Details')
     quant_snapshot = fields.Text(string='Quant Snapshot', readonly=True,
                                  help='JSON snapshot of quant state when request was created')
@@ -1536,8 +1730,14 @@ class StockQuantAdjustmentLine(models.Model):
             wizard._create_correction_move(
                 correction_line, non_quantity_changes, original_state, batch_number, quant.x_studio_record_reference)
 
-        wizard._update_pallet_kilos_record(
+        pallet_record = wizard._update_pallet_kilos_record(
             correction_line, changes, batch_number)
+        if pallet_record:
+            # link the approved line to the PKR row it was posted to — the
+            # approved lines are the PKR's adjustment audit trail
+            self.pallet_kilos_record_id = pallet_record.id
+
+        wizard._release_pallet_if_emptied(correction_line, changes)
 
 
 # models/stock_quant_adjustment_reject_wizard.py
@@ -1594,3 +1794,14 @@ class StockQuantAdjustmentRejectWizard(models.TransientModel):
         #         'sticky': False,
         #     }
         # }
+
+
+class PalletKilosRecordAdjustmentTrail(models.Model):
+    """Expose the approved adjustment-request lines posted to a PKR row as
+    its adjustment audit trail (native records, no shadow log model)."""
+    _inherit = 'pallet_kilos_record_model.pallet_kilos_record_model'
+
+    adjustment_line_ids = fields.One2many(
+        'stock.quant.adjustment.line', 'pallet_kilos_record_id',
+        string='Adjustment Lines', readonly=True,
+        domain=[('line_state', '=', 'approved')])

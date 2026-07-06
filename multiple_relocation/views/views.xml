@@ -186,7 +186,7 @@
 
 
             <button name="action_open_fast_encode_wizard" type="object" string="Spawn Magic Wizard" class="btn-success" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done'"/>
-            <button name="unlink" type="object" string="Delete" class="btn-danger" icon="fa-trash" confirm="Are you sure you want to delete a record" invisible="context.get('picking_type_code') != 'incoming' or context.get('state') == 'done'"/>
+            <button name="unlink" type="object" string="Delete" class="btn-danger" icon="fa-trash" confirm="Are you sure you want to delete this record?" invisible="context.get('picking_type_code') != 'incoming' or context.get('state') == 'done'"/>
 
         </xpath>
 
@@ -443,16 +443,16 @@
         <button string="Auto-Fill Details" name="341" type="action" class="btn btn-info" invisible="1"/>
 
           
-        <button string="Fix Discrepancy" class="btn-primary oe_highligh" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True or state == 'done'" data-hotkey="shift+d"/>
-        <button string="Generate Pallet Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you wanted to generate new product lines? All data in existing product lines will reset." data-hotkey="g"/>
+        <button string="Fix Discrepancy" class="btn-primary oe_highlight" name="auto_fix_discrepancy" type="object" invisible="x_studio_has_discrepancy != True or state == 'done'" data-hotkey="shift+d"/>
+        <button string="Generate Pallet Lines" name="generate_lines" type="object" class="btn-primary oe_highlight" icon="fa-plus-circle" title="Click to generate new lines" invisible="state != &quot;assigned&quot; or picking_type_code != &quot;incoming&quot; or not picking_type_id in [1, 6, 45, 46]" confirm="Are you sure you want to generate new product lines? All data in existing product lines will be reset." data-hotkey="g"/>
 
           
         <button string="Create Next Operation" name="325" type="action" invisible="picking_type_id in [2, 7] or ( picking_type_id in [45, 46, 1, 6] and state != &quot;done&quot; )" class="btn-success" data-hotkey="shift+N"/>
         <button string="Lock" name="334" type="action" invisible="not x_studio_edit_record == True or state != &quot;done&quot;" class="btn-warning" groups="stock.group_stock_manager"/>
         <button string="Unlock" name="334" type="action" invisible="x_studio_edit_record == True or state != &quot;done&quot;" class="btn-danger" groups="stock.group_stock_manager"/>
         <field name="x_studio_voided" invisible="1"/>
-        <button string="Void Transfer" name="void_transfer" type="object" invisible="x_studio_edit_record == True or state != &quot;done&quot; or x_studio_voided or is_void_wr or is_void_return" class="btn-danger" groups="stock.group_stock_manager" confirm="Ares   you sure you wanted to void this transfer record? Voiding a transfer will delete the movement in the Pallet Kilos Record Log associated with this transfer."/>
-        <button string="Unvoid Transfer" name="unvoid_transfer" type="object" invisible="state != &quot;done&quot; or not x_studio_voided or is_void_wr or is_void_return" class="btn-warning" groups="stock.group_stock_manager" confirm="Are you sure you wanted to unvoid this transfer record? Unvoiding a transfer will re-create the movement in the Pallet Kilos Record Log associated with this transfer."/>
+        <button string="Void Transfer" name="void_transfer" type="object" invisible="x_studio_edit_record == True or state != &quot;done&quot; or x_studio_voided or is_void_wr or is_void_return" class="btn-danger" groups="stock.group_stock_manager" confirm="Are you sure you want to void this transfer record? Voiding a transfer will delete the movement in the Pallet Kilos Record Log associated with this transfer."/>
+        <button string="Unvoid Transfer" name="unvoid_transfer" type="object" invisible="state != &quot;done&quot; or not x_studio_voided or is_void_wr or is_void_return" class="btn-warning" groups="stock.group_stock_manager" confirm="Are you sure you want to unvoid this transfer record? Unvoiding a transfer will re-create the movement in the Pallet Kilos Record Log associated with this transfer."/>
       </xpath>
       <xpath expr="//button[@name='action_return_packages']" position="attributes">
         <attribute name="invisible">state != "done" or picking_type_id in [45, 46, 1, 6]</attribute>
@@ -1537,7 +1537,7 @@
                 <field name="package_id" optional="show" groups="stock.group_tracking_lot" string="From Pallet #"/>
                 <field name="result_package_id" optional="show" groups="stock.group_tracking_lot" string="To Pallet #" domain="[('x_studio_active', '=', True), ('x_studio_warehouse', '=', warehouse_id)]"/>
                 <field name="location_id" domain="[('warehouse_id', '=', warehouse_id)]"/>
-                <field name="location_dest_id" domain="[('warehouse_id', '=', warehouse_id)]"/>
+                <field name="location_dest_id" domain="[('warehouse_id', '=', warehouse_id), ('child_ids', '=', False)]"/>
                 <field name="picking_partner_id" optional="hide"/>
                 <field name="company_id" optional="hide" groups="base.group_multi_company" force_save="1"/>
                 <field name="quantity" string="Quantity"
@@ -1573,7 +1573,7 @@
                 <field name="package_id" optional="show" groups="stock.group_tracking_lot" string="From Pallet #"/>
                 <field name="result_package_id" optional="show" groups="stock.group_tracking_lot" string="To Pallet #" domain="[('x_studio_active', '=', True), ('x_studio_warehouse', '=', warehouse_id)]"/>
                 <field name="location_id" domain="[('warehouse_id', '=', warehouse_id)]"/>
-                <field name="location_dest_id" domain="[('warehouse_id', '=', warehouse_id)]"/>
+                <field name="location_dest_id" domain="[('warehouse_id', '=', warehouse_id), ('child_ids', '=', False)]"/>
                 <field name="picking_partner_id" optional="hide"/>
                 <field name="company_id" optional="hide" groups="base.group_multi_company" force_save="1"/>
                 <field name="quantity" string="Quantity"

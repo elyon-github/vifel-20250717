@@ -31,7 +31,7 @@
                            widget="boolean_toggle"
                            invisible="not reason_for_adjustment or 1"
                            string="Apply Immediately (Skip Approval)"
-                           help="If checked, changes will be applied immediately without approval. Only available for Inventory Suprvisor."/>
+                           help="If checked, changes will be applied immediately without approval. Only available for Inventory Supervisors."/>
                     <field name="is_blast_freeze" invisible="1"/>
                 <!-- </group> -->
                 
@@ -607,5 +607,43 @@ else:
                   action="action_stock_quant_adjustment_request"
                   sequence="10"
                   groups="stock.group_stock_manager,stock.group_stock_user"/>
+        <!-- PKR form: show the approved adjustment-request lines linked to
+             this row (the adjustment audit trail — native records). -->
+        <record id="view_pallet_kilos_record_form_adjustment_lines" model="ir.ui.view">
+            <field name="name">pallet.kilos.record.form.adjustment.lines</field>
+            <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+            <field name="inherit_id" ref="pallet_kilos_record_model.view_pallet_kilos_record_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//page[@name='adjustment_information']" position="inside">
+                    <separator string="Approved Adjustment Lines (audit trail)"/>
+                    <field name="adjustment_line_ids" readonly="1">
+                        <tree>
+                            <field name="approved_date"/>
+                            <field name="request_id" string="Adjustment Request"/>
+                            <field name="display_pallet_series" string="PSI"/>
+                            <field name="old_package_id" string="Pallet #" optional="show"/>
+                            <field name="new_package_id" string="New Pallet #" optional="show"/>
+                            <field name="old_bf_pallet_char" string="BF Pallet" optional="hide"/>
+                            <field name="new_bf_pallet_char" string="New BF Pallet" optional="hide"/>
+                            <field name="old_product_id" string="Product" optional="hide"/>
+                            <field name="new_product_id" string="New Product" optional="hide"/>
+                            <field name="old_quantity" string="Weight KG (old)"/>
+                            <field name="new_quantity" string="Weight KG (new)"/>
+                            <field name="old_x_studio_2nd_uom" string="Quantity (old)"/>
+                            <field name="new_x_studio_2nd_uom" string="Quantity (new)"/>
+                            <field name="old_x_studio_total_units" string="Packs (old)" optional="hide"/>
+                            <field name="new_x_studio_total_units" string="Packs (new)" optional="hide"/>
+                            <field name="old_owner_id" string="Owner (old)" optional="hide"/>
+                            <field name="new_owner_id" string="Owner (new)" optional="hide"/>
+                            <field name="display_location" string="Location" optional="hide"/>
+                            <field name="reason_for_adjustment" string="Reason" optional="show"/>
+                            <field name="correction_move_reference" string="Move Reference" optional="show"/>
+                            <field name="approved_by" optional="hide"/>
+                        </tree>
+                    </field>
+                </xpath>
+            </field>
+        </record>
+
     </data>
 </odoo>
