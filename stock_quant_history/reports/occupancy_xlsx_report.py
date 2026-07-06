@@ -217,15 +217,24 @@ class OccupancyXlsxReport(models.AbstractModel):
         date_from = dt_cls.strptime(data['date_from'], '%Y-%m-%d').date()
         date_to = dt_cls.strptime(data['date_to'], '%Y-%m-%d').date()
         partner_ids = data.get('partner_ids', [])
+        warehouse_ids = data.get('warehouse_ids', [])
 
         # ── one-time look-ups ──────────────────────────────────────────
-        cr.execute("""
+        # Multi-warehouse Phase 1: scoping the internal-location set scopes
+        # the buildings/owners the report aggregates. (Deep move-line replay
+        # scoping arrives with the per-warehouse snapshot rewrite in Phase 2.)
+        loc_query = """
             SELECT sl.id, wb.x_name
             FROM stock_location sl
             LEFT JOIN x_warehouse_building wb
                    ON sl.x_studio_building = wb.id
             WHERE sl.usage = 'internal'
-        """)
+        """
+        loc_params = []
+        if warehouse_ids:
+            loc_query += " AND sl.warehouse_id IN %s"
+            loc_params.append(tuple(warehouse_ids))
+        cr.execute(loc_query, tuple(loc_params))
         loc_building = {}
         for lid, bname in cr.fetchall():
             if isinstance(bname, dict):
@@ -499,6 +508,10 @@ class OccupancyXlsxReport(models.AbstractModel):
                     if d['quantity'] <= 0:
                         continue
                     if d['owner_id'] not in active_owners:
+                        continue
+                    if warehouse_ids and loc not in loc_building:
+                        # Location belongs to a warehouse outside the filter —
+                        # exclude it instead of letting it default into 'MAIN'.
                         continue
 
                     bname = loc_building.get(loc, 'MAIN')

@@ -67,6 +67,19 @@ class StockQuantHistorySnapshot(models.Model):
         readonly=True,
         help="Base snapshot used to generate this snapshot",
     )
+    # Multi-warehouse Phase 1: nullable for now (a snapshot still covers all
+    # warehouses). Becomes required in Phase 2 when generation is rewritten to
+    # one snapshot per warehouse per day (decision: 60 days retained PER
+    # warehouse). Existing snapshots are backfilled by the 17.0.1.1.0 migration.
+    warehouse_id = fields.Many2one(
+        comodel_name="stock.warehouse",
+        string="Warehouse",
+        index=True,
+        readonly=True,
+        help="Warehouse this snapshot covers. Backfilled on legacy snapshots "
+             "when all their lines belong to a single warehouse; empty only "
+             "if a legacy snapshot genuinely mixes warehouses.",
+    )
 
     @api.depends("inventory_date")
     def _compute_name(self):
