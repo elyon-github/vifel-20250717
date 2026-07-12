@@ -27,6 +27,14 @@ class StockQuantCorrectionWizard(models.TransientModel):
         string="Is Blast Freeze",
         help="True when all selected quants are blast-freeze pallets (identified by BF Pallet #, no pallet series / package). Drives which columns the wizard shows."
     )
+    psi_cascade_notice = fields.Text(
+        string="Pallet Series Group Notice",
+        compute='_compute_psi_cascade_notice',
+        help="Live warning shown when a Pallet # change affects a pallet "
+             "series shared by other quants: those siblings automatically "
+             "follow to the same Pallet # on confirm. Blank for blast-freeze "
+             "adjustments (no pallet series)."
+    )
 
     @api.model
     def _pallet_label(self, quant):
@@ -107,34 +115,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 "Please wait for approval or cancel the existing requests first."
             ) % '\n'.join(error_lines))
 
-        line_vals = []
-        for quant in quants:
-            line_vals.append({
-                'quant_id': quant.id,
-                'package_id': quant.package_id.id,
-                'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
-                'bf_pallet_char': quant.bf_pallet_char,
-                'product_id': quant.product_id.id,
-                'x_studio_production_date': quant.x_studio_production_date,
-                'x_studio_expiration_date': quant.x_studio_expiration_date,
-                'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
-                'x_studio_source': quant.x_studio_source,
-                'x_studio_gate_pass': quant.x_studio_gate_pass,
-                'x_studio_truck_time': quant.x_studio_truck_time,
-                'x_studio_start_time': quant.x_studio_start_time,
-                'x_studio_end_time': quant.x_studio_end_time,
-                'x_studio_truck_number': quant.x_studio_truck_number,
-                'x_studio_2nd_uom': quant.x_studio_2nd_uom,
-                'x_studio_quantity_uom': quant.x_studio_quantity_uom.id,
-                'x_studio_total_units': quant.x_studio_total_units,
-                'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id,
-                'x_studio_container_number': quant.x_studio_container_number,
-                'x_studio_building_dropped': quant.x_studio_building_dropped,
-                'quantity': quant.quantity,
-                'lot_id': quant.lot_id.id,
-                'owner_id': quant.owner_id.id,
-                'x_studio_return_count': quant.x_studio_return_count,
-            })
+        line_vals = [self._correction_line_vals(quant) for quant in quants]
 
         res['line_ids'] = [(0, 0, vals) for vals in line_vals]
 
@@ -144,6 +125,191 @@ class StockQuantCorrectionWizard(models.TransientModel):
 
         return res
 
+    @api.model
+    def _correction_line_vals(self, quant):
+        """Wizard-line values mirroring the quant's current state (the wizard
+        opens with zero changes; user edits against these are what
+        _get_changes later detects)."""
+        return {
+            'quant_id': quant.id,
+            'package_id': quant.package_id.id,
+            'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
+            'bf_pallet_char': quant.bf_pallet_char,
+            'product_id': quant.product_id.id,
+            'x_studio_production_date': quant.x_studio_production_date,
+            'x_studio_expiration_date': quant.x_studio_expiration_date,
+            'x_studio_loading_dock_no': quant.x_studio_loading_dock_no,
+            'x_studio_source': quant.x_studio_source,
+            'x_studio_gate_pass': quant.x_studio_gate_pass,
+            'x_studio_truck_time': quant.x_studio_truck_time,
+            'x_studio_start_time': quant.x_studio_start_time,
+            'x_studio_end_time': quant.x_studio_end_time,
+            'x_studio_truck_number': quant.x_studio_truck_number,
+            'x_studio_2nd_uom': quant.x_studio_2nd_uom,
+            'x_studio_quantity_uom': quant.x_studio_quantity_uom.id,
+            'x_studio_total_units': quant.x_studio_total_units,
+            'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id,
+            'x_studio_container_number': quant.x_studio_container_number,
+            'x_studio_building_dropped': quant.x_studio_building_dropped,
+            'quantity': quant.quantity,
+            'lot_id': quant.lot_id.id,
+            'owner_id': quant.owner_id.id,
+            'x_studio_return_count': quant.x_studio_return_count,
+        }
+
+    def _psi_cascade_plan(self):
+        """Group-move plan enforcing pallet-series integrity.
+
+        A pallet series (PSI) identifies ONE physical pallet, so when a
+        line changes its Pallet # (package) every other stocked quant
+        sharing that owner + PSI must follow to the same package —
+        otherwise the series ends up split across two pallet numbers.
+
+        Returns one plan dict per affected PSI:
+          psi / new_package    the series and its target pallet
+          moving_lines         wizard lines the user explicitly changed
+          lines_to_sync        sibling lines already in the wizard whose
+                               Pallet # will be auto-retargeted
+          quants_to_add        stocked sibling quants NOT in the wizard,
+                               to be auto-added as package-change lines
+        Raises UserError when one series is given two different targets.
+        Blast-freeze wizards return [] — BF pallets have no PSI.
+        """
+        self.ensure_one()
+        if self.is_blast_freeze:
+            return []
+
+        plans = {}
+        for line in self.line_ids:
+            quant = line.quant_id
+            if not quant:
+                continue
+            psi = quant.x_studio_pallet_series_id
+            new_pkg = line.package_id
+            old_pkg_id = quant.package_id.id if quant.package_id else False
+            if (not psi or not quant.owner_id or not new_pkg
+                    or new_pkg.id == old_pkg_id):
+                continue
+            key = (quant.owner_id.id, psi)
+            plan = plans.get(key)
+            if plan and plan['new_package'] != new_pkg:
+                raise UserError(_(
+                    "Pallet series %(psi)s is being moved to two different "
+                    "Pallet #s (%(pkg_a)s and %(pkg_b)s).\n\n"
+                    "A pallet series identifies one physical pallet and must "
+                    "always move as one group — set the same target Pallet # "
+                    "on all of its lines.",
+                    psi=psi, pkg_a=plan['new_package'].name,
+                    pkg_b=new_pkg.name))
+            if not plan:
+                plan = plans[key] = {
+                    'owner_id': quant.owner_id.id,
+                    'psi': psi,
+                    'new_package': new_pkg,
+                    'moving_lines': self.env['stock.quant.correction.line'],
+                    'lines_to_sync': self.env['stock.quant.correction.line'],
+                    'quants_to_add': self.env['stock.quant'],
+                }
+            plan['moving_lines'] |= line
+
+        if not plans:
+            return []
+
+        wizard_quant_ids = self.line_ids.mapped('quant_id').ids
+        Quant = self.env['stock.quant']
+        for plan in plans.values():
+            # sibling lines already in the wizard, still pointing elsewhere
+            # (contradictory explicit targets were already caught above)
+            for line in self.line_ids - plan['moving_lines']:
+                quant = line.quant_id
+                if (quant and quant.owner_id.id == plan['owner_id']
+                        and quant.x_studio_pallet_series_id == plan['psi']
+                        and (line.package_id.id if line.package_id else False)
+                        != plan['new_package'].id):
+                    plan['lines_to_sync'] |= line
+            # stocked siblings not in the wizard at all ('|' leaf: Odoo's
+            # '!=' excludes NULL packages, but a released same-PSI quant
+            # still belongs to the group)
+            plan['quants_to_add'] = Quant.search([
+                ('owner_id', '=', plan['owner_id']),
+                ('x_studio_pallet_series_id', '=', plan['psi']),
+                ('quantity', '>', 0),
+                ('location_id.usage', '=', 'internal'),
+                ('id', 'not in', wizard_quant_ids),
+                '|', ('package_id', '=', False),
+                     ('package_id', '!=', plan['new_package'].id),
+            ])
+        return list(plans.values())
+
+    @api.depends('line_ids.package_id', 'line_ids.quant_id',
+                 'is_blast_freeze')
+    def _compute_psi_cascade_notice(self):
+        for wizard in self:
+            try:
+                plans = wizard._psi_cascade_plan()
+            except UserError as err:
+                wizard.psi_cascade_notice = str(err.args[0]) if err.args else str(err)
+                continue
+            notes = []
+            for plan in plans:
+                extra = len(plan['quants_to_add']) + len(plan['lines_to_sync'])
+                if not extra:
+                    continue
+                notes.append(_(
+                    "Series %(psi)s → Pallet %(pkg)s: %(extra)d other pallet "
+                    "quant(s) share this series and will AUTOMATICALLY follow "
+                    "to the same Pallet # on confirm (%(added)d auto-included "
+                    "in this adjustment, %(synced)d retargeted in the list "
+                    "below). A pallet series always moves as one group.",
+                    psi=plan['psi'], pkg=plan['new_package'].name,
+                    extra=extra, added=len(plan['quants_to_add']),
+                    synced=len(plan['lines_to_sync'])))
+            wizard.psi_cascade_notice = '\n'.join(notes) if notes else False
+
+    def _expand_psi_package_cascade(self):
+        """Apply the PSI group-move plan at confirm time: retarget sibling
+        lines already in the wizard and auto-add the missing sibling quants
+        as package-change-only lines, so both the approval request and the
+        immediate flow always carry the WHOLE series."""
+        self.ensure_one()
+        plans = self._psi_cascade_plan()   # raises on contradictory targets
+        Line = self.env['stock.quant.correction.line']
+        added = Line
+        for plan in plans:
+            reserved = plan['quants_to_add'].filtered(
+                lambda q: q.reserved_quantity > 0)
+            if reserved:
+                raise UserError(_(
+                    "Cannot move pallet series %(psi)s to Pallet %(pkg)s.\n\n"
+                    "The series must move as one group, but the following "
+                    "sibling stock is reserved (typically in an active "
+                    "Picklist) and cannot be adjusted:\n• %(pallets)s\n\n"
+                    "Please unreserve it first, then retry.",
+                    psi=plan['psi'], pkg=plan['new_package'].name,
+                    pallets='\n• '.join(
+                        '%s (%s)' % (self._pallet_label(q),
+                                     q.location_id.complete_name)
+                        for q in reserved)))
+            if plan['lines_to_sync']:
+                plan['lines_to_sync'].write(
+                    {'package_id': plan['new_package'].id})
+            for quant in plan['quants_to_add']:
+                vals = self._correction_line_vals(quant)
+                vals.update({
+                    'wizard_id': self.id,
+                    'package_id': plan['new_package'].id,
+                })
+                added |= Line.create(vals)
+            if plan['quants_to_add'] or plan['lines_to_sync']:
+                _logger.info(
+                    "PSI cascade on %s: series %s -> pallet %s (%d line(s) "
+                    "auto-added, %d retargeted)", self.id, plan['psi'],
+                    plan['new_package'].name, len(plan['quants_to_add']),
+                    len(plan['lines_to_sync']))
+        if added:
+            self.invalidate_recordset(['line_ids'])
+        return added
+
     def action_confirm_corrections(self):
         """Main action: Either create approval request OR apply directly"""
         self.ensure_one()
@@ -151,6 +317,10 @@ class StockQuantCorrectionWizard(models.TransientModel):
         if self.skip_approval and not self.env.user.has_group('stock.group_stock_manager'):
             raise UserError(
                 _("Only Stock Managers can skip the approval workflow."))
+
+        # PSI integrity: a pallet series moves as one group — pull the
+        # sibling quants of any repackaged series into this correction.
+        self._expand_psi_package_cascade()
 
         if self.skip_approval:
             return self._apply_corrections_immediately()
@@ -329,6 +499,10 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 })
 
                 self._release_pallet_if_emptied(line, changes)
+
+                # dead quant (all zeros): remove it right away instead of
+                # leaving it to float until the next zero-quant sweep
+                self._gc_quant_if_emptied(line.quant_id)
 
         if not request.line_ids:
             request.unlink()
@@ -783,6 +957,45 @@ class StockQuantCorrectionWizard(models.TransientModel):
             return -1   # merge: a counted pallet vanished without a WR
         return 0        # renumber or transfer between two live pallets
 
+    def _gc_quant_if_emptied(self, quant):
+        """Immediately delete a quant the adjustment fully emptied (KG,
+        packaging and packs all zero, nothing reserved) instead of leaving
+        the dead record to float until the next opportunistic core sweep
+        (stock.quant._unlink_zero_quants, which runs after validations).
+
+        Safe by construction: the persistent audit line's quant_id is
+        ON DELETE SET NULL (trail survives, display fields are stored
+        chars), the transient wizard line cascades away, and the pallet
+        release + PKR posting have already run by the time this is called.
+        Stale inventory-count leftovers (inventory_quantity / user_id) are
+        cleared first — a pending count on a quant the adjustment just
+        explicitly zeroed is stale by definition, and it is exactly what
+        makes the core GC skip such records forever.
+        """
+        if not quant or not quant.exists():
+            return False
+        if (round(quant.quantity or 0, 6) != 0
+                or round(quant.reserved_quantity or 0, 6) != 0
+                or round(quant.x_studio_2nd_uom or 0, 3) != 0
+                or round(quant.x_studio_total_units or 0, 3) != 0):
+            return False
+        stale_vals = {}
+        if quant.inventory_quantity:
+            stale_vals['inventory_quantity'] = 0
+        if quant.inventory_diff_quantity:
+            stale_vals['inventory_diff_quantity'] = 0
+        if quant.user_id:
+            stale_vals['user_id'] = False
+        if stale_vals:
+            quant.sudo().write(stale_vals)
+        _logger.info(
+            "Adjustment emptied quant %s (owner %s, pallet %s) — deleting "
+            "immediately instead of awaiting the zero-quant sweep",
+            quant.id, quant.owner_id.display_name,
+            quant.x_studio_pallet_series_id or quant.bf_pallet_char or '-')
+        quant.sudo().unlink()
+        return True
+
     def _is_pallet_emptied_by_adjustment(self, line, changes):
         """True when this adjustment set both KG and packaging to zero on a
         stocked, regular (packaged) pallet. Evaluated AFTER _apply_changes,
@@ -1118,6 +1331,66 @@ class StockQuantAdjustmentRequest(models.Model):
         self.line_ids.write({'selected': False})
         return True
 
+    def _psi_group_guard(self, acting_lines, action='approve'):
+        """All-or-nothing per pallet series (anti-split guard).
+
+        The wizard cascade guarantees a request carries EVERY quant of a
+        pallet series whose Pallet # changes — but an approver acting on a
+        SUBSET of those lines would move part of the series and leave the
+        rest behind: the same one-series-on-two-pallets split the cascade
+        exists to prevent. So package-change lines of one series must be
+        approved together, and rejected together. Blocks with an itemized
+        message naming the sibling lines that must be included.
+        """
+        self.ensure_one()
+        group_lines = self.line_ids.filtered(
+            lambda l: not l.is_blast_freeze and l.display_pallet_series
+            and l.new_package_id and l.new_package_id != l.old_package_id)
+        problems = []
+        for psi in sorted(set(group_lines.mapped('display_pallet_series'))):
+            group = group_lines.filtered(
+                lambda l: l.display_pallet_series == psi)
+            acting = group & acting_lines
+            if not acting:
+                continue  # this action doesn't touch the series
+            left_behind = (group - acting).filtered(
+                lambda l: l.line_state == 'pending')
+            if action == 'approve':
+                # a sibling already rejected/cancelled can never follow the
+                # group — approving the rest would split the series for good
+                contradicting = (group - acting).filtered(
+                    lambda l: l.line_state in ('rejected', 'cancelled'))
+            else:
+                # rejecting a subset while a sibling was already applied
+                # (or stays approvable) splits the series just the same
+                contradicting = (group - acting).filtered(
+                    lambda l: l.line_state == 'approved')
+            if left_behind or contradicting:
+                details = []
+                for line in (left_behind | contradicting):
+                    details.append('%s → %s (%s%s)' % (
+                        line.old_package_id.name or _('no pallet'),
+                        line.new_package_id.name,
+                        dict(line._fields['line_state'].selection).get(
+                            line.line_state, line.line_state),
+                        _(', conflict: %s') % line.conflict_status
+                        if line.conflict_status != 'ok' else ''))
+                problems.append('%s:\n  • %s' % (psi, '\n  • '.join(details)))
+        if problems:
+            raise UserError(_(
+                "Pallet series must be %(verb)s as ONE group.\n\n"
+                "Your selection covers only part of the Pallet # change for "
+                "the series below — acting on a subset would leave one "
+                "series split across two pallets. Please include these "
+                "sibling line(s) as well (or act on the whole series):\n\n"
+                "%(details)s\n\n"
+                "Tip: \"Approve All Pending\" always covers whole groups. "
+                "A sibling shown with a conflict must be resolved (or the "
+                "request cancelled and re-created) before the series can "
+                "move.",
+                verb=_('approved') if action == 'approve' else _('rejected'),
+                details='\n'.join(problems)))
+
     def action_approve_selected(self):
         """Approve selected lines"""
         self.ensure_one()
@@ -1131,6 +1404,8 @@ class StockQuantAdjustmentRequest(models.Model):
                 "Please ensure that the lines you are selecting are pending and have no conflicts — "
                 "conflicts typically occur when Pallets are reserved in another pending Picklist or have been successfully delivered out."
             ))
+
+        self._psi_group_guard(selected_lines, action='approve')
 
         if not self.batch_number:
             adjustment_form_series = self.env['ir.sequence'].search(
@@ -1198,6 +1473,10 @@ class StockQuantAdjustmentRequest(models.Model):
                 "Please ensure that all conflicts have been resolved — "
                 "conflicts typically occur when Pallets are reserved in another pending Picklist  or have been successfully delivered out."
             ))
+
+        # a conflicted sibling silently excluded from pending_lines would
+        # otherwise let "approve all" move only part of a series
+        self._psi_group_guard(pending_lines, action='approve')
 
         if not self.batch_number:
             adjustment_form_series = self.env['ir.sequence'].search(
@@ -1278,17 +1557,33 @@ class StockQuantAdjustmentRequest(models.Model):
         #         }
         #     }
 
+    def _get_adjustment_approvers(self):
+        """Users who approve adjustment requests: the members of the
+        Adjustment Approvers group. Falls back to the first Stock Manager
+        (the closest thing to the old behavior) when the group is missing
+        or empty, so submission never goes unnotified."""
+        group = self.env.ref(
+            'multiple_relocation.group_adjustment_approver',
+            raise_if_not_found=False)
+        approvers = group.users.filtered('active') if group else self.env['res.users']
+        if not approvers:
+            legacy = self.env.ref(
+                'stock.group_stock_manager', raise_if_not_found=False)
+            approvers = legacy.users.filtered('active')[:1] if legacy else self.env['res.users']
+        return approvers or self.env.user
+
     def _notify_approvers(self):
-        approval_group = self.env.ref(
-            'stock.group_stock_manager', raise_if_not_found=False)
-        if approval_group:
+        """Schedule an approval to-do for EVERY adjustment approver (the
+        old code notified a single arbitrary Stock Manager)."""
+        note = _('Request %s submitted by %s requires approval.\nReason: %s\nLines: %s') % (
+            self.name, self.requested_by.name,
+            self.reason_for_adjustment, self.line_count)
+        for user in self._get_adjustment_approvers():
             self.activity_schedule(
                 'mail.mail_activity_data_todo',
-                user_id=approval_group.users[1].id if approval_group.users else self.env.user.id,
+                user_id=user.id,
                 summary=_('Stock Adjustment Approval Required'),
-                note=_('Request %s submitted by %s requires approval.\nReason: %s\nLines: %s') % (
-                    self.name, self.requested_by.name, self.reason_for_adjustment, self.line_count
-                )
+                note=note,
             )
 
     def _mark_approval_activities_done(self):
@@ -1652,8 +1947,21 @@ class StockQuantAdjustmentLine(models.Model):
 
         return changes
 
+    def _check_approver_rights(self):
+        """Approval/rejection is reserved for the Adjustment Approvers
+        group (legacy supervisor groups keep working so nothing breaks)."""
+        user = self.env.user
+        if not (user.has_group('multiple_relocation.group_adjustment_approver')
+                or user.has_group('multiple_relocation.inventory_super_admin')
+                or user.has_group('__custom__.inventory_supervisor')):
+            raise UserError(_(
+                "Only Adjustment Approvers can approve or reject "
+                "adjustment lines."))
+
     def action_approve_line(self, batch_number, reason):
         self.ensure_one()
+
+        self._check_approver_rights()
 
         # self._check_quant_conflicts()
 
@@ -1674,6 +1982,8 @@ class StockQuantAdjustmentLine(models.Model):
 
     def action_reject_line(self, rejection_reason):
         self.ensure_one()
+
+        self._check_approver_rights()
 
         if self.line_state != 'pending':
             raise UserError(_("Only pending lines can be rejected."))
@@ -1739,6 +2049,11 @@ class StockQuantAdjustmentLine(models.Model):
 
         wizard._release_pallet_if_emptied(correction_line, changes)
 
+        # dead quant (all zeros): remove it right away instead of leaving
+        # it to float until the next zero-quant sweep (the audit line's
+        # quant_id is ON DELETE SET NULL — the trail survives)
+        wizard._gc_quant_if_emptied(quant)
+
 
 # models/stock_quant_adjustment_reject_wizard.py
 
@@ -1769,6 +2084,10 @@ class StockQuantAdjustmentRejectWizard(models.TransientModel):
 
         if not self.line_ids:
             raise UserError(_("No lines to reject."))
+
+        # rejecting part of a series' Pallet # change while the rest stays
+        # approvable would split the series exactly like a partial approval
+        self.request_id._psi_group_guard(self.line_ids, action='reject')
 
         for line in self.line_ids:
             line.action_reject_line(self.rejection_reason)

@@ -1075,6 +1075,15 @@
         <button string="Withdrawal R. Summary" name="studio_customization.bfwr_final_129e37d2-2dc6-4e1d-ac5b-fd830adb4bfc" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
         <button string="Withdrawal R. Per Pallet" name="studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
 
+        <!-- Orphan cleanup: visible ONLY on a void child whose parent is
+             no longer voided; supervisors + super admins. -->
+        <field name="is_orphan_void_child" invisible="1"/>
+        <button string="Clean Orphaned Void" name="action_neutralize_orphan_void_children" type="object"
+                class="btn btn-danger"
+                invisible="not is_orphan_void_child"
+                groups="__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"
+                confirm="This document is a void child still bound to a parent that is NO LONGER voided. Clean it into a plain empty draft (reservations freed, moves/lines removed without recycling pallet series, bindings and leftover details cleared)?"/>
+
       </xpath>
 
       <xpath expr="//button[@name='studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36']" position="after">

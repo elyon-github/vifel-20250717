@@ -1453,5 +1453,144 @@ class OverrideStockQuant(models.Model):
                 
                 # Get pickings from reserved move lines
                 pickings = reserved_move_lines.mapped('picking_id')
-            
+
             quant.reservation_tags = pickings
+
+    def action_view_quant_history(self):
+        """Open this quant's snapshot history (stock.quant.history).
+
+        History lines have no quant_id — snapshots capture stock state by
+        identity — and relocations REPLACE lot records, so the lineage is
+        matched broadly: same lot, OR same pallet (package), OR same
+        owner + pallet series. Newest first.
+        """
+        self.ensure_one()
+        if 'stock.quant.history' not in self.env:
+            raise UserError(
+                _("The Stock Quant History module is not installed."))
+        domain = []
+        if self.lot_id:
+            domain.append([('lot_id', '=', self.lot_id.id)])
+        if self.package_id:
+            domain.append([('package_id', '=', self.package_id.id)])
+        if self.owner_id and self.x_studio_pallet_series_id:
+            domain.append([
+                ('owner_id', '=', self.owner_id.id),
+                ('x_studio_pallet_series_id', '=',
+                 self.x_studio_pallet_series_id)])
+        if not domain:
+            raise UserError(_(
+                "This quant has no lot, pallet or series to match "
+                "history by."))
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('History — %s') % (
+                self.x_studio_pallet_series_id or self.bf_pallet_char
+                or self.package_id.name or self.lot_id.name or 'quant'),
+            'res_model': 'stock.quant.history',
+            'view_mode': 'tree,form',
+            'domain': OR(domain),
+            'context': {'create': False},
+        }
+
+    def action_resync_quant_details(self):
+        """Admin repair: restore a quant's lost origin details.
+
+        Relocations intermittently create the destination quant without its
+        record reference (the documented relocation race) — the stock is
+        real but no longer traceable to its RR, so correction attribution
+        degrades and the health monitor flags it. This walks a PRIORITY
+        CHAIN of deterministic origin channels and fills ONLY blank fields;
+        a quant is touched only when the channel identifies exactly ONE
+        candidate RR — no guessing, nothing existing is ever overwritten.
+
+        Channels (validated coverage on production-clone data):
+          A. lot -> first validated incoming line of the same lot
+          B. package -> the incoming line that built this package
+          C. pallet series -> incoming lines of same owner+PSI (only when
+             they all point at ONE document)
+          D. container -> owner+product+container match (only when exactly
+             ONE non-voided RR matches)
+        """
+        if not self.env.user.has_group(
+                'multiple_relocation.inventory_super_admin'):
+            raise UserError(
+                _("Only administrators can re-sync quant details."))
+        Line = self.env['stock.move.line']
+        fixed, no_origin, skipped = 0, 0, 0
+        for quant in self:
+            if (quant.x_studio_record_reference
+                    or quant.original_record_reference
+                    or quant.x_studio_opening_balance_record_reference):
+                skipped += 1
+                continue
+            base = [('state', '=', 'done'),
+                    ('picking_id.picking_type_id.code', '=', 'incoming'),
+                    ('picking_id.x_studio_voided', '!=', True)]
+            donor = Line
+            # A. lot identity survives most flows
+            if quant.lot_id:
+                donor = Line.search(
+                    base + [('lot_id', '=', quant.lot_id.id)],
+                    order='date asc, id asc', limit=1)
+            # B. the pallet was built by an RR line
+            if not donor and quant.package_id:
+                donor = Line.search(
+                    base + [('result_package_id', '=', quant.package_id.id),
+                            ('product_id', '=', quant.product_id.id)],
+                    order='date asc, id asc', limit=1)
+            # C. pallet series, only when unambiguous
+            if not donor and quant.x_studio_pallet_series_id:
+                cands = Line.search(base + [
+                    ('owner_id', '=', quant.owner_id.id),
+                    ('x_studio_pallet_series_id', '=',
+                     quant.x_studio_pallet_series_id)])
+                if cands and len(set(cands.mapped('picking_id').ids)) == 1:
+                    donor = cands[0]
+            # D. container + product + owner, only when exactly one RR
+            if not donor and quant.x_studio_container_number:
+                cands = Line.search(base + [
+                    ('owner_id', '=', quant.owner_id.id),
+                    ('product_id', '=', quant.product_id.id),
+                    ('x_studio_container_number', '=',
+                     quant.x_studio_container_number)])
+                if cands and len(set(cands.mapped('picking_id').ids)) == 1:
+                    donor = cands[0]
+            if not donor:
+                no_origin += 1
+                continue
+            rr = donor.picking_id
+            vals = {'x_studio_record_reference': rr.id,
+                    'original_record_reference':
+                        (donor.original_record_reference or rr).id}
+            # fill-only-blank detail backfill from the donor line
+            if not quant.x_studio_production_date and \
+                    donor.x_studio_production_date:
+                vals['x_studio_production_date'] = \
+                    donor.x_studio_production_date
+            if not quant.x_studio_expiration_date and \
+                    donor.x_studio_expiration_date:
+                vals['x_studio_expiration_date'] = \
+                    donor.x_studio_expiration_date
+            if not quant.x_studio_container_number and \
+                    donor.x_studio_container_number:
+                vals['x_studio_container_number'] = \
+                    donor.x_studio_container_number
+            quant.sudo().write(vals)
+            _logger.info(
+                "Quant %s re-synced to %s via donor line %s",
+                quant.id, rr.name, donor.id)
+            fixed += 1
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Quant Details Re-sync'),
+                'message': _(
+                    '%(fixed)d re-synced, %(none)d with no traceable '
+                    'origin, %(skip)d already had references.',
+                    fixed=fixed, none=no_origin, skip=skipped),
+                'type': 'success' if fixed else 'warning',
+                'sticky': True,
+            },
+        }

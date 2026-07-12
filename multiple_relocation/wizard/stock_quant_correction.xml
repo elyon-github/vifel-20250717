@@ -41,8 +41,17 @@
                     This will create an adjustment request for approval. Changes will not be applied until approved by an inventory supervisor.
                 </div>
                 <div class="alert alert-warning" invisible="not skip_approval" role="alert" style="margin-top: 15px;">
-                    <i class="fa fa-exclamation-triangle" title="Warning"/> 
+                    <i class="fa fa-exclamation-triangle" title="Warning"/>
                     Changes will be applied immediately without approval workflow.
+                </div>
+
+                <!-- PSI group-move banner: a pallet series shared by several
+                     quants always moves as ONE group; changing the Pallet #
+                     on one line pulls the sibling quants along on confirm. -->
+                <div class="alert alert-warning" role="alert" invisible="not psi_cascade_notice" style="margin-top: 15px; white-space: pre-line;">
+                    <i class="fa fa-link" title="Pallet series group move"/>
+                    <strong>Pallet Series Group Move:</strong>
+                    <field name="psi_cascade_notice" readonly="1" nolabel="1"/>
                 </div>
 
                 <!-- Adjustment Lines -->
@@ -227,37 +236,37 @@ else:
                                 groups="stock.group_stock_manager"/> -->
                         
                         <!-- Approve/Reject Selected -->
-                        <button name="action_approve_selected" 
-                                string="Approve Selected" 
-                                type="object" 
+                        <button name="action_approve_selected"
+                                string="Approve Selected"
+                                type="object"
                                 class="btn-success"
                                 invisible="state not in ['pending', 'partial'] or selected_line_count == 0"
-                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"
+                                groups="multiple_relocation.group_adjustment_approver,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"
                                 confirm="Approve selected lines?"/>
-                        
-                        <button name="action_reject_selected" 
-                                string="Reject Selected" 
-                                type="object" 
+
+                        <button name="action_reject_selected"
+                                string="Reject Selected"
+                                type="object"
                                 class="btn-danger"
                                 invisible="state not in ['pending', 'partial'] or selected_line_count == 0"
-                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"/>
-                        
+                                groups="multiple_relocation.group_adjustment_approver,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"/>
+
                         <!-- Approve All Pending Lines -->
-                        <button name="action_approve_all_pending" 
-                                string="Approve All Pending" 
-                                type="object" 
+                        <button name="action_approve_all_pending"
+                                string="Approve All Pending"
+                                type="object"
                                 class="oe_highlight"
                                 invisible="state not in ['pending', 'partial'] or pending_line_count == 0"
-                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"/>
+                                groups="multiple_relocation.group_adjustment_approver,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"
                                 confirm="Approve all pending lines without conflicts?"/>
-                        
+
                         <!-- Check for Conflicts -->
-                        <button name="action_check_conflicts" 
-                                string="Check Conflicts" 
-                                type="object" 
+                        <button name="action_check_conflicts"
+                                string="Check Conflicts"
+                                type="object"
                                 class="btn-secondary"
+                                invisible="state not in ['pending', 'partial']"
                                 groups="multiple_relocation.inventory_super_admin"/>
-                                invisible="state not in ['pending', 'partial']"/>
                         
                         <!-- Cancel Request -->
                         <button name="action_cancel" 
