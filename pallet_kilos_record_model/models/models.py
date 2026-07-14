@@ -1246,6 +1246,224 @@ class PalletKilosRecordModel(models.Model):
             #       one read_group replaces a full partition rebuild here) ----
             residual_notes = []
             for wh_id, bf in partitions:
+                prows = rows.filtered(
+                    lambda r: r.warehouse.id == wh_id
+                    and bool(r.is_blast_freezer) == bf)
+
+                # ---- 3a. wipe + rebuild adjustment packaging/packs -------
+                # (wipe-and-rebuild keeps the run idempotent: without it,
+                # per-lot postings would re-post on every run)
+                #   1) approved adjustment lines re-post their deltas onto
+                #      the PKR row they are linked to (the recorded era);
+                #   2) pre-audit-era corrections recorded no deltas, but a
+                #      lot's packaging story is inferable from its OWN
+                #      paper trail (RR packs in - WR packs out + posted
+                #      deltas vs physical) — each nonzero lot is posted on
+                #      the PKR row of the RR that received it, NAMED with
+                #      the correction batch/date that touched it (this is
+                #      e.g. VERDURE VE-01970: batch 00064 rewrote packs
+                #      5 -> 34 and the WR took 34 out — +29 belongs on that
+                #      RR's row, not on the opening-balance anchor);
+                #   3) whatever remains lands on the anchor as residual
+                #      (mostly opening-balance import variance — OB packs
+                #      were written straight onto quants, no per-lot
+                #      baseline exists on paper).
+                if prows:
+                    prows.with_context(skip_pkr_recalc=True).write(
+                        {'adjustment_packaging': 0, 'adjustment_heads': 0})
+                row_post = {}   # row -> [packs, units]
+                self.env.cr.execute("""
+                    SELECT al.pallet_kilos_record_id,
+                           SUM(COALESCE(al.new_x_studio_2nd_uom,0)
+                               - COALESCE(al.old_x_studio_2nd_uom,0)),
+                           SUM(COALESCE(al.new_x_studio_total_units,0)
+                               - COALESCE(al.old_x_studio_total_units,0))
+                    FROM stock_quant_adjustment_line al
+                    WHERE al.line_state='approved'
+                      AND al.pallet_kilos_record_id = ANY(%s)
+                    GROUP BY 1
+                """, (prows.ids or [0],))
+                for row_id, d_packs, d_units in self.env.cr.fetchall():
+                    row_post.setdefault(row_id, [0.0, 0.0])
+                    row_post[row_id][0] += d_packs or 0
+                    row_post[row_id][1] += d_units or 0
+
+                # per-lot inference for the unrecorded era (RR-born lots)
+                self.env.cr.execute("""
+                    WITH doc AS (
+                      SELECT ml.lot_id,
+                        SUM(CASE WHEN pt.code='incoming'
+                             THEN COALESCE(ml.x_studio_2nd_uom,0)
+                             ELSE -COALESCE(ml.x_studio_affected_2nd_uom,0)
+                            END) paper_p,
+                        SUM(CASE WHEN pt.code='incoming'
+                             THEN COALESCE(ml.x_studio_total_units,0)
+                             ELSE -COALESCE(ml.x_studio_withdraw_units,0)
+                            END) paper_u,
+                        bool_or(pt.code='incoming') has_rr
+                      FROM stock_move_line ml
+                      JOIN stock_picking sp ON sp.id=ml.picking_id
+                      JOIN stock_picking_type pt
+                        ON pt.id=sp.picking_type_id
+                      WHERE ml.owner_id=%s AND ml.state='done'
+                        AND ml.lot_id IS NOT NULL
+                        AND COALESCE(sp.x_studio_voided,false)=false
+                      GROUP BY 1),
+                    corr AS (
+                      SELECT q.lot_id,
+                        SUM(COALESCE(al.new_x_studio_2nd_uom,0)
+                            - COALESCE(al.old_x_studio_2nd_uom,0)) dp,
+                        SUM(COALESCE(al.new_x_studio_total_units,0)
+                            - COALESCE(al.old_x_studio_total_units,0)) du
+                      FROM stock_quant_adjustment_line al
+                      JOIN stock_quant q ON q.id=al.quant_id
+                      WHERE al.line_state='approved'
+                        AND al.old_owner_id=%s AND q.lot_id IS NOT NULL
+                      GROUP BY 1),
+                    phys AS (
+                      SELECT q.lot_id,
+                        SUM(COALESCE(q.x_studio_2nd_uom,0)) p,
+                        SUM(COALESCE(q.x_studio_total_units,0)) u
+                      FROM stock_quant q
+                      JOIN stock_location l ON l.id=q.location_id
+                      WHERE q.owner_id=%s AND q.quantity>0
+                        AND l.usage='internal' AND l.warehouse_id=%s
+                        AND COALESCE(q.location_is_bf,false)=%s
+                        AND q.lot_id IS NOT NULL
+                      GROUP BY 1),
+                    cmv AS (
+                      -- lots touched/created by a batch-numbered correction
+                      -- move; OB import moves carry NO batch number, so
+                      -- opening-balance lots never match here
+                      SELECT DISTINCT ml.lot_id
+                      FROM stock_move_line ml
+                      WHERE ml.owner_id=%s AND ml.state='done'
+                        AND ml.picking_id IS NULL
+                        AND ml.adjustment_batch_number IS NOT NULL
+                        AND ml.lot_id IS NOT NULL),
+                    origin_in AS (
+                      SELECT DISTINCT ON (ml.lot_id)
+                             ml.lot_id, ml.picking_id
+                      FROM stock_move_line ml
+                      JOIN stock_picking sp ON sp.id=ml.picking_id
+                      JOIN stock_picking_type pt
+                        ON pt.id=sp.picking_type_id
+                      WHERE ml.owner_id=%s AND ml.state='done'
+                        AND pt.code='incoming' AND ml.lot_id IS NOT NULL
+                      ORDER BY ml.lot_id, ml.date ASC),
+                    origin_out AS (
+                      SELECT DISTINCT ON (ml.lot_id)
+                             ml.lot_id, ml.picking_id
+                      FROM stock_move_line ml
+                      JOIN stock_picking sp ON sp.id=ml.picking_id
+                      JOIN stock_picking_type pt
+                        ON pt.id=sp.picking_type_id
+                      WHERE ml.owner_id=%s AND ml.state='done'
+                        AND pt.code='outgoing' AND ml.lot_id IS NOT NULL
+                      ORDER BY ml.lot_id, ml.date ASC)
+                    SELECT d.lot_id, lot.name,
+                           oi.picking_id, oo.picking_id,
+                           (cmv.lot_id IS NOT NULL) touched_by_batch,
+                           COALESCE(p.p,0)
+                           - (COALESCE(d.paper_p,0)+COALESCE(c.dp,0)) gap_p,
+                           COALESCE(p.u,0)
+                           - (COALESCE(d.paper_u,0)+COALESCE(c.du,0)) gap_u
+                    FROM doc d
+                    LEFT JOIN corr c ON c.lot_id=d.lot_id
+                    LEFT JOIN phys p ON p.lot_id=d.lot_id
+                    LEFT JOIN cmv ON cmv.lot_id=d.lot_id
+                    LEFT JOIN origin_in oi ON oi.lot_id=d.lot_id
+                    LEFT JOIN origin_out oo ON oo.lot_id=d.lot_id
+                    LEFT JOIN stock_lot lot ON lot.id=d.lot_id
+                    WHERE (d.has_rr OR cmv.lot_id IS NOT NULL)
+                      AND (abs(COALESCE(p.p,0)-(COALESCE(d.paper_p,0)
+                               +COALESCE(c.dp,0))) > 0.5
+                        OR abs(COALESCE(p.u,0)-(COALESCE(d.paper_u,0)
+                               +COALESCE(c.du,0))) > 0.5)
+                """, (owner.id, owner.id, owner.id, wh_id, bf,
+                      owner.id, owner.id, owner.id))
+                lot_gaps = self.env.cr.fetchall()
+                batch_by_lot = {}
+                psi_by_lot = {}
+                if lot_gaps:
+                    self.env.cr.execute("""
+                        SELECT ml.lot_id,
+                               string_agg(DISTINCT
+                                   ml.adjustment_batch_number, ', '),
+                               min(ml.date)::date
+                        FROM stock_move_line ml
+                        WHERE ml.owner_id=%s AND ml.state='done'
+                          AND ml.picking_id IS NULL
+                          AND ml.adjustment_batch_number IS NOT NULL
+                          AND ml.lot_id = ANY(%s)
+                        GROUP BY 1
+                    """, (owner.id, [g[0] for g in lot_gaps]))
+                    batch_by_lot = {
+                        lid: (b, d)
+                        for lid, b, d in self.env.cr.fetchall()}
+                    # the pallet series each lot lived on — the identity
+                    # warehouse staff actually recognize (latest wins)
+                    self.env.cr.execute("""
+                        SELECT DISTINCT ON (ml.lot_id)
+                               ml.lot_id, ml.x_studio_pallet_series_id
+                        FROM stock_move_line ml
+                        WHERE ml.state='done' AND ml.lot_id = ANY(%s)
+                          AND COALESCE(
+                              ml.x_studio_pallet_series_id, '') <> ''
+                        ORDER BY ml.lot_id, ml.date DESC
+                    """, ([g[0] for g in lot_gaps],))
+                    psi_by_lot = dict(self.env.cr.fetchall())
+                unattributed_lots = []
+                for (lot_id_g, lot_name, origin_in, origin_out,
+                     touched_by_batch, gap_p, gap_u) in lot_gaps:
+                    psi_g = psi_by_lot.get(lot_id_g)
+                    # attribution target: the RR that received the lot;
+                    # correction-born lots (product change created a fresh
+                    # lot, e.g. batch 00064 / VE-01970) have no RR — their
+                    # story ends at the WR that took the stock out, so the
+                    # difference belongs on that WR's row
+                    origin_pick = origin_in or (
+                        origin_out if touched_by_batch else None)
+                    target = row_by_doc.get(origin_pick)
+                    if not target or target not in prows:
+                        unattributed_lots.append(
+                            (psi_g, lot_name, gap_p, gap_u))
+                        continue
+                    row_post.setdefault(target.id, [0.0, 0.0])
+                    row_post[target.id][0] += gap_p
+                    row_post[target.id][1] += gap_u
+                    lname = (lot_name or str(lot_id_g))
+                    lname = (lname[:40] + '…') if len(lname) > 41 else lname
+                    label = ('PSI %s' % psi_g) if psi_g else 'Lot %s' % lname
+                    ident = ('pallet series %s (lot %s)' % (psi_g, lname)
+                             if psi_g else 'lot %s' % lname)
+                    where_txt = ('this RR received the stock' if origin_in
+                                 else 'this WR withdrew the stock — the lot '
+                                      'was created by a correction and was '
+                                      'never received via any RR')
+                    if lot_id_g in batch_by_lot:
+                        bno, bdate = batch_by_lot[lot_id_g]
+                        why = ('packs on %s were changed by correction '
+                               'batch %s on %s, before the audit trail '
+                               'recorded packaging deltas — the difference '
+                               'is posted on this row because %s'
+                               % (ident, bno, bdate, where_txt))
+                    else:
+                        why = ('packs on %s changed with no recorded '
+                               'event (pre-history era); posted on this '
+                               'row because %s' % (ident, where_txt))
+                    html_rows.setdefault(target.id, []).append(
+                        (label, '%+g pkg / %+g pcs'
+                         % (gap_p, gap_u), why))
+                # write the rebuilt adjustments (single pass per row)
+                for row_id, (d_packs, d_units) in row_post.items():
+                    if round(d_packs, 3) or round(d_units, 3):
+                        self.browse(row_id).with_context(
+                            skip_pkr_recalc=True).write({
+                                'adjustment_packaging': d_packs,
+                                'adjustment_heads': d_units,
+                            })
+
                 grp = self.read_group(
                     [('owner_id', '=', owner.id), ('warehouse', '=', wh_id),
                      ('is_blast_freezer', '=', bf), ('active', '=', True)],
@@ -1426,6 +1644,24 @@ class PalletKilosRecordModel(models.Model):
                         pkg_name = {p.id: p.name
                                     for p in self.env['stock.quant.package']
                                     .browse(list(name_ids))}
+                        # enrich pallet #s with the pallet series they
+                        # carried — the identity warehouse staff recognize
+                        self.env.cr.execute("""
+                            SELECT DISTINCT ON (ml.result_package_id)
+                                   ml.result_package_id,
+                                   ml.x_studio_pallet_series_id
+                            FROM stock_move_line ml
+                            WHERE ml.state='done'
+                              AND ml.result_package_id = ANY(%s)
+                              AND COALESCE(
+                                  ml.x_studio_pallet_series_id, '') <> ''
+                            ORDER BY ml.result_package_id, ml.date DESC
+                        """, (list(name_ids),))
+                        psi_by_pkg = dict(self.env.cr.fetchall())
+                        for pid in list(pkg_name):
+                            if psi_by_pkg.get(pid):
+                                pkg_name[pid] = '%s (PSI %s)' % (
+                                    pkg_name[pid], psi_by_pkg[pid])
                         bits = []
                         for cval, rt, stk, cin, cout, members in culprits[:6]:
                             name = pkg_name.get(rt, rt)
@@ -1550,6 +1786,36 @@ class PalletKilosRecordModel(models.Model):
                         'difference from corrections/imports made before '
                         'the audit trail existed'
                         % (ledger_packs, phys_packs)))
+                    # after the per-lot postings of step 3a, the residual
+                    # holds only: lots whose originating RR row lives
+                    # outside this partition (named below) and the
+                    # opening-balance import variance (packs were written
+                    # straight onto quants at import — no per-lot baseline
+                    # exists on paper, only the OB row's estimate)
+                    named_left = sum(g[1] for g in unattributed_lots)
+                    for psi_u, lot_name, gap_p, gap_u in \
+                            unattributed_lots[:6]:
+                        label = ('PSI %s' % psi_u) if psi_u \
+                            else 'Lot %s' % ((lot_name or '?')[:40])
+                        entries.append((
+                            label, '%+g' % gap_p,
+                            'packs changed without a ledger record and the '
+                            'receiving RR row is not in this partition — '
+                            'difference carried here'))
+                    if len(unattributed_lots) > 6:
+                        entries.append((
+                            'Other lots',
+                            '%+g' % sum(g[1] for g in unattributed_lots[6:]),
+                            '%d more lot(s) with the same cause'
+                            % (len(unattributed_lots) - 6)))
+                    ob_var = pack_residual + named_left
+                    if abs(ob_var) > 0.5:
+                        entries.append((
+                            'Opening-balance variance', '%+g' % -ob_var,
+                            'packs were written directly onto stock at '
+                            'import (import moves carry no packaging), so '
+                            'the OB row total was an estimate — this is '
+                            'the difference against it'))
                 if unit_residual:
                     note_parts.append(
                         '%+g pack(s)/head(s) added (packs ledger %g vs '
