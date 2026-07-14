@@ -788,12 +788,29 @@ class transfer_locations(models.Model):
             return bool([l for l in record.move_line_ids.mapped('lot_id').ids if l])
         return bool([p for p in record.move_line_ids.mapped('x_studio_pallet_series_id') if p])
 
+    def _void_mirror_source(self):
+        """The document this picking reverses, when it is a LINKED, not yet
+        validated void equivalent — (source_picking, kind_label), else
+        (False, ''). Used by the mirror guards: such documents must stay an
+        exact mirror of what they void."""
+        self.ensure_one()
+        if self.state in ('done', 'cancel'):
+            return False, ''
+        if self.is_void_return and self.return_id:
+            return self.return_id, _('void return')
+        if self.is_void_wr and self.void_source_picking_id:
+            return self.void_source_picking_id, _('void withdrawal')
+        return False, ''
+
     def _create_void_wr_from_rr(self, record):
         """
         Create an outgoing (WR) picking to reverse the inventory from a voided RR/BFRR.
         Automatically checks out the same stock quants that were received.
         Returns the created WR picking record.
         """
+        # this generator legitimately (re)builds void-WR lines — exempt it
+        # from the void-mirror guards that block USER edits on those lines
+        self = self.with_context(skip_void_mirror_guard=True)
         is_blast_freeze, is_receiving = record.operation_type_checker(
             record.picking_type_id)
 
@@ -1042,6 +1059,10 @@ class transfer_locations(models.Model):
         wizard will automatically find it and reuse it via _append_to_existing_return.
         Returns the wizard's action result (navigation to the RR).
         """
+        # this generator legitimately (re)builds void-return lines — exempt
+        # it from the void-mirror guards that block USER edits on those lines
+        self = self.with_context(skip_void_mirror_guard=True)
+
         # Verify this is an outgoing operation
         is_blast_freeze, is_receiving = record.operation_type_checker(
             record.picking_type_id)
@@ -1455,21 +1476,26 @@ class transfer_locations(models.Model):
                 'x_studio_receiving_report_id': False,
             })
 
+        # cleanup legitimately dismantles the void child — exempt it from
+        # the void-mirror guards that block USER edits on these documents
+        child_x = child.with_context(skip_void_mirror_guard=True)
+
         # 2. A void WR child (symmetric direction) may hold quant
-        #    reservations — release them before touching its lines.
+        #    reservations — release them before touching its lines
+        #    (unreserve deletes move lines, hence the exemption above).
         if child.picking_type_id.code == 'outgoing' and child.state not in ('draft', 'cancel'):
-            child.do_unreserve()
+            child_x.do_unreserve()
 
         # 3. Delete lines then moves — order matters, see docstring.
         line_count = len(child.move_line_ids)
-        if child.move_line_ids:
-            child.move_line_ids.with_context(
+        if child_x.move_line_ids:
+            child_x.move_line_ids.with_context(
                 skip_pallet_series_sync=True,
                 audit_source='unvoid_cleanup',
             ).unlink()
-        if child.move_ids:
-            child.move_ids._action_cancel()
-            child.move_ids.unlink()
+        if child_x.move_ids:
+            child_x.move_ids._action_cancel()
+            child_x.move_ids.unlink()
 
         # 4. Unbind + normalize: with no moves the picking computes back to
         #    'draft' — a plain leftover, invisible to the void machinery
@@ -2726,6 +2752,44 @@ class transfer_locations(models.Model):
 
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
+        # OWNER-CHANGE GUARD ON LINKED RETURNS: a return RR that changes its
+        # Client while still linked to its WR re-owns the returned stock
+        # (AR#1 copies partner -> owner on save), splitting one lot across
+        # two owners and breaking billing attribution (the M/RR/03721
+        # incident). Block it unless the return link is removed first (or in
+        # the same write), so the document becomes a deliberate standalone RR.
+        if (('partner_id' in vals or 'owner_id' in vals)
+                and not self.env.context.get('skip_return_owner_guard')
+                and not self.env.context.get('skip_void_mirror_guard')):
+            for record in self:
+                # linked RETURN (incl. void returns) — unless being unlinked
+                # in this same write; or linked VOID WR child likewise
+                if record.return_id and vals.get('return_id', True):
+                    link_name, link_kind = record.return_id.name, _('RETURN')
+                elif (record.is_void_wr and record.void_source_picking_id
+                        and vals.get('void_source_picking_id', True)
+                        and vals.get('is_void_wr', True)):
+                    link_name = record.void_source_picking_id.name
+                    link_kind = _('VOID EQUIVALENT')
+                else:
+                    continue
+                for field_name in ('partner_id', 'owner_id'):
+                    if field_name not in vals:
+                        continue
+                    current_id = getattr(record, field_name).id
+                    if vals[field_name] and vals[field_name] != current_id:
+                        raise UserError(_(
+                            "%(doc)s is linked to %(src)s as its %(kind)s — "
+                            "changing the Client/Owner here would re-own the "
+                            "stock and split it from the document it "
+                            "reverses (billing misattribution).\n\n"
+                            "If you really intend a different client, remove "
+                            "the link first.\n"
+                            "WARNING: unlinking makes this a STANDALONE "
+                            "document — it will no longer count against "
+                            "%(src)s.",
+                            doc=record.name, src=link_name, kind=link_kind))
+
         # Capture old x_studio_edit_record values before super write
         old_edit_record_vals = {}
         if 'x_studio_edit_record' in vals:

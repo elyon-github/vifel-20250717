@@ -411,11 +411,20 @@ class ReturnPackageWizard(models.TransientModel):
 
 
     def _find_existing_return(self):
-        """Find existing return picking that is not cancelled or validated"""
-        return self.env['stock.picking'].search([
+        """Find existing return picking that is not cancelled or validated.
+
+        Void returns are excluded UNLESS this wizard is running the void
+        flow itself (voided context): a manual partial return must never
+        append onto a void-equivalent document — its lines mirror the
+        voided WR exactly and are guarded against edits. Manual returns
+        get their own return RR instead."""
+        domain = [
             ('return_id', '=', self.picking_id.id),
-            ('state', 'in', ['draft', 'waiting', 'confirmed', 'assigned'])
-        ], limit=1)
+            ('state', 'in', ['draft', 'waiting', 'confirmed', 'assigned']),
+        ]
+        if not self.env.context.get('voided'):
+            domain.append(('is_void_return', '=', False))
+        return self.env['stock.picking'].search(domain, limit=1)
 
     def _get_unique_identifier(self, package):
         """Get unique identifier for a package based on product, pallet, and dates"""
