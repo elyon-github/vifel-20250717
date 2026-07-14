@@ -1271,26 +1271,34 @@ class PalletKilosRecordModel(models.Model):
                 if prows:
                     # html cleared too: rows are re-explained below, and a
                     # row whose adjustments were wiped must not keep a
-                    # stale reason table
+                    # stale reason table. adjustment_kilos is wiped as
+                    # well: KG adjustments must trace to recorded
+                    # correction lines, NEVER to a balancing residual
+                    # (KG is transaction-recorded in every flow).
                     prows.with_context(skip_pkr_recalc=True).write(
                         {'adjustment_packaging': 0, 'adjustment_heads': 0,
+                         'adjustment_kilos': 0,
                          'adjustment_reason_html': False})
-                row_post = {}   # row -> [packs, units]
+                row_post = {}   # row -> [packs, units, kilos]
                 self.env.cr.execute("""
                     SELECT al.pallet_kilos_record_id,
                            SUM(COALESCE(al.new_x_studio_2nd_uom,0)
                                - COALESCE(al.old_x_studio_2nd_uom,0)),
                            SUM(COALESCE(al.new_x_studio_total_units,0)
-                               - COALESCE(al.old_x_studio_total_units,0))
+                               - COALESCE(al.old_x_studio_total_units,0)),
+                           SUM(COALESCE(al.new_quantity,0)
+                               - COALESCE(al.old_quantity,0))
                     FROM stock_quant_adjustment_line al
                     WHERE al.line_state='approved'
                       AND al.pallet_kilos_record_id = ANY(%s)
                     GROUP BY 1
                 """, (prows.ids or [0],))
-                for row_id, d_packs, d_units in self.env.cr.fetchall():
-                    row_post.setdefault(row_id, [0.0, 0.0])
+                for row_id, d_packs, d_units, d_kilos in \
+                        self.env.cr.fetchall():
+                    row_post.setdefault(row_id, [0.0, 0.0, 0.0])
                     row_post[row_id][0] += d_packs or 0
                     row_post[row_id][1] += d_units or 0
+                    row_post[row_id][2] += d_kilos or 0
 
                 # per-lot inference for the unrecorded era (RR-born lots)
                 self.env.cr.execute("""
@@ -1414,13 +1422,27 @@ class PalletKilosRecordModel(models.Model):
                          lot_name or str(lot_id_g),
                          batch_by_lot.get(lot_id_g),
                          gap_p, gap_u))
+                # EVIDENCE BASIS for balancing: an opening-balance import
+                # exists (documentless arrivals from the Inventory
+                # location, batch-less) or the partition holds an OB row.
+                # Without this basis, an unexplained remainder must NOT be
+                # force-balanced onto the ledger — no data backs it.
+                ob_basis = bool(MoveLine.search_count(
+                    [('state', '=', 'done'), ('picking_id', '=', False),
+                     ('owner_id', '=', owner.id),
+                     ('location_id.usage', '=', 'inventory'),
+                     ('adjustment_batch_number', '=', False)])) or any(
+                    'opening balance' in (r.remarks or '').lower()
+                    for r in prows)
                 # write the rebuilt adjustments (linked-line deltas ONLY)
-                for row_id, (d_packs, d_units) in row_post.items():
-                    if round(d_packs, 3) or round(d_units, 3):
+                for row_id, (d_packs, d_units, d_kilos) in row_post.items():
+                    if round(d_packs, 3) or round(d_units, 3) \
+                            or round(d_kilos, 3):
                         self.browse(row_id).with_context(
                             skip_pkr_recalc=True).write({
                                 'adjustment_packaging': d_packs,
                                 'adjustment_heads': d_units,
+                                'adjustment_kilos': d_kilos,
                             })
                 # ...and explain each posted line in the row's reason table
                 # (the user-visible answer to "where did this packaging
@@ -1433,7 +1455,9 @@ class PalletKilosRecordModel(models.Model):
                            COALESCE(al.new_x_studio_2nd_uom,0)
                            - COALESCE(al.old_x_studio_2nd_uom,0),
                            COALESCE(al.new_x_studio_total_units,0)
-                           - COALESCE(al.old_x_studio_total_units,0)
+                           - COALESCE(al.old_x_studio_total_units,0),
+                           COALESCE(al.new_quantity,0)
+                           - COALESCE(al.old_quantity,0)
                     FROM stock_quant_adjustment_line al
                     JOIN stock_quant_adjustment_request r
                       ON r.id = al.request_id
@@ -1441,12 +1465,15 @@ class PalletKilosRecordModel(models.Model):
                       AND al.pallet_kilos_record_id = ANY(%s)
                     ORDER BY al.create_date
                 """, (prows.ids or [0],))
-                for rid, bno, bdate, psi_l, dp, du in self.env.cr.fetchall():
-                    if not round(dp, 3) and not round(du, 3):
+                for rid, bno, bdate, psi_l, dp, du, dk in \
+                        self.env.cr.fetchall():
+                    if not round(dp, 3) and not round(du, 3) \
+                            and not round(dk, 3):
                         continue
                     amount = ' / '.join(filter(None, [
                         '%+g pkg' % dp if round(dp, 3) else '',
-                        '%+g pcs' % du if round(du, 3) else '']))
+                        '%+g pcs' % du if round(du, 3) else '',
+                        '%+g kg' % dk if round(dk, 3) else '']))
                     html_rows.setdefault(rid, []).append((
                         ('PSI %s' % psi_l) if psi_l else 'Correction',
                         amount,
@@ -1767,30 +1794,48 @@ class PalletKilosRecordModel(models.Model):
                 # opening-balance import imprecision), so the difference is
                 # posted whole and visibly explained
                 if pack_residual:
-                    note_parts.append(
-                        '%+g packaging added (quantity ledger %g vs physical '
-                        '%g — packs changed by old corrections/imports that '
-                        'left no ledger record)'
-                        % (-pack_residual, ledger_packs, phys_packs))
-                    anchor_vals['adjustment_packaging'] = \
-                        (anchor.adjustment_packaging or 0) - pack_residual
-                    entries.append((
-                        'RESIDUAL packaging', '%+g' % -pack_residual,
-                        'quantity (2nd UOM) ledger %g vs physical %g — '
-                        'difference from corrections/imports made before '
-                        'the audit trail existed'
-                        % (ledger_packs, phys_packs)))
-                    # NAMED explanation of the packaging residual (nothing
-                    # here is posted per row — see step 3a note):
-                    #  - top per-lot gaps, PSI-first, with the correction
-                    #    batch/date when one touched the lot
-                    #  - one aggregation line when ± gaps largely cancel
-                    #    (stock relabeled between lots/series by
-                    #    corrections)
-                    #  - the remainder = opening-balance import variance
+                    # EVIDENCE-BOUNDED balancing: the lot gaps are the
+                    # data-backed part; the remainder is claimable as
+                    # opening-balance variance ONLY when an OB import
+                    # actually exists. Without that basis the remainder is
+                    # NOT posted — it stays visibly unbalanced (the health
+                    # monitor keeps flagging it) instead of being hidden
+                    # behind an invented adjustment.
                     gap_total = sum(g[3] for g in pack_gap_notes)
                     pos_sum = sum(g[3] for g in pack_gap_notes if g[3] > 0)
                     neg_sum = sum(g[3] for g in pack_gap_notes if g[3] < 0)
+                    ob_var = -pack_residual - gap_total
+                    if ob_basis or abs(ob_var) <= 0.5:
+                        posted_p, unresolved_p = -pack_residual, 0.0
+                    else:
+                        posted_p, unresolved_p = gap_total, ob_var
+                    if round(posted_p, 3):
+                        note_parts.append(
+                            '%+g packaging added (quantity ledger %g vs '
+                            'physical %g — packs changed by old '
+                            'corrections/imports that left no ledger '
+                            'record)' % (posted_p, ledger_packs, phys_packs))
+                        anchor_vals['adjustment_packaging'] = \
+                            (anchor.adjustment_packaging or 0) + posted_p
+                        entries.append((
+                            'RESIDUAL packaging', '%+g' % posted_p,
+                            'quantity (2nd UOM) ledger %g vs physical %g — '
+                            'difference from corrections/imports made '
+                            'before the audit trail existed'
+                            % (ledger_packs, phys_packs)))
+                    if round(unresolved_p, 3):
+                        note_parts.append(
+                            '%+g packaging left UNBALANCED — no data '
+                            '(no opening-balance import, no correction '
+                            'trail) supports it' % unresolved_p)
+                        entries.append((
+                            'UNRESOLVED packaging', '%+g' % unresolved_p,
+                            'ledger and physical stock differ by this '
+                            'amount but NO data explains it (this client '
+                            'has no opening-balance import and no '
+                            'correction trail for it) — deliberately left '
+                            'unbalanced; the health monitor will keep '
+                            'flagging it until investigated'))
                     # name gaps with a PROVABLE correction event (batch)
                     # first — those are reviewable — then by magnitude
                     pack_gap_notes.sort(
@@ -1828,39 +1873,65 @@ class PalletKilosRecordModel(models.Model):
                             'offset each other; only the net difference '
                             'is real' % (pos_sum, neg_sum,
                                          len(pack_gap_notes))))
-                    ob_var = -pack_residual - gap_total
-                    if abs(ob_var) > 0.5:
+                    if ob_basis and abs(ob_var) > 0.5:
                         entries.append((
                             'Opening-balance variance', '%+g' % ob_var,
                             'packs were written directly onto stock at '
                             'import (import moves carry no packaging), so '
                             'the OB row total was an estimate — this is '
-                            'the difference against it'))
+                            'the difference against it (backed by the '
+                            'client\'s actual import transactions)'))
                 if unit_residual:
-                    note_parts.append(
-                        '%+g pack(s)/head(s) added (packs ledger %g vs '
-                        'physical %g)' % (-unit_residual, ledger_units,
-                                          phys_units))
-                    anchor_vals['adjustment_heads'] = \
-                        (anchor.adjustment_heads or 0) - unit_residual
-                    entries.append((
-                        'RESIDUAL packs', '%+g' % -unit_residual,
-                        'packs/heads ledger %g vs physical %g — difference '
-                        'from corrections/imports made before the audit '
-                        'trail existed' % (ledger_units, phys_units)))
+                    explained_u = sum(g[4] for g in pack_gap_notes)
+                    ob_var_u = -unit_residual - explained_u
+                    if ob_basis or abs(ob_var_u) <= 0.5:
+                        posted_u, unresolved_u = -unit_residual, 0.0
+                    else:
+                        posted_u, unresolved_u = explained_u, ob_var_u
+                    if round(posted_u, 3):
+                        note_parts.append(
+                            '%+g pack(s)/head(s) added (packs ledger %g vs '
+                            'physical %g)' % (posted_u, ledger_units,
+                                              phys_units))
+                        anchor_vals['adjustment_heads'] = \
+                            (anchor.adjustment_heads or 0) + posted_u
+                        entries.append((
+                            'RESIDUAL packs', '%+g' % posted_u,
+                            'packs/heads ledger %g vs physical %g — '
+                            'difference from corrections/imports made '
+                            'before the audit trail existed'
+                            % (ledger_units, phys_units)))
+                    if round(unresolved_u, 3):
+                        note_parts.append(
+                            '%+g pack(s)/head(s) left UNBALANCED — no '
+                            'transaction data supports it' % unresolved_u)
+                        entries.append((
+                            'UNRESOLVED packs', '%+g' % unresolved_u,
+                            'no transaction (document, correction line or '
+                            'import move) explains this difference — '
+                            'deliberately left unbalanced for '
+                            'investigation'))
                 if kilo_residual:
+                    # KG residuals are NEVER force-posted. Unlike
+                    # packaging, weight is transaction-recorded in EVERY
+                    # flow — documents, correction lines, even OB import
+                    # moves carry actual kilos — so a KG difference with
+                    # no line behind it is always a real error (user-side
+                    # or data), and the truth must stay visible: it is
+                    # left unbalanced and the health monitor keeps
+                    # flagging it (the FOODASIA -1173.05 case).
                     note_parts.append(
-                        '%+g KG added (kilos ledger %g vs physical %g — '
-                        'weight changed by old corrections/imports that '
-                        'left no ledger record)'
-                        % (-kilo_residual, ledger_kilos, phys_kilos))
-                    anchor_vals['adjustment_kilos'] = \
-                        (anchor.adjustment_kilos or 0) - kilo_residual
+                        '%+g KG left UNBALANCED — weight is fully '
+                        'transaction-recorded, so a difference no line '
+                        'explains is a real error to investigate'
+                        % -kilo_residual)
                     entries.append((
-                        'RESIDUAL kilos', '%+g' % -kilo_residual,
-                        'weight (KG) ledger %g vs physical %g — difference '
-                        'from corrections/imports made before the audit '
-                        'trail existed' % (ledger_kilos, phys_kilos)))
+                        'UNRESOLVED kilos', '%+g' % -kilo_residual,
+                        'weight (KG) ledger %g vs physical %g — no '
+                        'transaction (document, correction line or import '
+                        'move) explains this difference; deliberately '
+                        'left unbalanced so the error stays visible'
+                        % (ledger_kilos, phys_kilos)))
                 note = ('pallet re-sync residual %s: %s'
                         % (today, ' | '.join(note_parts)))
                 anchor_vals['remarks'] = ((anchor.remarks + ' | ')
