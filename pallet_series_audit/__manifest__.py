@@ -45,7 +45,7 @@ Housekeeping
     'maintainer': "Elyon Solutions International Inc.",
     'website': "https://templanza-portfolio.netlify.app/",
     'category': 'Inventory/Inventory',
-    'version': '17.0.1.1.0',
+    'version': '17.0.1.0.0',
     'depends': ['multiple_relocation'],
     'data': [
         'security/security.xml',
