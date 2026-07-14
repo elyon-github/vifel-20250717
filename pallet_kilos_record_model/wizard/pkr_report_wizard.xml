@@ -14,6 +14,7 @@
                 <group invisible="report_type == 'daily_pallet_utilization'">
                     <group string="Customer / Client">
                         <field name="partner_ids" widget="many2many_tags" options="{'no_create': True}" placeholder="All clients (leave empty for all)" string="Customers" colspan="2"/>
+                        <field name="warehouse_ids" widget="many2many_tags" options="{'no_create': True}" placeholder="All warehouses (leave empty for all)" colspan="2"/>
                     </group>
                     <group string="Date Range">
                         <field name="date_from"/>

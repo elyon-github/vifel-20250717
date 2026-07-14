@@ -58,6 +58,13 @@
             <field name="total_balance_in_kilos" optional="show"/>
             <field name="overall_pallets" optional="hide"/>
             <field name="overall_kilos" optional="hide"/>
+            <field name="adjustment_pallets" sum="Sum" optional="hide"/>
+            <field name="adjustment_kilos" sum="Sum" optional="hide"/>
+            <field name="adjustment_packaging" sum="Sum" optional="hide"/>
+            <field name="adjustment_heads" sum="Sum" optional="hide"/>
+            <field name="beginning_balance_in_pallets" optional="hide"/>
+            <field name="beginning_balance_in_kilos" optional="hide"/>
+            <field name="remarks" optional="hide"/>
 
         </tree>
     </field>
@@ -146,13 +153,17 @@
                             </group>
                         </group>
                     </page>
-                    <page string="Adjustment Information">
+                    <page name="adjustment_information" string="Adjustment Information">
                         <group>
                             <group string="Adjustment">
                                 <field name="adjustment_heads"/>
                                 <field name="adjustment_packaging"/>
                                 <field name="adjustment_pallets" />
                                 <field name="adjustment_kilos"/>
+                            </group>
+                            <group string="Reason / Notes">
+                                <field name="adjustment_reason_html" readonly="1" nolabel="1" colspan="2"/>
+                                <field name="remarks" readonly="1" nolabel="1" colspan="2"/>
                             </group>
                         </group>
                     </page>

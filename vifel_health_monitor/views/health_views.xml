@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- ==================== DASHBOARD (check kanban) ==================== -->
+    <record id="view_health_check_kanban" model="ir.ui.view">
+        <field name="name">vifel.health.check.kanban</field>
+        <field name="model">vifel.health.check</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="category" create="false" delete="false"
+                    records_draggable="false" class="o_kanban_dashboard">
+                <field name="open_count"/>
+                <field name="new_count"/>
+                <field name="ignored_count"/>
+                <field name="severity"/>
+                <field name="last_run"/>
+                <field name="last_error"/>
+                <field name="resolved_last_run"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div t-attf-class="oe_kanban_global_click #{record.open_count.raw_value ? (record.severity.raw_value == 'critical' ? 'border-danger' : 'border-warning') : 'border-success'}"
+                             style="border-left-width: 4px; border-left-style: solid;">
+                            <div class="o_kanban_record_top">
+                                <b><field name="name"/></b>
+                            </div>
+                            <div class="o_kanban_record_body">
+                                <div style="font-size: 26px; font-weight: bold;"
+                                     t-attf-class="#{record.open_count.raw_value ? 'text-danger' : 'text-success'}">
+                                    <t t-esc="record.open_count.raw_value"/>
+                                    <span style="font-size: 12px; font-weight: normal;"> open</span>
+                                </div>
+                                <div t-if="record.new_count.raw_value" class="text-danger">
+                                    ▲ <t t-esc="record.new_count.raw_value"/> new
+                                </div>
+                                <div t-if="record.resolved_last_run.raw_value" class="text-success">
+                                    ▼ <t t-esc="record.resolved_last_run.raw_value"/> resolved last run
+                                </div>
+                                <div t-if="record.ignored_count.raw_value" class="text-muted">
+                                    <t t-esc="record.ignored_count.raw_value"/> ignored
+                                </div>
+                                <div t-if="record.last_error.raw_value" class="text-danger">
+                                    ⚠ check failed — see form
+                                </div>
+                            </div>
+                            <div class="o_kanban_record_bottom">
+                                <div class="oe_kanban_bottom_left text-muted" style="font-size: 11px;">
+                                    <field name="last_run"/>
+                                </div>
+                                <div class="oe_kanban_bottom_right">
+                                    <button name="action_view_findings" type="object"
+                                            class="btn btn-sm btn-link">Findings</button>
+                                    <button name="action_run_single" type="object"
+                                            class="btn btn-sm btn-link">Run</button>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_health_check_form" model="ir.ui.view">
+        <field name="name">vifel.health.check.form</field>
+        <field name="model">vifel.health.check</field>
+        <field name="arch" type="xml">
+            <form create="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name" readonly="1"/>
+                            <field name="code" readonly="1"/>
+                            <field name="category" readonly="1"/>
+                            <field name="severity"/>
+                            <field name="active" widget="boolean_toggle"/>
+                        </group>
+                        <group>
+                            <field name="last_run" readonly="1"/>
+                            <field name="last_duration_ms" readonly="1"/>
+                            <field name="open_count"/>
+                            <field name="new_count"/>
+                        </group>
+                    </group>
+                    <field name="description" readonly="1"/>
+                    <group string="Last Error" invisible="not last_error">
+                        <field name="last_error" readonly="1" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ==================== FINDINGS ==================== -->
+    <record id="view_health_finding_tree" model="ir.ui.view">
+        <field name="name">vifel.health.finding.tree</field>
+        <field name="model">vifel.health.finding</field>
+        <field name="arch" type="xml">
+            <tree create="false" delete="false"
+                  decoration-danger="state != 'resolved' and severity == 'critical' and not ignored"
+                  decoration-warning="state != 'resolved' and severity == 'warning' and not ignored"
+                  decoration-muted="state == 'resolved' or ignored">
+                <field name="first_seen" widget="date"/>
+                <field name="check_id"/>
+                <field name="severity" widget="badge"
+                       decoration-danger="severity == 'critical'"
+                       decoration-warning="severity == 'warning'"/>
+                <field name="owner_id" optional="show"/>
+                <field name="reference"/>
+                <field name="detail"/>
+                <field name="measured" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-danger="state == 'new'"
+                       decoration-warning="state == 'open'"
+                       decoration-success="state == 'resolved'"/>
+                <field name="last_seen" optional="hide"/>
+                <field name="ignored" optional="show"/>
+                <field name="quant_domain" column_invisible="1"/>
+                <button name="action_view_quants" type="object" icon="fa-cubes"
+                        title="Preview the quants behind this finding"
+                        invisible="not quant_domain"/>
+                <button name="action_open_record" type="object" icon="fa-external-link"
+                        title="Open the affected record"/>
+                <button name="action_toggle_ignored" type="object" icon="fa-bell-slash"
+                        title="Toggle Ignored (known and accepted)"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_health_finding_form" model="ir.ui.view">
+        <field name="name">vifel.health.finding.form</field>
+        <field name="model">vifel.health.finding</field>
+        <field name="arch" type="xml">
+            <form create="false" delete="false">
+                <header>
+                    <button name="action_view_quants" type="object"
+                            string="View Quants" class="btn-primary"
+                            invisible="not quant_domain"/>
+                    <button name="action_open_record" type="object"
+                            string="Open Record"
+                            invisible="not res_model"/>
+                    <button name="action_toggle_ignored" type="object"
+                            string="Toggle Ignored"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="check_id" readonly="1"/>
+                            <field name="severity" readonly="1"/>
+                            <field name="owner_id" readonly="1"/>
+                            <field name="reference" readonly="1"/>
+                            <field name="measured" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="first_seen" readonly="1"/>
+                            <field name="last_seen" readonly="1"/>
+                            <field name="resolved_date" readonly="1"/>
+                            <field name="ignored" readonly="1"/>
+                            <field name="ignored_by" readonly="1" invisible="not ignored"/>
+                            <field name="ignored_date" readonly="1" invisible="not ignored"/>
+                        </group>
+                    </group>
+                    <field name="detail" readonly="1"/>
+                    <group invisible="1">
+                        <field name="res_model"/>
+                        <field name="res_id"/>
+                        <field name="dedup_key"/>
+                        <field name="quant_domain"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_health_finding_search" model="ir.ui.view">
+        <field name="name">vifel.health.finding.search</field>
+        <field name="model">vifel.health.finding</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="reference"/>
+                <field name="owner_id"/>
+                <field name="check_id"/>
+                <field name="detail"/>
+                <filter string="Unresolved" name="unresolved"
+                        domain="[('state', '!=', 'resolved'), ('ignored', '=', False)]"/>
+                <filter string="New" name="new" domain="[('state', '=', 'new')]"/>
+                <filter string="Resolved" name="resolved" domain="[('state', '=', 'resolved')]"/>
+                <filter string="Ignored" name="ignored" domain="[('ignored', '=', True)]"/>
+                <separator/>
+                <filter string="Critical" name="critical" domain="[('severity', '=', 'critical')]"/>
+                <group expand="0" string="Group By">
+                    <filter string="Check" name="group_check" context="{'group_by': 'check_id'}"/>
+                    <filter string="Client" name="group_owner" context="{'group_by': 'owner_id'}"/>
+                    <filter string="Severity" name="group_severity" context="{'group_by': 'severity'}"/>
+                    <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ==================== RUN HISTORY ==================== -->
+    <record id="view_health_run_tree" model="ir.ui.view">
+        <field name="name">vifel.health.run.tree</field>
+        <field name="model">vifel.health.run</field>
+        <field name="arch" type="xml">
+            <tree create="false" delete="false"
+                  decoration-danger="new_findings > 0 or checks_failed > 0">
+                <field name="run_date"/>
+                <field name="trigger"/>
+                <field name="checks_run"/>
+                <field name="checks_failed"/>
+                <field name="new_findings"/>
+                <field name="resolved_findings"/>
+                <field name="open_findings"/>
+                <field name="duration_ms"/>
+                <field name="summary"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- ==================== ACTIONS ==================== -->
+    <record id="action_health_dashboard" model="ir.actions.act_window">
+        <field name="name">System Health</field>
+        <field name="res_model">vifel.health.check</field>
+        <field name="view_mode">kanban,form</field>
+    </record>
+
+    <record id="action_health_findings" model="ir.actions.act_window">
+        <field name="name">Health Findings</field>
+        <field name="res_model">vifel.health.finding</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="view_health_finding_search"/>
+        <field name="context">{'search_default_unresolved': 1, 'search_default_group_check': 1}</field>
+    </record>
+
+    <record id="action_health_runs" model="ir.actions.act_window">
+        <field name="name">Health Run History</field>
+        <field name="res_model">vifel.health.run</field>
+        <field name="view_mode">tree</field>
+    </record>
+
+    <record id="action_health_run_now" model="ir.actions.server">
+        <field name="name">Run Health Checks Now</field>
+        <field name="model_id" ref="model_vifel_health_check"/>
+        <field name="state">code</field>
+        <field name="code">action = model.run_all_checks(trigger='manual')</field>
+    </record>
+
+    <!-- ==================== MENUS (admin-only) ==================== -->
+    <menuitem id="menu_health_root" name="System Health"
+              parent="stock.menu_warehouse_report" sequence="90"
+              groups="multiple_relocation.inventory_super_admin,base.group_system"/>
+    <menuitem id="menu_health_dashboard" name="Dashboard"
+              parent="menu_health_root" action="action_health_dashboard" sequence="10"
+              groups="multiple_relocation.inventory_super_admin,base.group_system"/>
+    <menuitem id="menu_health_findings" name="Findings"
+              parent="menu_health_root" action="action_health_findings" sequence="20"
+              groups="multiple_relocation.inventory_super_admin,base.group_system"/>
+    <menuitem id="menu_health_runs" name="Run History"
+              parent="menu_health_root" action="action_health_runs" sequence="30"
+              groups="multiple_relocation.inventory_super_admin,base.group_system"/>
+    <menuitem id="menu_health_run_now" name="Run Checks Now"
+              parent="menu_health_root" action="action_health_run_now" sequence="40"
+              groups="multiple_relocation.inventory_super_admin,base.group_system"/>
+
+</odoo>

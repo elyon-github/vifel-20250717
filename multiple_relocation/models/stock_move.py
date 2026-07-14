@@ -279,6 +279,28 @@ class stock_move_line_Override(models.Model):
 
     adjustment_batch_number = fields.Char(string="Adjustment Batch #")
 
+    @api.constrains('location_dest_id', 'state')
+    def _check_dest_is_specific_location(self):
+        """Stock may only be placed on SPECIFIC bins (leaf locations such as
+        .../R07/L6/P1) — never on aisle/building/parent locations like M/M
+        or M/A. A parent location holding stock becomes a reservable stock
+        spot, which corrupts location-level reporting and withdrawals.
+
+        Enforced only when the line is DONE (the moment stock lands):
+        draft/assigned RR lines legitimately inherit the picking's default
+        destination (an aisle) and get their exact bin before validation."""
+        for line in self:
+            if line.state != 'done':
+                continue
+            dest = line.location_dest_id
+            if (dest and dest.usage == 'internal'
+                    and any(ch.usage == 'internal'
+                            for ch in dest.child_ids)):
+                raise ValidationError(_(
+                    'Location "%s" is not a specific pallet position — it '
+                    'contains sub-locations. Please pick the exact bin '
+                    '(e.g. ...R07/L6/P1).') % dest.complete_name)
+
     x_studio_ = fields.Integer(string="#", group_operator=False)
 
     x_studio_reason_for_adjustment = fields.Char(

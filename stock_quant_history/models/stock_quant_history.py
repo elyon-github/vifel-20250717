@@ -54,6 +54,13 @@ class StockQuantHistory(models.Model):
         index=True,
         check_company=True,
     )
+    # Multi-warehouse Phase 1. Existing rows are backfilled by raw SQL in
+    # migrations/17.0.1.1.0/pre-migrate.py (the table holds ~1M+ rows; the
+    # pre-created column stops the ORM from recomputing them one by one).
+    warehouse_id = fields.Many2one(
+        related="location_id.warehouse_id", store=True, index=True,
+        string="Warehouse",
+    )
     lot_id = fields.Many2one(
         "stock.lot",
         "Lot/Serial Number",
