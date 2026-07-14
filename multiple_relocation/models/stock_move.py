@@ -43,18 +43,18 @@ class StockMove(models.Model):
                     "%(src)s).",
                     doc=picking.name, kind=kind, src=source.name, what=what))
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        picking_ids = list({v['picking_id'] for v in vals_list
-                            if v.get('picking_id')})
-        if picking_ids:
-            self._void_mirror_move_guard(
-                _('add operations to it'), picking_ids=picking_ids)
-        return super().create(vals_list)
+    # @api.model_create_multi
+    # def create(self, vals_list):
+    #     picking_ids = list({v['picking_id'] for v in vals_list
+    #                         if v.get('picking_id')})
+    #     if picking_ids:
+    #         self._void_mirror_move_guard(
+    #             _('add operations to it'), picking_ids=picking_ids)
+    #     return super().create(vals_list)
 
-    def unlink(self):
-        self._void_mirror_move_guard(_('remove operations from it'))
-        return super().unlink()
+    # def unlink(self):
+    #     self._void_mirror_move_guard(_('remove operations from it'))
+    #     return super().unlink()
 
     _inherit = 'stock.move'
     quant_ids_picked = fields.Many2many(
@@ -674,34 +674,34 @@ class stock_move_line_Override(models.Model):
     #     # Proceed with the deletion
     #     res = super(stock_move_line_Override, self).unlink()
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        # VOID-MIRROR GUARD: no manual pallet lines may be ADDED to a linked,
-        # unvalidated void equivalent (its generators are context-exempt)
-        if not self._void_mirror_exempt():
-            picking_ids = {v['picking_id'] for v in vals_list
-                           if v.get('picking_id')}
-            for picking in self.env['stock.picking'].browse(list(picking_ids)):
-                source, kind = picking._void_mirror_source()
-                if source:
-                    self._void_mirror_raise(
-                        picking, source, kind, _('add pallet lines to it'))
-        return super().create(vals_list)
+    # @api.model_create_multi
+    # def create(self, vals_list):
+    #     # VOID-MIRROR GUARD: no manual pallet lines may be ADDED to a linked,
+    #     # unvalidated void equivalent (its generators are context-exempt)
+    #     if not self._void_mirror_exempt():
+    #         picking_ids = {v['picking_id'] for v in vals_list
+    #                        if v.get('picking_id')}
+    #         for picking in self.env['stock.picking'].browse(list(picking_ids)):
+    #             source, kind = picking._void_mirror_source()
+    #             if source:
+    #                 self._void_mirror_raise(
+    #                     picking, source, kind, _('add pallet lines to it'))
+        # return super().create(vals_list)
 
-    def unlink(self):
-        # VOID-MIRROR GUARD: no pallet lines may be REMOVED from a linked,
-        # unvalidated void equivalent (unvoid cleanup is context-exempt)
-        if not self._void_mirror_exempt():
-            for line in self:
-                picking = line.picking_id
-                if not picking:
-                    continue
-                source, kind = picking._void_mirror_source()
-                if source:
-                    self._void_mirror_raise(
-                        picking, source, kind,
-                        _('remove pallet lines from it'))
-        return super().unlink()
+    # def unlink(self):
+    #     # VOID-MIRROR GUARD: no pallet lines may be REMOVED from a linked,
+    #     # unvalidated void equivalent (unvoid cleanup is context-exempt)
+    #     if not self._void_mirror_exempt():
+    #         for line in self:
+    #             picking = line.picking_id
+    #             if not picking:
+    #                 continue
+    #             source, kind = picking._void_mirror_source()
+    #             if source:
+    #                 self._void_mirror_raise(
+    #                     picking, source, kind,
+    #                     _('remove pallet lines from it'))
+    #     return super().unlink()
 
     def write(self, vals):
         """Override write to handle multi-edit of result_package_id on stock.move.line.
@@ -713,7 +713,7 @@ class stock_move_line_Override(models.Model):
         """
         # VOID-MIRROR GUARD: KG / Packaging / Packs on a linked, unvalidated
         # void equivalent must stay identical to the voided document
-        self._void_mirror_guard_write(vals)
+        # self._void_mirror_guard_write(vals)
 
         # Skip when called from action_confirm (wizard already handles everything)
         if self.env.context.get('skip_pallet_series_sync'):
