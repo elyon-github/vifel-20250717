@@ -1792,7 +1792,7 @@ class PalletKilosRecordModel(models.Model):
                     # opening-balance import variance (packs were written
                     # straight onto quants at import — no per-lot baseline
                     # exists on paper, only the OB row's estimate)
-                    named_left = sum(g[1] for g in unattributed_lots)
+                    named_left = sum(g[2] for g in unattributed_lots)
                     for psi_u, lot_name, gap_p, gap_u in \
                             unattributed_lots[:6]:
                         label = ('PSI %s' % psi_u) if psi_u \
@@ -1805,7 +1805,7 @@ class PalletKilosRecordModel(models.Model):
                     if len(unattributed_lots) > 6:
                         entries.append((
                             'Other lots',
-                            '%+g' % sum(g[1] for g in unattributed_lots[6:]),
+                            '%+g' % sum(g[2] for g in unattributed_lots[6:]),
                             '%d more lot(s) with the same cause'
                             % (len(unattributed_lots) - 6)))
                     ob_var = pack_residual + named_left
