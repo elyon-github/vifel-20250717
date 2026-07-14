@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo noupdate="1">
+
+    <!-- Config parameters (edit in Settings → Technical → System Parameters) -->
+    <record id="param_stamp_cutoff" model="ir.config_parameter">
+        <field name="key">vifel_health.stamp_cutoff</field>
+        <field name="value">2026-07-12</field>
+    </record>
+    <record id="param_watchdog_automations" model="ir.config_parameter">
+        <field name="key">vifel_health.watchdog_automation_ids</field>
+        <field name="value">1,2,6,8,10,15,17,26,38</field>
+    </record>
+    <record id="param_watchdog_crons" model="ir.config_parameter">
+        <field name="key">vifel_health.watchdog_cron_ids</field>
+        <field name="value"></field>
+    </record>
+    <record id="param_snapshot_max_age" model="ir.config_parameter">
+        <field name="key">vifel_health.snapshot_max_age_days</field>
+        <field name="value">8</field>
+    </record>
+
+    <!-- ===================== LEDGER ===================== -->
+    <record id="check_pallet_drift" model="vifel.health.check">
+        <field name="code">pallet_drift</field>
+        <field name="name">Pallet Ledger Drift</field>
+        <field name="category">ledger</field>
+        <field name="severity">critical</field>
+        <field name="sequence">10</field>
+        <field name="description">Per (client, warehouse, blast-freeze) partition: pallet ledger total (received − withdrawn + adjustment on active PKR rows) vs actual distinct stocked pallets. Any difference means the ledger no longer reflects the floor. Re-sync Pallet Counts repairs it.</field>
+    </record>
+    <record id="check_kg_pack_drift" model="vifel.health.check">
+        <field name="code">kg_pack_drift</field>
+        <field name="name">KG / Packaging Ledger Drift</field>
+        <field name="category">ledger</field>
+        <field name="severity">critical</field>
+        <field name="sequence">11</field>
+        <field name="description">Latest running balance in kilos and packaging vs the sums on physical stock, per partition. Billing runs on these totals.</field>
+    </record>
+    <record id="check_pkr_coverage" model="vifel.health.check">
+        <field name="code">pkr_coverage</field>
+        <field name="name">PKR Document Coverage</field>
+        <field name="category">ledger</field>
+        <field name="severity">critical</field>
+        <field name="sequence">12</field>
+        <field name="description">Every validated, non-voided RR/WR must have exactly ONE active Pallet Kilos Record row. Missing = uncounted document; duplicates = double counting.</field>
+    </record>
+    <record id="check_balance_continuity" model="vifel.health.check">
+        <field name="code">balance_continuity</field>
+        <field name="name">Running Balance Continuity</field>
+        <field name="category">ledger</field>
+        <field name="severity">warning</field>
+        <field name="sequence">13</field>
+        <field name="description">Each ledger row's totals must equal the previous row's totals plus its own flows (pallets and kilos). Breaks indicate manual edits or a recalculation bug; Recompute Balances repairs the partition.</field>
+    </record>
+
+    <!-- ===================== IDENTITY ===================== -->
+    <record id="check_split_psi" model="vifel.health.check">
+        <field name="code">split_psi</field>
+        <field name="name">Split Pallet Series</field>
+        <field name="category">identity</field>
+        <field name="severity">critical</field>
+        <field name="sequence">20</field>
+        <field name="description">A pallet series with stocked quants on more than one pallet number. One series = one physical pallet; splits confuse picking, occupancy and the AR#17 reducer.</field>
+    </record>
+    <record id="check_package_two_locations" model="vifel.health.check">
+        <field name="code">package_two_locations</field>
+        <field name="name">Pallet In Two Locations</field>
+        <field name="category">identity</field>
+        <field name="severity">critical</field>
+        <field name="sequence">21</field>
+        <field name="description">A pallet number with stock sitting in two different bins at once — physically impossible, always data drift.</field>
+    </record>
+    <record id="check_blank_psi" model="vifel.health.check">
+        <field name="code">blank_psi</field>
+        <field name="name">Blank Pallet Series</field>
+        <field name="category">identity</field>
+        <field name="severity">warning</field>
+        <field name="sequence">22</field>
+        <field name="description">Stocked, palletized stock without a pallet series — the disappearing-series signature.</field>
+    </record>
+    <record id="check_blank_bf_text" model="vifel.health.check">
+        <field name="code">blank_bf_text</field>
+        <field name="name">Blank BF Pallet Text</field>
+        <field name="category">identity</field>
+        <field name="severity">warning</field>
+        <field name="sequence">23</field>
+        <field name="description">Blast-freeze stock without a Pallet Text — BF identity and withdrawal counting depend on it.</field>
+    </record>
+
+    <!-- ===================== STOCK ===================== -->
+    <record id="check_negative_stock" model="vifel.health.check">
+        <field name="code">negative_stock</field>
+        <field name="name">Negative Stock</field>
+        <field name="category">stock</field>
+        <field name="severity">critical</field>
+        <field name="sequence">30</field>
+        <field name="description">Internal locations with negative quantities — a validation was forced beyond available stock.</field>
+    </record>
+    <record id="check_ownerless_stock" model="vifel.health.check">
+        <field name="code">ownerless_stock</field>
+        <field name="name">Owner-less Stock</field>
+        <field name="category">stock</field>
+        <field name="severity">critical</field>
+        <field name="sequence">31</field>
+        <field name="description">Stocked quants without an owner — cold storage nobody is being billed for.</field>
+    </record>
+    <record id="check_referenceless_stock" model="vifel.health.check">
+        <field name="code">referenceless_stock</field>
+        <field name="name">Reference-less Stock (per client)</field>
+        <field name="category">stock</field>
+        <field name="severity">info</field>
+        <field name="sequence">32</field>
+        <field name="description">Stocked palletized quants with no record reference at all (excluding opening-balance stock), aggregated per client. Correction attribution degrades to the latest-row fallback for these.</field>
+    </record>
+    <record id="check_zero_with_packs" model="vifel.health.check">
+        <field name="code">zero_with_packs</field>
+        <field name="name">Zero KG With Packs</field>
+        <field name="category">stock</field>
+        <field name="severity">warning</field>
+        <field name="sequence">33</field>
+        <field name="description">Quants at 0 KG that still show packaging or packs — inconsistent zeros that distort pack-based reports.</field>
+    </record>
+    <record id="check_owner_mismatch" model="vifel.health.check">
+        <field name="code">owner_mismatch</field>
+        <field name="name">Owner Mismatch</field>
+        <field name="category">stock</field>
+        <field name="severity">critical</field>
+        <field name="sequence">35</field>
+        <field name="description">Stock whose owner no longer matches its origin: quants owned by a different client than their reference document, validated returns re-owned versus the document they return to (the M/RR/03721 pattern — now also blocked at write time), and lots stocked under two owners at once.</field>
+    </record>
+    <record id="check_stuck_zero_quants" model="vifel.health.check">
+        <field name="code">stuck_zero_quants</field>
+        <field name="name">Stuck Zero Quants</field>
+        <field name="category">stock</field>
+        <field name="severity">warning</field>
+        <field name="sequence">34</field>
+        <field name="description">Dead 0-KG quant records the automatic sweeper cannot delete (stale inventory-count values, assigned counter, or a leftover reservation).</field>
+    </record>
+
+    <!-- ===================== PROCESS ===================== -->
+    <record id="check_orphan_voids" model="vifel.health.check">
+        <field name="code">orphan_voids</field>
+        <field name="name">Orphaned Void Children</field>
+        <field name="category">process</field>
+        <field name="severity">warning</field>
+        <field name="sequence">40</field>
+        <field name="description">Unvalidated void RR/WR documents still bound to a parent that is no longer voided — they could be validated or recycled by mistake.</field>
+    </record>
+    <record id="check_stale_reservations" model="vifel.health.check">
+        <field name="code">stale_reservations</field>
+        <field name="name">Stale Reservation Flags</field>
+        <field name="category">process</field>
+        <field name="severity">warning</field>
+        <field name="sequence">41</field>
+        <field name="description">Bins or pallets still flagged reserved although their claiming document is done, cancelled, voided or missing — they block putaway and returns for everyone.</field>
+    </record>
+    <record id="check_over_reserved" model="vifel.health.check">
+        <field name="code">over_reserved</field>
+        <field name="name">Over-reserved Quants</field>
+        <field name="category">process</field>
+        <field name="severity">critical</field>
+        <field name="sequence">42</field>
+        <field name="description">Quants reserving more than they hold — phantom reservations that block withdrawals and pallet corrections.</field>
+    </record>
+    <record id="check_missing_stamp" model="vifel.health.check">
+        <field name="code">missing_stamp</field>
+        <field name="name">Missing Withdrawal Stamps</field>
+        <field name="category">process</field>
+        <field name="severity">warning</field>
+        <field name="sequence">43</field>
+        <field name="description">Validated withdrawal lines (after the configured cutoff date) missing the remaining-stock stamp — the pallet-out counting automation did not run for them; future ledger drift in the making.</field>
+    </record>
+
+    <!-- ===================== SYSTEM ===================== -->
+    <record id="check_watchdog_automations" model="vifel.health.check">
+        <field name="code">watchdog_automations</field>
+        <field name="name">Critical Automations Active</field>
+        <field name="category">system</field>
+        <field name="severity">critical</field>
+        <field name="sequence">50</field>
+        <field name="description">Watches the configured list of load-bearing automation rules and crons; if any is toggled inactive in Studio, counting/stamping has silently stopped. Lists are System Parameters (vifel_health.watchdog_automation_ids / watchdog_cron_ids).</field>
+    </record>
+    <record id="check_snapshot_freshness" model="vifel.health.check">
+        <field name="code">snapshot_freshness</field>
+        <field name="name">Snapshot Freshness</field>
+        <field name="category">system</field>
+        <field name="severity">warning</field>
+        <field name="sequence">51</field>
+        <field name="description">The newest inventory snapshot must be younger than the configured threshold (default 8 days) — occupancy and billing reports silently go stale when snapshot generation dies.</field>
+    </record>
+
+</odoo>

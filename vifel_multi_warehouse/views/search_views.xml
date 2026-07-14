@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <!-- Group-by Warehouse on the scoped models' list/search views. -->
+
+    <!-- Pallet Kilos Record Log (field is named `warehouse`) -->
+    <record id="view_pkr_search_warehouse" model="ir.ui.view">
+        <field name="name">pkr.search.warehouse</field>
+        <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+        <field name="inherit_id" ref="pallet_kilos_record_model.view_pallet_kilos_record_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="warehouse"/>
+                <separator/>
+                <filter name="group_by_warehouse" string="Warehouse"
+                        context="{'group_by': 'warehouse'}"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_pkr_tree_warehouse" model="ir.ui.view">
+        <field name="name">pkr.tree.warehouse</field>
+        <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+        <field name="inherit_id" ref="pallet_kilos_record_model.view_pallet_kilos_record_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="inside">
+                <field name="warehouse" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Pallet Series Audit -->
+    <record id="view_audit_search_warehouse" model="ir.ui.view">
+        <field name="name">pallet.series.audit.search.warehouse</field>
+        <field name="model">pallet.series.audit</field>
+        <field name="inherit_id" ref="pallet_series_audit.view_pallet_series_audit_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="warehouse_id"/>
+                <separator/>
+                <filter name="group_by_warehouse" string="Warehouse"
+                        context="{'group_by': 'warehouse_id'}"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_audit_line_search_warehouse" model="ir.ui.view">
+        <field name="name">pallet.series.audit.line.search.warehouse</field>
+        <field name="model">pallet.series.audit.line</field>
+        <field name="inherit_id" ref="pallet_series_audit.view_pallet_series_audit_line_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="warehouse_id"/>
+                <separator/>
+                <filter name="group_by_warehouse" string="Warehouse"
+                        context="{'group_by': 'warehouse_id'}"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Stock Quant History + Snapshots -->
+    <record id="view_history_search_warehouse" model="ir.ui.view">
+        <field name="name">stock.quant.history.search.warehouse</field>
+        <field name="model">stock.quant.history</field>
+        <field name="inherit_id" ref="stock_quant_history.view_stock_quant_history_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="warehouse_id"/>
+                <separator/>
+                <filter name="group_by_warehouse" string="Warehouse"
+                        context="{'group_by': 'warehouse_id'}"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_snapshot_search_warehouse" model="ir.ui.view">
+        <field name="name">stock.quant.history.snapshot.search.warehouse</field>
+        <field name="model">stock.quant.history.snapshot</field>
+        <field name="inherit_id" ref="stock_quant_history.view_stock_quant_history_snapshot_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="warehouse_id"/>
+                <separator/>
+                <filter name="group_by_warehouse" string="Warehouse"
+                        context="{'group_by': 'warehouse_id'}"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Pallet Detail Adjustment Requests (no search view existed — create one) -->
+    <record id="view_adjustment_request_search_warehouse" model="ir.ui.view">
+        <field name="name">stock.quant.adjustment.request.search.warehouse</field>
+        <field name="model">stock.quant.adjustment.request</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="warehouse_id"/>
+                <filter name="group_by_warehouse" string="Warehouse"
+                        context="{'group_by': 'warehouse_id'}"/>
+            </search>
+        </field>
+    </record>
+    <record id="view_adjustment_request_tree_warehouse" model="ir.ui.view">
+        <field name="name">stock.quant.adjustment.request.tree.warehouse</field>
+        <field name="model">stock.quant.adjustment.request</field>
+        <field name="inherit_id" ref="multiple_relocation.view_stock_quant_adjustment_request_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//tree" position="inside">
+                <field name="warehouse_id" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

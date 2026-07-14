@@ -1,0 +1,135 @@
+Quant = env['stock.quant']
+Package = env['stock.quant.package']
+
+np_packages = Package.search([('name', 'like', 'NP %')], order='name')
+logs = []
+
+# ============================================================
+# BUILD COMPLETE PICTURE OF WHAT'S ALREADY USED
+# ============================================================
+
+# 1. NP pallets already used in DB
+used_np_package_ids = []
+for np_pkg in np_packages:
+    already_used = Quant.search_count([
+        ('package_id', '=', np_pkg.id),
+        ('quantity', '>', 0),
+    ])
+    if already_used:
+        used_np_package_ids.append(np_pkg.id)
+
+# 2. NP pallets already used WITHIN the selected records themselves
+#    Even if DB hasn't committed, we must not reuse them
+for quant in records:
+    if quant.package_id and quant.package_id.id not in used_np_package_ids:
+        if quant.package_id.name and quant.package_id.name.startswith('NP '):
+            used_np_package_ids.append(quant.package_id.id)
+
+def get_vacant_np_package():
+    for np_pkg in np_packages:
+        if np_pkg.id not in used_np_package_ids:
+            return np_pkg
+    return None
+
+# ============================================================
+# BUILD MAP: package_id -> location_id -> [quants]
+# ============================================================
+package_to_location_quants = {}
+
+for quant in records:
+    if not quant.package_id:
+        continue
+
+    pkg_id = quant.package_id.id
+    loc_id = quant.location_id.id
+
+    if pkg_id not in package_to_location_quants:
+        package_to_location_quants[pkg_id] = {}
+
+    if loc_id not in package_to_location_quants[pkg_id]:
+        package_to_location_quants[pkg_id][loc_id] = []
+
+    package_to_location_quants[pkg_id][loc_id].append(quant)
+
+# ============================================================
+# DETECT AND FIX CONFLICTS
+# ============================================================
+for pkg_id, loc_quants in package_to_location_quants.items():
+
+    location_ids = list(loc_quants.keys())
+    old_pkg_name = loc_quants[location_ids[0]][0].package_id.name
+
+    # Skip NP pallets that are legitimately only in one location
+    # (they were correctly assigned already)
+    spans_multiple_locations = len(location_ids) > 1
+
+    for loc_id, quants in loc_quants.items():
+
+        these_quant_ids = [q.id for q in quants]
+        loc = quants[0].location_id
+
+        # Other quants sharing this package in OTHER locations (outside this group)
+        dup_outside = Quant.search([
+            ('package_id', '=', pkg_id),
+            ('location_id', '!=', loc_id),
+            ('quantity', '>', 0),
+            ('id', 'not in', these_quant_ids),
+        ])
+
+        raw_conflict = spans_multiple_locations or bool(dup_outside)
+
+        # ----------------------------------------------------------------
+        # AISLE EXCEPTION:
+        # If THIS location is an aisle, the same pallet # is allowed across
+        # locations — but ONLY if every quant sharing this package (here and
+        # elsewhere) carries the SAME, non-empty PSI. Otherwise it's a conflict.
+        # ----------------------------------------------------------------
+        psis = set(q.x_studio_pallet_series_id or False for q in quants)
+
+        for q in dup_outside:
+            psis.add(q.x_studio_pallet_series_id or False)
+
+        for other_loc, other_quants in loc_quants.items():
+            if other_loc != loc_id:
+                for q in other_quants:
+                    psis.add(q.x_studio_pallet_series_id or False)
+
+        same_single_psi = (len(psis) == 1 and False not in psis)
+
+        if loc.x_studio_is_an_aisle and same_single_psi:
+            is_conflicted = False  # aisle + same PSI -> keep same pallet #
+        else:
+            is_conflicted = raw_conflict
+        # ----------------------------------------------------------------
+
+        if not is_conflicted:
+            continue
+
+        # Get a fresh NP pallet - guaranteed unique because we track used ones
+        np_pkg = get_vacant_np_package()
+
+        if not np_pkg:
+            logs.append(
+                "✗ No vacant NP pallet for '%s' at '%s'" % (
+                    old_pkg_name,
+                    quants[0].location_id.display_name
+                )
+            )
+            continue
+
+        # Mark as used BEFORE writing so next iteration never picks same one
+        used_np_package_ids.append(np_pkg.id)
+
+        for quant in quants:
+            quant.write({'package_id': np_pkg.id})
+
+        logs.append(
+            "✓ '%s' at '%s' → '%s'" % (
+                old_pkg_name,
+                quants[0].location_id.display_name,
+                np_pkg.name
+            )
+        )
+
+if not logs:
+    logs.append("✓ No conflicts found. Nothing reassigned.")

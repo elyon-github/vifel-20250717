@@ -31,7 +31,7 @@
                            widget="boolean_toggle"
                            invisible="not reason_for_adjustment or 1"
                            string="Apply Immediately (Skip Approval)"
-                           help="If checked, changes will be applied immediately without approval. Only available for Inventory Suprvisor."/>
+                           help="If checked, changes will be applied immediately without approval. Only available for Inventory Supervisors."/>
                     <field name="is_blast_freeze" invisible="1"/>
                 <!-- </group> -->
                 
@@ -41,8 +41,17 @@
                     This will create an adjustment request for approval. Changes will not be applied until approved by an inventory supervisor.
                 </div>
                 <div class="alert alert-warning" invisible="not skip_approval" role="alert" style="margin-top: 15px;">
-                    <i class="fa fa-exclamation-triangle" title="Warning"/> 
+                    <i class="fa fa-exclamation-triangle" title="Warning"/>
                     Changes will be applied immediately without approval workflow.
+                </div>
+
+                <!-- PSI group-move banner: a pallet series shared by several
+                     quants always moves as ONE group; changing the Pallet #
+                     on one line pulls the sibling quants along on confirm. -->
+                <div class="alert alert-warning" role="alert" invisible="not psi_cascade_notice" style="margin-top: 15px; white-space: pre-line;">
+                    <i class="fa fa-link" title="Pallet series group move"/>
+                    <strong>Pallet Series Group Move:</strong>
+                    <field name="psi_cascade_notice" readonly="1" nolabel="1"/>
                 </div>
 
                 <!-- Adjustment Lines -->
@@ -227,37 +236,37 @@ else:
                                 groups="stock.group_stock_manager"/> -->
                         
                         <!-- Approve/Reject Selected -->
-                        <button name="action_approve_selected" 
-                                string="Approve Selected" 
-                                type="object" 
+                        <button name="action_approve_selected"
+                                string="Approve Selected"
+                                type="object"
                                 class="btn-success"
                                 invisible="state not in ['pending', 'partial'] or selected_line_count == 0"
-                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"
+                                groups="multiple_relocation.group_adjustment_approver,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"
                                 confirm="Approve selected lines?"/>
-                        
-                        <button name="action_reject_selected" 
-                                string="Reject Selected" 
-                                type="object" 
+
+                        <button name="action_reject_selected"
+                                string="Reject Selected"
+                                type="object"
                                 class="btn-danger"
                                 invisible="state not in ['pending', 'partial'] or selected_line_count == 0"
-                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"/>
-                        
+                                groups="multiple_relocation.group_adjustment_approver,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"/>
+
                         <!-- Approve All Pending Lines -->
-                        <button name="action_approve_all_pending" 
-                                string="Approve All Pending" 
-                                type="object" 
+                        <button name="action_approve_all_pending"
+                                string="Approve All Pending"
+                                type="object"
                                 class="oe_highlight"
                                 invisible="state not in ['pending', 'partial'] or pending_line_count == 0"
-                                groups="__custom__.inventory_supervisor, multiple_relocation.inventory_super_admin"/>
+                                groups="multiple_relocation.group_adjustment_approver,__custom__.inventory_supervisor,multiple_relocation.inventory_super_admin"
                                 confirm="Approve all pending lines without conflicts?"/>
-                        
+
                         <!-- Check for Conflicts -->
-                        <button name="action_check_conflicts" 
-                                string="Check Conflicts" 
-                                type="object" 
+                        <button name="action_check_conflicts"
+                                string="Check Conflicts"
+                                type="object"
                                 class="btn-secondary"
+                                invisible="state not in ['pending', 'partial']"
                                 groups="multiple_relocation.inventory_super_admin"/>
-                                invisible="state not in ['pending', 'partial']"/>
                         
                         <!-- Cancel Request -->
                         <button name="action_cancel" 
@@ -607,5 +616,43 @@ else:
                   action="action_stock_quant_adjustment_request"
                   sequence="10"
                   groups="stock.group_stock_manager,stock.group_stock_user"/>
+        <!-- PKR form: show the approved adjustment-request lines linked to
+             this row (the adjustment audit trail — native records). -->
+        <record id="view_pallet_kilos_record_form_adjustment_lines" model="ir.ui.view">
+            <field name="name">pallet.kilos.record.form.adjustment.lines</field>
+            <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
+            <field name="inherit_id" ref="pallet_kilos_record_model.view_pallet_kilos_record_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//page[@name='adjustment_information']" position="inside">
+                    <separator string="Approved Adjustment Lines (audit trail)"/>
+                    <field name="adjustment_line_ids" readonly="1">
+                        <tree>
+                            <field name="approved_date"/>
+                            <field name="request_id" string="Adjustment Request"/>
+                            <field name="display_pallet_series" string="PSI"/>
+                            <field name="old_package_id" string="Pallet #" optional="show"/>
+                            <field name="new_package_id" string="New Pallet #" optional="show"/>
+                            <field name="old_bf_pallet_char" string="BF Pallet" optional="hide"/>
+                            <field name="new_bf_pallet_char" string="New BF Pallet" optional="hide"/>
+                            <field name="old_product_id" string="Product" optional="hide"/>
+                            <field name="new_product_id" string="New Product" optional="hide"/>
+                            <field name="old_quantity" string="Weight KG (old)"/>
+                            <field name="new_quantity" string="Weight KG (new)"/>
+                            <field name="old_x_studio_2nd_uom" string="Quantity (old)"/>
+                            <field name="new_x_studio_2nd_uom" string="Quantity (new)"/>
+                            <field name="old_x_studio_total_units" string="Packs (old)" optional="hide"/>
+                            <field name="new_x_studio_total_units" string="Packs (new)" optional="hide"/>
+                            <field name="old_owner_id" string="Owner (old)" optional="hide"/>
+                            <field name="new_owner_id" string="Owner (new)" optional="hide"/>
+                            <field name="display_location" string="Location" optional="hide"/>
+                            <field name="reason_for_adjustment" string="Reason" optional="show"/>
+                            <field name="correction_move_reference" string="Move Reference" optional="show"/>
+                            <field name="approved_by" optional="hide"/>
+                        </tree>
+                    </field>
+                </xpath>
+            </field>
+        </record>
+
     </data>
 </odoo>

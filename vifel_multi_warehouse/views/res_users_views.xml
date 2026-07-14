@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Anchor on the stable base form (field-name xpath, no positional paths)
+         so a future Studio customization of the user form cannot collide. -->
+    <record id="view_users_form_multi_warehouse" model="ir.ui.view">
+        <field name="name">res.users.form.multi.warehouse</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='access_rights']" position="inside">
+                <group name="multi_warehouse" string="Warehouses">
+                    <field name="allowed_warehouse_ids" widget="many2many_tags"
+                           options="{'no_create': True}"/>
+                    <field name="default_warehouse_id"
+                           options="{'no_create': True}"
+                           domain="[('id', 'in', allowed_warehouse_ids)]"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

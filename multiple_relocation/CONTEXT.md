@@ -277,6 +277,17 @@ RR (done) → void_transfer()
   → User validates void WR → auto-marks both as voided, archives PKR
 ```
 
+**Package drift on the regular void pickup.** The regular (non-BF) void WR matches
+the received stock by **pallet series + package**, but the package recorded on the
+RR can change after receipt (the pallet is re-packaged, or the package label is
+reused on another pallet). When the package no longer matches, `_find_void_wr_quants()`
+**falls back to pallet series + location + owner** (the same key the existence/
+reservation guards already use), so the void WR isn't created empty. Package-exact
+is tried first to stay precise for non-unique pallet series; the fallback only fires
+when the exact match returns nothing. BF is unaffected (no package — it keys on
+`lot_id` + `x_studio_record_reference`). Example fixed: M/RR/03602 (FOS-003579 was
+re-packaged from `2784 NP`→`00013 BL`).
+
 ### WR Void
 ```
 WR (done) → void_transfer()

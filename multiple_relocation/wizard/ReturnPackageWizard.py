@@ -22,7 +22,9 @@ class ReturnPackageWizardLine(models.TransientModel):
     stock_move_line = fields.Integer(string="Move Line ID")
     pack_uom_unit = fields.Float(string="Actual Quantity")
     min_uom_unit = fields.Float(string="Actual Packs")
-    location_dest_id = fields.Many2one('stock.location', string="Destination Location")
+    location_dest_id = fields.Many2one(
+        'stock.location', string="Destination Location",
+        domain=[('usage', '=', 'internal'), ('child_ids', '=', False)])
     location_dest_id_is_fallback = fields.Boolean(string="Location is Fallback", default=False)
     result_package_id_is_fallback = fields.Boolean(string="Pallet is Fallback", default=False)
     pack_uom = fields.Many2one('uom.uom', string='Unit of Measure', readonly=True)
@@ -98,7 +100,9 @@ class ReturnPackageWizard(models.TransientModel):
         'return.package.wizard.line', 'wizard_id', string="Pallets", readonly=False
     )
     picking_id = fields.Many2one('stock.picking', string="Source Document", readonly=True)
-    location_id = fields.Many2one('stock.location', string="Destination Location",  readonly=False)
+    location_id = fields.Many2one(
+        'stock.location', string="Destination Location", readonly=False,
+        domain=[('usage', '=', 'internal'), ('child_ids', '=', False)])
     lines_computed = fields.Boolean(string="Lines Computed", default=False, readonly=True)
     picking_type_id = fields.Many2one('stock.picking.type', string="Picking Type", readonly=False)
     is_a_blast_freeze = fields.Boolean(related='picking_id.x_studio_is_a_blast_freezer')
@@ -192,7 +196,22 @@ class ReturnPackageWizard(models.TransientModel):
                         and move_line.package_id.x_studio_receiving_report_id
                         and move_line.package_id.x_studio_receiving_report_id.id == existing_return.id
                     )
-                    if not move_line.location_id.x_studio_is_reserved or location_reserved_for_existing:
+                    # PSI-REMAINDER-FIRST: when this pallet series still has
+                    # stock in the warehouse (partial withdrawal), the return
+                    # MUST land on that remainder's pallet # and location so
+                    # the quants merge back into one — same rule as the void
+                    # path (_create_return_rr_from_wr).
+                    remainder = self.picking_id._find_psi_remainder_quant(
+                        move_line.owner_id or self.picking_id.partner_id,
+                        series_id, prefer_package=move_line.package_id)
+                    if remainder:
+                        location_dest_id = remainder.location_id.id
+                        pallet_result_id = remainder.package_id.id
+                        used_package_ids.add(pallet_result_id)
+                        if series_id:
+                            series_to_package[series_id] = (
+                                pallet_result_id, False)
+                    if not location_dest_id and (not move_line.location_id.x_studio_is_reserved or location_reserved_for_existing):
                         occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
                         package_occupying_owners = (move_line.package_id.quant_ids.mapped('x_studio_pallet_series_id') if move_line.package_id else [])
                         if (location_reserved_for_existing
@@ -392,11 +411,20 @@ class ReturnPackageWizard(models.TransientModel):
 
 
     def _find_existing_return(self):
-        """Find existing return picking that is not cancelled or validated"""
-        return self.env['stock.picking'].search([
+        """Find existing return picking that is not cancelled or validated.
+
+        Void returns are excluded UNLESS this wizard is running the void
+        flow itself (voided context): a manual partial return must never
+        append onto a void-equivalent document — its lines mirror the
+        voided WR exactly and are guarded against edits. Manual returns
+        get their own return RR instead."""
+        domain = [
             ('return_id', '=', self.picking_id.id),
-            ('state', 'in', ['draft', 'waiting', 'confirmed', 'assigned'])
-        ], limit=1)
+            ('state', 'in', ['draft', 'waiting', 'confirmed', 'assigned']),
+        ]
+        if not self.env.context.get('voided'):
+            domain.append(('is_void_return', '=', False))
+        return self.env['stock.picking'].search(domain, limit=1)
 
     def _get_unique_identifier(self, package):
         """Get unique identifier for a package based on product, pallet, and dates"""
@@ -737,6 +765,12 @@ class ReturnPackageWizard(models.TransientModel):
                     'result_package_id': package.result_package_id.id,
                     'location_dest_id': package.location_dest_id.id,
                     'location_id': move.location_id.id,  # Set from the move
+                    # set at CREATE time (not the later write) so the RR
+                    # lot-assigner AR#10 can never see the line unflagged
+                    # and stamp a fresh lot — the original lot must survive
+                    # for the quant merge keys to match
+                    'is_return': True,
+                    'lot_id': package.lot_id.id,
                 })
 
         # Create stock.move.line records
@@ -891,6 +925,11 @@ class ReturnPackageWizard(models.TransientModel):
                     'quantity': package.quantity,
                     'result_package_id': package.result_package_id.id,
                     'location_dest_id': package.location_dest_id.id,
+                    # set at CREATE time (not the later write) so the RR
+                    # lot-assigner AR#10 can never see the line unflagged
+                    # and stamp a fresh lot
+                    'is_return': True,
+                    'lot_id': package.lot_id.id,
                 })
 
         # Create stock.move.line records

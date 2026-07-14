@@ -16,6 +16,46 @@ _logger = logging.getLogger(__name__)
 
 
 class StockMove(models.Model):
+
+    def _void_mirror_move_guard(self, what, picking_ids=None):
+        """Void-equivalent documents must mirror what they void: block
+        adding/removing whole Operations rows (a move unlink would cascade
+        its lines past the line-level guard). Same exemptions as the
+        line guard: void generators, unvoid cleanup, validation."""
+        ctx = self.env.context
+        if (ctx.get('skip_void_mirror_guard') or ctx.get('voided')
+                or ctx.get('audit_source') == 'unvoid_cleanup'
+                or ctx.get('button_validate_picking_ids')):
+            return
+        pickings = (self.env['stock.picking'].browse(picking_ids)
+                    if picking_ids is not None else self.mapped('picking_id'))
+        for picking in pickings:
+            if not picking:
+                continue
+            source, kind = picking._void_mirror_source()
+            if source:
+                raise UserError(_(
+                    "%(doc)s is the %(kind)s of %(src)s — its pallet lines "
+                    "must mirror the voided document EXACTLY, so you cannot "
+                    "%(what)s.\n\nIf a different reversal is really "
+                    "intended, remove the void link first (WARNING: a "
+                    "standalone document will NOT close the void of "
+                    "%(src)s).",
+                    doc=picking.name, kind=kind, src=source.name, what=what))
+
+    # @api.model_create_multi
+    # def create(self, vals_list):
+    #     picking_ids = list({v['picking_id'] for v in vals_list
+    #                         if v.get('picking_id')})
+    #     if picking_ids:
+    #         self._void_mirror_move_guard(
+    #             _('add operations to it'), picking_ids=picking_ids)
+    #     return super().create(vals_list)
+
+    # def unlink(self):
+    #     self._void_mirror_move_guard(_('remove operations from it'))
+    #     return super().unlink()
+
     _inherit = 'stock.move'
     quant_ids_picked = fields.Many2many(
         'stock.quant', string="Quant IDs", copy=False)
@@ -278,6 +318,82 @@ class stock_move_line_Override(models.Model):
     )
 
     adjustment_batch_number = fields.Char(string="Adjustment Batch #")
+
+    # quantities a void-equivalent document's lines must keep IDENTICAL to
+    # the voided document it reverses
+    VOID_MIRROR_LINE_FIELDS = {
+        'quantity': 'Quantity (KG)',
+        'x_studio_2nd_uom': 'Packaging',
+        'x_studio_total_units': 'Packs/Heads',
+    }
+
+    def _void_mirror_exempt(self):
+        """Internal flows allowed to touch void-equivalent lines: the void
+        generators (skip flag / the return wizard's voided context), the
+        unvoid cleanup, and the validation machinery."""
+        ctx = self.env.context
+        return bool(ctx.get('skip_void_mirror_guard') or ctx.get('voided')
+                    or ctx.get('audit_source') == 'unvoid_cleanup'
+                    or ctx.get('button_validate_picking_ids'))
+
+    def _void_mirror_raise(self, picking, source, kind, what):
+        raise UserError(_(
+            "%(doc)s is the %(kind)s of %(src)s — its pallet lines must "
+            "mirror the voided document EXACTLY, so you cannot %(what)s.\n\n"
+            "If a different reversal is really intended, remove the void "
+            "link first, which turns this into a standalone document.\n"
+            "WARNING: a standalone document will NOT close the void of "
+            "%(src)s.",
+            doc=picking.name, kind=kind, src=source.name, what=what))
+
+    def _void_mirror_guard_write(self, vals):
+        if self._void_mirror_exempt():
+            return
+        touched = [f for f in self.VOID_MIRROR_LINE_FIELDS if f in vals]
+        if not touched:
+            return
+        for line in self:
+            picking = line.picking_id
+            if not picking:
+                continue
+            source, kind = picking._void_mirror_source()
+            if not source:
+                continue
+            changed = []
+            for f in touched:
+                try:
+                    new_val = float(vals[f] or 0)
+                except (TypeError, ValueError):
+                    changed.append(self.VOID_MIRROR_LINE_FIELDS[f])
+                    continue
+                if abs(float(getattr(line, f) or 0) - new_val) > 0.0005:
+                    changed.append(self.VOID_MIRROR_LINE_FIELDS[f])
+            if changed:
+                self._void_mirror_raise(
+                    picking, source, kind,
+                    _('change %s on its pallet lines') % ', '.join(changed))
+
+    @api.constrains('location_dest_id', 'state')
+    def _check_dest_is_specific_location(self):
+        """Stock may only be placed on SPECIFIC bins (leaf locations such as
+        .../R07/L6/P1) — never on aisle/building/parent locations like M/M
+        or M/A. A parent location holding stock becomes a reservable stock
+        spot, which corrupts location-level reporting and withdrawals.
+
+        Enforced only when the line is DONE (the moment stock lands):
+        draft/assigned RR lines legitimately inherit the picking's default
+        destination (an aisle) and get their exact bin before validation."""
+        for line in self:
+            if line.state != 'done':
+                continue
+            dest = line.location_dest_id
+            if (dest and dest.usage == 'internal'
+                    and any(ch.usage == 'internal'
+                            for ch in dest.child_ids)):
+                raise ValidationError(_(
+                    'Location "%s" is not a specific pallet position — it '
+                    'contains sub-locations. Please pick the exact bin '
+                    '(e.g. ...R07/L6/P1).') % dest.complete_name)
 
     x_studio_ = fields.Integer(string="#", group_operator=False)
 
@@ -558,6 +674,35 @@ class stock_move_line_Override(models.Model):
     #     # Proceed with the deletion
     #     res = super(stock_move_line_Override, self).unlink()
 
+    # @api.model_create_multi
+    # def create(self, vals_list):
+    #     # VOID-MIRROR GUARD: no manual pallet lines may be ADDED to a linked,
+    #     # unvalidated void equivalent (its generators are context-exempt)
+    #     if not self._void_mirror_exempt():
+    #         picking_ids = {v['picking_id'] for v in vals_list
+    #                        if v.get('picking_id')}
+    #         for picking in self.env['stock.picking'].browse(list(picking_ids)):
+    #             source, kind = picking._void_mirror_source()
+    #             if source:
+    #                 self._void_mirror_raise(
+    #                     picking, source, kind, _('add pallet lines to it'))
+        # return super().create(vals_list)
+
+    # def unlink(self):
+    #     # VOID-MIRROR GUARD: no pallet lines may be REMOVED from a linked,
+    #     # unvalidated void equivalent (unvoid cleanup is context-exempt)
+    #     if not self._void_mirror_exempt():
+    #         for line in self:
+    #             picking = line.picking_id
+    #             if not picking:
+    #                 continue
+    #             source, kind = picking._void_mirror_source()
+    #             if source:
+    #                 self._void_mirror_raise(
+    #                     picking, source, kind,
+    #                     _('remove pallet lines from it'))
+    #     return super().unlink()
+
     def write(self, vals):
         """Override write to handle multi-edit of result_package_id on stock.move.line.
 
@@ -566,6 +711,10 @@ class stock_move_line_Override(models.Model):
         existing lines using the same pallet, and free old pallets/locations/series
         that are no longer used by any line in the same RR.
         """
+        # VOID-MIRROR GUARD: KG / Packaging / Packs on a linked, unvalidated
+        # void equivalent must stay identical to the voided document
+        # self._void_mirror_guard_write(vals)
+
         # Skip when called from action_confirm (wizard already handles everything)
         if self.env.context.get('skip_pallet_series_sync'):
             return super().write(vals)

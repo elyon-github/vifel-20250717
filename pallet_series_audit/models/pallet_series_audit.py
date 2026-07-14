@@ -42,6 +42,12 @@ class PalletSeriesAudit(models.Model):
         'stock.picking', string='RR Transfer', required=True,
         readonly=True, index=True, ondelete='cascade',
     )
+    warehouse_id = fields.Many2one(
+        related='picking_id.picking_type_id.warehouse_id', store=True,
+        index=True, string='Warehouse',
+        help='Warehouse of the audited transfer. Multi-warehouse Phase 1: '
+             'enables per-warehouse filtering and the Phase 2 record rule.',
+    )
     partner_id = fields.Many2one(
         'res.partner', string='Client / Owner', readonly=True, index=True,
     )
@@ -180,6 +186,10 @@ class PalletSeriesAuditLine(models.Model):
     )
     picking_id = fields.Many2one(
         related='audit_id.picking_id', store=True, string='RR Transfer',
+    )
+    warehouse_id = fields.Many2one(
+        related='audit_id.warehouse_id', store=True, index=True,
+        string='Warehouse',
     )
     pallet_series_id = fields.Char(string='Pallet Series', index=True)
     event_type = fields.Selection(EVENT_TYPES, string='Event', required=True)

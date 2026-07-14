@@ -1,5 +1,6 @@
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError, UserError
+from odoo.tools import html_escape
 from datetime import datetime, timedelta
 import logging
 import json
@@ -55,6 +56,11 @@ class PalletKilosRecordModel(models.Model):
     adjustment_packaging = fields.Float(string="Total Adjustment Packaging", readonly=True)
     adjustment_pallets = fields.Float(string="Total Adjustment Pallets", readonly=True)
     adjustment_kilos = fields.Float(string="Total Adjustment Kilos", readonly=True, digits='Product Unit of Measure')
+    # Human-readable explanation of every adjustment posted to this row
+    # (re-sync events, residuals, correction pallet legs). Rebuilt by the
+    # Re-sync action; remarks keeps a compact plain-text copy for XLSX.
+    adjustment_reason_html = fields.Html(
+        string="Adjustment Explanation", readonly=True, sanitize=True)
 
     # Beginning balance fields - stored, calculated via method calls
     beginning_balance_in_pallets = fields.Float(string="Beginning Balance in Pallets", readonly=True, store=True)
@@ -95,7 +101,7 @@ class PalletKilosRecordModel(models.Model):
     # NEW: Building-level balances JSON field
     total_balances = fields.Json(string="Total Balances")
     building_operations_temp = fields.Json(string="Operations Temp")
-    
+
     @api.model
     def _get_static_var(self, var_name):
         """Get static variable from inventory_static_var model by name"""
@@ -173,12 +179,8 @@ class PalletKilosRecordModel(models.Model):
                             building_operations[building_name]['pallets'].add(move_line.bf_pallet_char)
                     else:
                         if move_line.package_id and move_line.package_id.id not in pallets:
-                            same_quant_stocks_picked = self.env['stock.move.line'].search([
-                                ('lot_id', '=', move_line.lot_id.id),
-                                ('state', '!=', 'done'),
-                                ('picking_id.id', '!=', move_line.picking_id.id),
-                                ('picking_id.picking_type_code', '=', 'outgoing')
-                            ])
+                            # (a per-line stock.move.line search used to run here;
+                            # its result was never used — removed for performance)
                             if move_line.reserved_quantity_on_validation == 0:
                                 pallet_count += 1
                                 pallets.add(move_line.package_id.id)
@@ -301,9 +303,125 @@ class PalletKilosRecordModel(models.Model):
 
 
     def _recalculate_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
+        """Owner-level running-balance engine (per-building breakdown retired).
+
+        Rebuilds the cumulative balance series for one (warehouse, is_blast_freezer)
+        partition directly from each record's stored operation totals:
+            total_X = beginning_X + (X_received - X_withdrawn) + adjustment_X
+        where beginning_X is the previous record's total for the same owner. This is
+        internal-consistency only: it never compares to or forces physical stock --
+        genuine ledger-vs-stock gaps are surfaced by Get Unsynced, not corrected here.
         """
-        Fixed version: Properly calculate beginning balances for both main fields and building JSON
-        """
+        return self._recompute_owner_running_balances(
+            warehouse_id, blast_freezer_flag,
+            from_datetime=from_datetime, from_create_date=from_create_date)
+
+    def _recompute_owner_running_balances(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
+        domain = [
+            ('warehouse', '=', warehouse_id),
+            ('is_blast_freezer', '=', blast_freezer_flag),
+            ('active', '=', True),
+        ]
+        if from_datetime and from_create_date:
+            domain.extend([
+                '|',
+                ('start_time', '>=', from_datetime),
+                ('create_date', '>=', from_create_date),
+            ])
+        elif from_datetime:
+            domain.append(('start_time', '>=', from_datetime))
+
+        records_to_update = self.search(domain, order='start_time asc, id asc')
+        if not records_to_update:
+            return
+
+        # Warehouse-wide running totals (all owners) seeded from the most recent prior record
+        running_pallets = running_kilos = 0.0
+        if from_datetime:
+            prev_wh = self.search([
+                ('warehouse', '=', warehouse_id),
+                ('is_blast_freezer', '=', blast_freezer_flag),
+                ('active', '=', True),
+                ('start_time', '<', from_datetime),
+            ], order='start_time desc, id desc', limit=1)
+            if prev_wh:
+                running_pallets = prev_wh.overall_pallets
+                running_kilos = prev_wh.overall_kilos
+
+        # Per-owner beginning balances, seeded from each owner's most recent prior record
+        owner_running = {}
+        if from_datetime:
+            for owner in records_to_update.mapped('owner_id'):
+                if not owner:
+                    continue
+                prev = self.search([
+                    ('warehouse', '=', warehouse_id),
+                    ('is_blast_freezer', '=', blast_freezer_flag),
+                    ('active', '=', True),
+                    ('owner_id', '=', owner.id),
+                    ('start_time', '<', from_datetime),
+                ], order='start_time desc, id desc', limit=1)
+                if prev:
+                    owner_running[owner.id] = {
+                        'units': prev.total_balance_in_units or 0.0,
+                        'packaging': prev.total_balance_in_packaging or 0.0,
+                        'kilos': prev.total_balance_in_kilos or 0.0,
+                        'pallets': prev.total_balance_in_pallets or 0.0,
+                    }
+
+        updates = []
+        for record in records_to_update:
+            # Warehouse-wide cumulative (all owners) -- unchanged behavior
+            running_pallets += (record.pallets_received - record.pallets_withdrawn + record.adjustment_pallets)
+            running_kilos += (record.kilos_received - record.kilos_withdrawn + record.adjustment_kilos)
+
+            if not record.owner_id:
+                updates.append({
+                    'id': record.id,
+                    'overall_pallets': running_pallets,
+                    'overall_kilos': running_kilos,
+                    'beginning_balance_in_pallets': 0,
+                    'beginning_balance_in_kilos': 0,
+                    'total_balance_in_units': 0,
+                    'total_balance_in_packaging': 0,
+                    'total_balance_in_kilos': 0,
+                    'total_balance_in_pallets': 0,
+                    'total_balances': {},
+                })
+                continue
+
+            oid = record.owner_id.id
+            begin = owner_running.get(
+                oid, {'units': 0.0, 'packaging': 0.0, 'kilos': 0.0, 'pallets': 0.0})
+
+            total = {
+                'units': begin['units'] + record.units_received - record.units_withdrawn + record.adjustment_heads,
+                'packaging': begin['packaging'] + record.packaging_received - record.packaging_withdrawn + record.adjustment_packaging,
+                'kilos': begin['kilos'] + record.kilos_received - record.kilos_withdrawn + record.adjustment_kilos,
+                'pallets': begin['pallets'] + record.pallets_received - record.pallets_withdrawn + record.adjustment_pallets,
+            }
+            owner_running[oid] = total
+
+            updates.append({
+                'id': record.id,
+                'overall_pallets': running_pallets,
+                'overall_kilos': running_kilos,
+                'beginning_balance_in_pallets': begin['pallets'],
+                'beginning_balance_in_kilos': begin['kilos'],
+                'total_balance_in_units': total['units'],
+                'total_balance_in_packaging': total['packaging'],
+                'total_balance_in_kilos': total['kilos'],
+                'total_balance_in_pallets': total['pallets'],
+                'total_balances': {},
+            })
+
+        for update in updates:
+            rid = update.pop('id')
+            self.browse(rid).write(update)
+
+    def _dead_recalculate_running_balances_legacy(self, warehouse_id, blast_freezer_flag, from_datetime=None, from_create_date=None):
+        # RETIRED per-building implementation -- no longer called (kept temporarily for
+        # reference; superseded by _recompute_owner_running_balances above).
         domain = [
             ('warehouse', '=', warehouse_id),
             ('is_blast_freezer', '=', blast_freezer_flag),
@@ -697,8 +815,26 @@ class PalletKilosRecordModel(models.Model):
                 record._populate_operations_data()
                 record._populate_returns_data()
 
+                # Explicitly rebuild balances: re-population changes the operation
+                # totals, and the nested start_time write only triggers a recalc
+                # when the new document's start_time differs from the old one.
+                # Without this, a revision swap with an unchanged start_time left
+                # the running balances stale. Recalculate both the old and new
+                # BF partitions in case the document swap moved the record.
+                old_data = original_data.get(record.id, {})
+                if record.warehouse:
+                    times = [t for t in (record.start_time, old_data.get('start_time')) if t]
+                    if times:
+                        for bf_flag in {record.is_blast_freezer,
+                                        old_data.get('is_blast_freezer', record.is_blast_freezer)}:
+                            record._recalculate_running_balances(
+                                record.warehouse.id, bf_flag, min(times))
+
         # Handle adjustment field changes - first subtract old values, then recalculate
-        if any(field in vals for field in adjustment_fields):
+        # (skip_pkr_recalc: batch operations recalculate once per partition at
+        # the end instead of once per row write)
+        if (any(field in vals for field in adjustment_fields)
+                and not self.env.context.get('skip_pkr_recalc')):
             for record in self:
                 if record.warehouse and record.start_time:
                     old_data = original_data[record.id]
@@ -768,6 +904,1086 @@ class PalletKilosRecordModel(models.Model):
             for blast_freezer in [True, False]:
                 self._recalculate_running_balances(warehouse.id, blast_freezer)
 
+    def action_recompute_selected_balances(self):
+        """Server-action target: rebuild the running-balance series for every
+        (warehouse, is_blast_freezer) partition represented in the selection.
+
+        Balances-only / fast: it uses the already-stored per-record operation
+        totals (it does NOT re-read source documents) and NEVER forces the ledger
+        to match physical stock. Each affected partition is rebuilt in full from
+        the beginning, so selecting all rows cleanly rebuilds everything.
+        """
+        partitions = set()
+        for rec in self:
+            if rec.warehouse:
+                partitions.add((rec.warehouse.id, rec.is_blast_freezer))
+        if not partitions:
+            raise UserError("No records with a warehouse were selected.")
+        for wh_id, bf in partitions:
+            self._recalculate_running_balances(wh_id, bf)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Balances Recomputed',
+                'message': 'Recomputed %d record(s) across %d partition(s).' % (
+                    len(self), len(partitions)),
+                'type': 'success',
+                'sticky': False,
+            },
+        }
+
+    def action_get_unsynced(self):
+        """Server-action target (READ-ONLY): print ledger-vs-physical-stock
+        discrepancies per (owner, warehouse, is_blast_freezer) partition.
+
+        Ledger side = the latest active record's total_balance_in_kilos for the
+        partition. Actual side = sum of on-hand stock.quant.quantity for that owner
+        in that warehouse's internal locations, split by blast-freezer flag (so BF
+        stock, which has no package, is INCLUDED). Writes nothing -- genuine
+        imbalances are surfaced here, never auto-corrected.
+        """
+        if not self:
+            raise UserError("No records selected.")
+        Quant = self.env['stock.quant']
+
+        candidates = self.filtered(
+            lambda r: r.owner_id and r.warehouse and r.start_time)
+        latest = {}
+        for rec in candidates.sorted(key=lambda r: (r.start_time, r.id), reverse=True):
+            key = (rec.owner_id.id, rec.warehouse.id, rec.is_blast_freezer)
+            if key not in latest:
+                latest[key] = rec
+
+        rows = []
+        for (owner_id, wh_id, bf), rec in latest.items():
+            ledger_kilos = rec.total_balance_in_kilos or 0.0
+            quants = Quant.search([
+                ('owner_id', '=', owner_id),
+                ('location_id.usage', '=', 'internal'),
+                ('location_id.warehouse_id', '=', wh_id),
+                ('location_is_bf', '=', bf),
+                ('quantity', '!=', 0),
+            ])
+            actual_kilos = sum(quants.mapped('quantity'))
+            if round(abs(ledger_kilos - actual_kilos), 2) == 0.0:
+                continue
+            rows.append((
+                rec.owner_id.name or 'Unknown',
+                rec.warehouse.name or '',
+                'BF' if bf else 'Reg',
+                ledger_kilos, actual_kilos, ledger_kilos - actual_kilos,
+            ))
+
+        if not rows:
+            raise UserError("All partitions match. No discrepancies found.")
+
+        rows.sort(key=lambda r: r[0])
+        w = (28, 14, 5, 16, 16, 14)
+        sep = '+' + '+'.join('-' * x for x in w) + '+'
+        header = (
+            '| ' + 'Owner'.ljust(w[0] - 2)
+            + ' | ' + 'Warehouse'.ljust(w[1] - 2)
+            + ' | ' + 'BF'.ljust(w[2] - 2)
+            + ' | ' + 'Ledger (kg)'.rjust(w[3] - 2)
+            + ' | ' + 'Actual (kg)'.rjust(w[4] - 2)
+            + ' | ' + 'Diff'.rjust(w[5] - 2) + ' |'
+        )
+        lines = [sep, header, sep]
+        for owner, wh, bf_label, led, act, diff in rows:
+            lines.append(
+                '| ' + owner[:w[0] - 2].ljust(w[0] - 2)
+                + ' | ' + wh[:w[1] - 2].ljust(w[1] - 2)
+                + ' | ' + bf_label.ljust(w[2] - 2)
+                + ' | ' + '{:,.2f}'.format(led).rjust(w[3] - 2)
+                + ' | ' + '{:,.2f}'.format(act).rjust(w[4] - 2)
+                + ' | ' + '{:+,.2f}'.format(diff).rjust(w[5] - 2) + ' |'
+            )
+            lines.append(sep)
+        table = '\n'.join(lines)
+        raise UserError(
+            "Unsynced partitions: %d of %d (from %d selected)\n\n%s" % (
+                len(rows), len(latest), len(self), table))
+
+    def action_resync_pallet_counts(self):
+        """Server-action target: make pallet counts accurate per row.
+
+        For every OWNER present in the selection (whole-owner scope):
+        1. Re-populate pallets_received/withdrawn from the documents (current
+           counting rule).
+        2. Re-link the owner's APPROVED stock.quant.adjustment.line records
+           to their PKR row (the quant's record reference, else the OLDEST
+           row in the owner's regular partition) — the native adjustment
+           lines ARE the audit trail shown on the PKR form.
+        3. Rebuild adjustment_pallets from recorded history: for packages
+           that saw a picking-less exit to the inventory location and hold
+           no stock for the owner today, compare how many times the ledger
+           COUNTED them received (unique result_package per RR) vs COUNTED
+           withdrawn (unique package per WR with
+           reserved_quantity_on_validation == 0) and post the imbalance on
+           the originating RR row (else the oldest row). Balanced pallets
+           get NO event — a partial adjustment followed by a counted WR is
+           already fully accounted. (Entry-side events are NOT derived: a
+           positive correction line cannot be distinguished from a routine
+           +kg fix on an already-stocked pallet — verified 594 false
+           positives on one owner. The residual anchor absorbs that side.
+           Package swaps are net 0 at owner level.)
+        4. Anchor any untraceable residual on the partition's OPENING-BALANCE
+           row (the PKR with no stock.picking reference — untraceable drift
+           is almost always import/mass-adjustment residue that belongs with
+           the opening balance), else the latest row. Clearly remarked, so
+           ledger == actual distinct pallets after every run. Idempotent:
+           wipe-and-rebuild each run.
+        """
+        if not self:
+            raise UserError("No records selected.")
+        owners = self.mapped('owner_id')
+        if not owners:
+            raise UserError("Selected records have no owner.")
+        Quant = self.env['stock.quant']
+        MoveLine = self.env['stock.move.line']
+        today = fields.Date.context_today(self)
+        summary = []
+        all_partitions = set()
+
+        for owner in owners:
+            rows = self.search([('owner_id', '=', owner.id), ('active', '=', True)])
+            partitions = {(r.warehouse.id, bool(r.is_blast_freezer))
+                          for r in rows if r.warehouse}
+            if not partitions:
+                continue
+            all_partitions |= partitions
+
+            # -- 1. re-populate document-based pallet counts --------------
+            repop = rows.filtered(lambda r: r.effective_document)
+            repop._populate_operations_data()
+
+            # -- 2. reset the pallet adjustment floats (rebuilt below).
+            #       The kilo/packaging/units FLOATS are never touched here —
+            #       they stay live-accumulated by the correction wizard.
+            rows.with_context(skip_pkr_recalc=True).write(
+                {'adjustment_pallets': 0, 'adjustment_reason_html': False})
+            # strip event/residual notes from previous runs (fresh ones are
+            # posted below if still needed) so repeated runs don't stack
+            for r in rows:
+                if r.remarks and 'pallet re-sync' in r.remarks:
+                    kept = [p for p in r.remarks.split(' | ')
+                            if p and 'pallet re-sync' not in p]
+                    r.with_context(skip_pkr_recalc=True).write(
+                        {'remarks': ' | '.join(kept) or False})
+            # structured explanation entries per row, rendered as an HTML
+            # table at the end of the owner pass: (item, pallets, why)
+            html_rows = {}
+
+            row_by_doc = {r.effective_document.id: r
+                          for r in rows if r.effective_document}
+            # fallback for quants with no record reference: the OPENING-
+            # BALANCE row (no stock.picking reference) — same anchor the
+            # residual uses, so lines and explanations sit together
+            fallback_row = self.search([
+                ('owner_id', '=', owner.id), ('active', '=', True),
+                ('is_blast_freezer', '=', False),
+                ('effective_document', '=', False)],
+                order='start_time asc, id asc', limit=1) or self.search([
+                ('owner_id', '=', owner.id), ('active', '=', True),
+                ('is_blast_freezer', '=', False)],
+                order='start_time asc, id asc', limit=1)
+
+            # -- 2a. re-link approved adjustment lines to their PKR row ----
+            #       (the native stock.quant.adjustment.line records are the
+            #       audit trail; no shadow entries are created)
+            relinked = 0
+            zero_line_by_batch = {}
+            AdjLine = self.env['stock.quant.adjustment.line'].sudo()
+            if 'pallet_kilos_record_id' in AdjLine._fields:
+                adj_lines = AdjLine.search([
+                    ('line_state', '=', 'approved'),
+                    ('old_owner_id', '=', owner.id)])
+                for al in adj_lines:
+                    if (al.request_id.batch_number
+                            and not (al.new_quantity or 0)
+                            and not (al.new_x_studio_2nd_uom or 0)
+                            and (al.old_quantity or 0) > 0):
+                        # "adjusted to 0" correction — remembered so the
+                        # matching pallet event below can cite it and land
+                        # on the same PKR row as the line
+                        zero_line_by_batch[al.request_id.batch_number] = al
+                    quant = al.quant_id.exists()
+                    rr = (quant.original_record_reference
+                          or quant.x_studio_record_reference) if quant else False
+                    if not rr and al.request_id.batch_number:
+                        # quant deleted since: recover the RR from the
+                        # correction's KG move, which stamps the reference
+                        mv = MoveLine.search([
+                            ('state', '=', 'done'),
+                            ('picking_id', '=', False),
+                            ('owner_id', '=', owner.id),
+                            ('adjustment_batch_number', '=',
+                             al.request_id.batch_number),
+                            ('adjustment_reference_id', '!=', False)],
+                            limit=1)
+                        rr = mv.adjustment_reference_id
+                    target = row_by_doc.get(rr.id) if rr else None
+                    target = target or fallback_row
+                    if target and al.pallet_kilos_record_id.id != target.id:
+                        al.pallet_kilos_record_id = target.id
+                        relinked += 1
+
+            exit_lines = MoveLine.search([
+                ('state', '=', 'done'), ('picking_id', '=', False),
+                ('owner_id', '=', owner.id), ('quantity', '>', 0),
+                ('package_id', '!=', False),
+                ('location_dest_id.usage', '=', 'inventory')])
+            exit_pkgs = set(exit_lines.mapped('package_id').ids)
+            batch_by_pkg = {}
+            for xl in exit_lines:
+                if xl.adjustment_batch_number:
+                    batch_by_pkg.setdefault(xl.package_id.id, set()).add(
+                        xl.adjustment_batch_number)
+
+            # one batched query: which of those packages still hold stock?
+            stocked = set()
+            if exit_pkgs:
+                stocked = {
+                    g['package_id'][0] for g in Quant.read_group(
+                        [('owner_id', '=', owner.id), ('quantity', '>', 0),
+                         ('location_id.usage', '=', 'internal'),
+                         ('package_id', 'in', list(exit_pkgs))],
+                        ['package_id'], ['package_id'])}
+            dead_pkgs = exit_pkgs - stocked
+
+            # batched queries: originating RR per dead package, plus how many
+            # times each was COUNTED received (unique result_package per RR)
+            # vs COUNTED withdrawn (unique package per WR, only when
+            # reserved_quantity_on_validation == 0 — the ledger rule).
+            rr_by_pkg = {}
+            counted_in = {}
+            counted_out = {}
+            psi_by_pkg = {}
+            if dead_pkgs:
+                for line in MoveLine.search([
+                        ('state', '=', 'done'),
+                        ('result_package_id', 'in', list(dead_pkgs)),
+                        ('owner_id', '=', owner.id),
+                        ('picking_id.picking_type_id.code', '=', 'incoming')],
+                        order='date asc'):
+                    rr_by_pkg.setdefault(line.result_package_id.id,
+                                         line.picking_id)
+                    counted_in.setdefault(line.result_package_id.id,
+                                          set()).add(line.picking_id.id)
+                    psi = getattr(line, 'x_studio_pallet_series_id', False)
+                    if psi:
+                        psi_by_pkg.setdefault(line.result_package_id.id, psi)
+                for line in MoveLine.search([
+                        ('state', '=', 'done'),
+                        ('package_id', 'in', list(dead_pkgs)),
+                        ('owner_id', '=', owner.id),
+                        # NULL counts as 0 — mirrors _populate_operations_data,
+                        # where a missing value reads as 0.0 in Python
+                        '|', ('reserved_quantity_on_validation', '=', 0),
+                             ('reserved_quantity_on_validation', '=', False),
+                        ('picking_id.picking_type_id.code', '=', 'outgoing')]):
+                    counted_out.setdefault(line.package_id.id,
+                                           set()).add(line.picking_id.id)
+            # row_by_doc / fallback_row already built before step 2a
+
+            events = 0
+            event_pkgs = set()
+            pkg_names = {p.id: p.name
+                         for p in self.env['stock.quant.package'].browse(list(dead_pkgs))}
+            for pkg_id in dead_pkgs:
+                # only post an event if the ledger still thinks the pallet is
+                # in (or out) — a pallet whose counted receipts and counted
+                # withdrawals balance needs NO event, even if a picking-less
+                # adjustment moved part of its stock (that exit did not kill
+                # the pallet; a later WR did, and the WR already counted it).
+                delta = (len(counted_out.get(pkg_id, ()))
+                         - len(counted_in.get(pkg_id, ())))
+                if not delta:
+                    continue
+                psi = psi_by_pkg.get(pkg_id)
+                ident = ('PSI %s' % psi) if psi \
+                    else ('pallet %s' % pkg_names.get(pkg_id, pkg_id))
+                # if the pallet died through an approved "adjusted to 0"
+                # correction, cite that batch and post the event on the
+                # SAME row its adjustment line is linked to
+                zline = next(
+                    (zero_line_by_batch[b]
+                     for b in sorted(batch_by_pkg.get(pkg_id, ()))
+                     if b in zero_line_by_batch), None)
+                if zline is not None and zline.pallet_kilos_record_id:
+                    target = zline.pallet_kilos_record_id
+                    why = ('%s was adjusted to 0 quantity by adjustment '
+                           'request batch %s, so the pallet left without a '
+                           'WR' % (ident, zline.request_id.batch_number))
+                else:
+                    rr = rr_by_pkg.get(pkg_id)
+                    target = row_by_doc.get(rr.id) if rr else None
+                    target = target or fallback_row
+                    why = ('%s was counted received %dx and withdrawn %dx '
+                           'by documents, but holds no stock for this '
+                           'owner today — its last exit was never counted'
+                           % (ident,
+                              len(counted_in.get(pkg_id, ())),
+                              len(counted_out.get(pkg_id, ()))))
+                if not target:
+                    continue
+                note = ('pallet re-sync event %s: %+g (%s)'
+                        % (today, delta, why))
+                target.with_context(skip_pkr_recalc=True).write({
+                    'adjustment_pallets': target.adjustment_pallets + delta,
+                    'remarks': ((target.remarks + ' | ') if target.remarks
+                                else '') + note,
+                })
+                html_rows.setdefault(target.id, []).append(
+                    (ident, '%+g' % delta, why))
+                _logger.info('Re-sync: %s -> PKR %s', note, target.id)
+                event_pkgs.add(pkg_id)
+                events += 1
+
+            # -- 3. residual anchor (NO stored-balance dependency: the owner
+            #       ledger total is the plain sum of the flow components, so
+            #       one read_group replaces a full partition rebuild here) ----
+            residual_notes = []
+            for wh_id, bf in partitions:
+                prows = rows.filtered(
+                    lambda r: r.warehouse.id == wh_id
+                    and bool(r.is_blast_freezer) == bf)
+
+                # ---- 3a. wipe + rebuild adjustment packaging/packs -------
+                # (wipe-and-rebuild keeps the run idempotent: without it,
+                # per-lot postings would re-post on every run)
+                #   1) approved adjustment lines re-post their deltas onto
+                #      the PKR row they are linked to (the recorded era);
+                #   2) pre-audit-era corrections recorded no deltas, but a
+                #      lot's packaging story is inferable from its OWN
+                #      paper trail (RR packs in - WR packs out + posted
+                #      deltas vs physical) — each nonzero lot is posted on
+                #      the PKR row of the RR that received it, NAMED with
+                #      the correction batch/date that touched it (this is
+                #      e.g. VERDURE VE-01970: batch 00064 rewrote packs
+                #      5 -> 34 and the WR took 34 out — +29 belongs on that
+                #      RR's row, not on the opening-balance anchor);
+                #   3) whatever remains lands on the anchor as residual
+                #      (mostly opening-balance import variance — OB packs
+                #      were written straight onto quants, no per-lot
+                #      baseline exists on paper).
+                if prows:
+                    # html cleared too: rows are re-explained below, and a
+                    # row whose adjustments were wiped must not keep a
+                    # stale reason table. adjustment_kilos is wiped as
+                    # well: KG adjustments must trace to recorded
+                    # correction lines, NEVER to a balancing residual
+                    # (KG is transaction-recorded in every flow).
+                    prows.with_context(skip_pkr_recalc=True).write(
+                        {'adjustment_packaging': 0, 'adjustment_heads': 0,
+                         'adjustment_kilos': 0,
+                         'adjustment_reason_html': False})
+                row_post = {}   # row -> [packs, units, kilos]
+                self.env.cr.execute("""
+                    SELECT al.pallet_kilos_record_id,
+                           SUM(COALESCE(al.new_x_studio_2nd_uom,0)
+                               - COALESCE(al.old_x_studio_2nd_uom,0)),
+                           SUM(COALESCE(al.new_x_studio_total_units,0)
+                               - COALESCE(al.old_x_studio_total_units,0)),
+                           SUM(COALESCE(al.new_quantity,0)
+                               - COALESCE(al.old_quantity,0))
+                    FROM stock_quant_adjustment_line al
+                    WHERE al.line_state='approved'
+                      AND al.pallet_kilos_record_id = ANY(%s)
+                    GROUP BY 1
+                """, (prows.ids or [0],))
+                for row_id, d_packs, d_units, d_kilos in \
+                        self.env.cr.fetchall():
+                    row_post.setdefault(row_id, [0.0, 0.0, 0.0])
+                    row_post[row_id][0] += d_packs or 0
+                    row_post[row_id][1] += d_units or 0
+                    row_post[row_id][2] += d_kilos or 0
+
+                # per-lot inference for the unrecorded era (RR-born lots)
+                self.env.cr.execute("""
+                    WITH doc AS (
+                      SELECT ml.lot_id,
+                        SUM(CASE WHEN pt.code='incoming'
+                             THEN COALESCE(ml.x_studio_2nd_uom,0)
+                             ELSE -COALESCE(ml.x_studio_affected_2nd_uom,0)
+                            END) paper_p,
+                        SUM(CASE WHEN pt.code='incoming'
+                             THEN COALESCE(ml.x_studio_total_units,0)
+                             ELSE -COALESCE(ml.x_studio_withdraw_units,0)
+                            END) paper_u,
+                        bool_or(pt.code='incoming') has_rr
+                      FROM stock_move_line ml
+                      JOIN stock_picking sp ON sp.id=ml.picking_id
+                      JOIN stock_picking_type pt
+                        ON pt.id=sp.picking_type_id
+                      WHERE ml.owner_id=%s AND ml.state='done'
+                        AND ml.lot_id IS NOT NULL
+                        AND COALESCE(sp.x_studio_voided,false)=false
+                      GROUP BY 1),
+                    corr AS (
+                      -- keyed by the line's OWN lot ids so recorded
+                      -- corrections still count after their quant died
+                      -- (quant_id is SET NULL on quant deletion)
+                      SELECT COALESCE(al.new_lot_id, al.old_lot_id,
+                                      q.lot_id) AS lot_id,
+                        SUM(COALESCE(al.new_x_studio_2nd_uom,0)
+                            - COALESCE(al.old_x_studio_2nd_uom,0)) dp,
+                        SUM(COALESCE(al.new_x_studio_total_units,0)
+                            - COALESCE(al.old_x_studio_total_units,0)) du
+                      FROM stock_quant_adjustment_line al
+                      LEFT JOIN stock_quant q ON q.id=al.quant_id
+                      WHERE al.line_state='approved'
+                        AND al.old_owner_id=%s
+                        AND COALESCE(al.new_lot_id, al.old_lot_id,
+                                     q.lot_id) IS NOT NULL
+                      GROUP BY 1),
+                    phys AS (
+                      SELECT q.lot_id,
+                        SUM(COALESCE(q.x_studio_2nd_uom,0)) p,
+                        SUM(COALESCE(q.x_studio_total_units,0)) u
+                      FROM stock_quant q
+                      JOIN stock_location l ON l.id=q.location_id
+                      WHERE q.owner_id=%s AND q.quantity>0
+                        AND l.usage='internal' AND l.warehouse_id=%s
+                        AND COALESCE(q.location_is_bf,false)=%s
+                        AND q.lot_id IS NOT NULL
+                      GROUP BY 1),
+                    cmv AS (
+                      -- lots touched/created by a batch-numbered correction
+                      -- move; OB import moves carry NO batch number, so
+                      -- opening-balance lots never match here
+                      SELECT DISTINCT ml.lot_id
+                      FROM stock_move_line ml
+                      WHERE ml.owner_id=%s AND ml.state='done'
+                        AND ml.picking_id IS NULL
+                        AND ml.adjustment_batch_number IS NOT NULL
+                        AND ml.lot_id IS NOT NULL)
+                    SELECT d.lot_id, lot.name,
+                           COALESCE(p.p,0)
+                           - (COALESCE(d.paper_p,0)+COALESCE(c.dp,0)) gap_p,
+                           COALESCE(p.u,0)
+                           - (COALESCE(d.paper_u,0)+COALESCE(c.du,0)) gap_u
+                    FROM doc d
+                    LEFT JOIN corr c ON c.lot_id=d.lot_id
+                    LEFT JOIN phys p ON p.lot_id=d.lot_id
+                    LEFT JOIN cmv ON cmv.lot_id=d.lot_id
+                    LEFT JOIN stock_lot lot ON lot.id=d.lot_id
+                    WHERE (d.has_rr OR cmv.lot_id IS NOT NULL)
+                      AND (abs(COALESCE(p.p,0)-(COALESCE(d.paper_p,0)
+                               +COALESCE(c.dp,0))) > 0.5
+                        OR abs(COALESCE(p.u,0)-(COALESCE(d.paper_u,0)
+                               +COALESCE(c.du,0))) > 0.5)
+                    ORDER BY abs(COALESCE(p.p,0)-(COALESCE(d.paper_p,0)
+                                 +COALESCE(c.dp,0))) DESC
+                """, (owner.id, owner.id, owner.id, wh_id, bf, owner.id))
+                lot_gaps = self.env.cr.fetchall()
+                batch_by_lot = {}
+                psi_by_lot = {}
+                if lot_gaps:
+                    self.env.cr.execute("""
+                        SELECT ml.lot_id,
+                               string_agg(DISTINCT
+                                   ml.adjustment_batch_number, ', '),
+                               min(ml.date)::date
+                        FROM stock_move_line ml
+                        WHERE ml.owner_id=%s AND ml.state='done'
+                          AND ml.picking_id IS NULL
+                          AND ml.adjustment_batch_number IS NOT NULL
+                          AND ml.lot_id = ANY(%s)
+                        GROUP BY 1
+                    """, (owner.id, [g[0] for g in lot_gaps]))
+                    batch_by_lot = {
+                        lid: (b, d)
+                        for lid, b, d in self.env.cr.fetchall()}
+                    # the pallet series each lot lived on — the identity
+                    # warehouse staff actually recognize (latest wins)
+                    self.env.cr.execute("""
+                        SELECT DISTINCT ON (ml.lot_id)
+                               ml.lot_id, ml.x_studio_pallet_series_id
+                        FROM stock_move_line ml
+                        WHERE ml.state='done' AND ml.lot_id = ANY(%s)
+                          AND COALESCE(
+                              ml.x_studio_pallet_series_id, '') <> ''
+                        ORDER BY ml.lot_id, ml.date DESC
+                    """, ([g[0] for g in lot_gaps],))
+                    psi_by_lot = dict(self.env.cr.fetchall())
+                # EXPLANATION-ONLY: per-lot gaps are NOT posted per row —
+                # corrections routinely relabel stock between lots/series
+                # (old lot reads "vanished", new lot "appeared"); the pairs
+                # cancel at owner level but no pre-era pairing data exists,
+                # so posting each side on a different row would scatter
+                # meaningless ± values (the VERDURE -350 incident). The
+                # gaps feed the anchor's WHY table instead.
+                pack_gap_notes = []
+                for lot_id_g, lot_name, gap_p, gap_u in lot_gaps:
+                    pack_gap_notes.append(
+                        (psi_by_lot.get(lot_id_g),
+                         lot_name or str(lot_id_g),
+                         batch_by_lot.get(lot_id_g),
+                         gap_p, gap_u))
+                # EVIDENCE BASIS for balancing: an opening-balance import
+                # exists (documentless arrivals from the Inventory
+                # location, batch-less) or the partition holds an OB row.
+                # Without this basis, an unexplained remainder must NOT be
+                # force-balanced onto the ledger — no data backs it.
+                ob_basis = bool(MoveLine.search_count(
+                    [('state', '=', 'done'), ('picking_id', '=', False),
+                     ('owner_id', '=', owner.id),
+                     ('location_id.usage', '=', 'inventory'),
+                     ('adjustment_batch_number', '=', False)])) or any(
+                    'opening balance' in (r.remarks or '').lower()
+                    for r in prows)
+                # write the rebuilt adjustments (linked-line deltas ONLY)
+                for row_id, (d_packs, d_units, d_kilos) in row_post.items():
+                    if round(d_packs, 3) or round(d_units, 3) \
+                            or round(d_kilos, 3):
+                        self.browse(row_id).with_context(
+                            skip_pkr_recalc=True).write({
+                                'adjustment_packaging': d_packs,
+                                'adjustment_heads': d_units,
+                                'adjustment_kilos': d_kilos,
+                            })
+                # ...and explain each posted line in the row's reason table
+                # (the user-visible answer to "where did this packaging
+                # adjustment come from?")
+                self.env.cr.execute("""
+                    SELECT al.pallet_kilos_record_id, r.batch_number,
+                           COALESCE(al.approved_date::date,
+                                    al.create_date::date),
+                           COALESCE(al.display_pallet_series, ''),
+                           COALESCE(al.new_x_studio_2nd_uom,0)
+                           - COALESCE(al.old_x_studio_2nd_uom,0),
+                           COALESCE(al.new_x_studio_total_units,0)
+                           - COALESCE(al.old_x_studio_total_units,0),
+                           COALESCE(al.new_quantity,0)
+                           - COALESCE(al.old_quantity,0)
+                    FROM stock_quant_adjustment_line al
+                    JOIN stock_quant_adjustment_request r
+                      ON r.id = al.request_id
+                    WHERE al.line_state = 'approved'
+                      AND al.pallet_kilos_record_id = ANY(%s)
+                    ORDER BY al.create_date
+                """, (prows.ids or [0],))
+                for rid, bno, bdate, psi_l, dp, du, dk in \
+                        self.env.cr.fetchall():
+                    if not round(dp, 3) and not round(du, 3) \
+                            and not round(dk, 3):
+                        continue
+                    amount = ' / '.join(filter(None, [
+                        '%+g pkg' % dp if round(dp, 3) else '',
+                        '%+g pcs' % du if round(du, 3) else '',
+                        '%+g kg' % dk if round(dk, 3) else '']))
+                    html_rows.setdefault(rid, []).append((
+                        ('PSI %s' % psi_l) if psi_l else 'Correction',
+                        amount,
+                        'quantity correction batch %s approved on %s — '
+                        'posted from its recorded audit line'
+                        % (bno or '?', bdate)))
+
+                grp = self.read_group(
+                    [('owner_id', '=', owner.id), ('warehouse', '=', wh_id),
+                     ('is_blast_freezer', '=', bf), ('active', '=', True)],
+                    ['pallets_received', 'pallets_withdrawn',
+                     'adjustment_pallets',
+                     'packaging_received', 'packaging_withdrawn',
+                     'adjustment_packaging',
+                     'units_received', 'units_withdrawn', 'adjustment_heads',
+                     'kilos_received', 'kilos_withdrawn', 'adjustment_kilos'],
+                    [])[0]
+                ledger = ((grp['pallets_received'] or 0)
+                          - (grp['pallets_withdrawn'] or 0)
+                          + (grp['adjustment_pallets'] or 0))
+                ledger_packs = ((grp['packaging_received'] or 0)
+                                - (grp['packaging_withdrawn'] or 0)
+                                + (grp['adjustment_packaging'] or 0))
+                ledger_units = ((grp['units_received'] or 0)
+                                - (grp['units_withdrawn'] or 0)
+                                + (grp['adjustment_heads'] or 0))
+                ledger_kilos = ((grp['kilos_received'] or 0)
+                                - (grp['kilos_withdrawn'] or 0)
+                                + (grp['adjustment_kilos'] or 0))
+                # physical packaging / packs / kilos of the partition (one
+                # grouped read; BF and regular split by location_is_bf)
+                phys_grp = Quant.read_group(
+                    [('owner_id', '=', owner.id), ('quantity', '>', 0),
+                     ('location_id.usage', '=', 'internal'),
+                     ('location_id.warehouse_id', '=', wh_id),
+                     ('location_is_bf', '=', bf)],
+                    ['x_studio_2nd_uom', 'x_studio_total_units', 'quantity'],
+                    [])
+                phys_packs = (phys_grp[0]['x_studio_2nd_uom'] or 0) \
+                    if phys_grp else 0
+                phys_units = (phys_grp[0]['x_studio_total_units'] or 0) \
+                    if phys_grp else 0
+                phys_kilos = (phys_grp[0]['quantity'] or 0) \
+                    if phys_grp else 0
+                if bf:
+                    quants = Quant.search_read(
+                        [('owner_id', '=', owner.id), ('quantity', '>', 0),
+                         ('location_id.usage', '=', 'internal'),
+                         ('location_id.warehouse_id', '=', wh_id),
+                         ('location_is_bf', '=', True)], ['bf_pallet_char'])
+                    actual = len({q['bf_pallet_char'] for q in quants}
+                                 - {False, ''})
+                else:
+                    stocked_ids = {g['package_id'][0] for g in Quant.read_group(
+                        [('owner_id', '=', owner.id), ('quantity', '>', 0),
+                         ('location_id.usage', '=', 'internal'),
+                         ('location_id.warehouse_id', '=', wh_id),
+                         ('package_id', '!=', False)],
+                        ['package_id'], ['package_id'])}
+                    actual = len(stocked_ids)
+                residual = ledger - actual
+                # packaging / packs residuals: pre-audit-era corrections and
+                # opening-balance imports changed quant packs with no
+                # document flow and left NO per-event record, so — like the
+                # pallet residual — the difference is posted as one anchored
+                # adjustment. Forward accuracy is carried by the approved
+                # adjustment lines, whose deltas post to the ledger live.
+                pack_residual = round(ledger_packs - phys_packs, 3)
+                unit_residual = round(ledger_units - phys_units, 3)
+                kilo_residual = round(ledger_kilos - phys_kilos, 3)
+                if abs(pack_residual) <= 0.5:
+                    pack_residual = 0
+                if abs(unit_residual) <= 0.5:
+                    unit_residual = 0
+                if abs(kilo_residual) <= 0.5:
+                    kilo_residual = 0
+                if round(residual) == 0 and not pack_residual \
+                        and not unit_residual and not kilo_residual:
+                    continue
+                # anchor priority: the partition's opening-balance row (no
+                # stock.picking reference — that's where import drift
+                # belongs), else the latest documented row
+                anchor = self.search([
+                    ('owner_id', '=', owner.id), ('warehouse', '=', wh_id),
+                    ('is_blast_freezer', '=', bf), ('active', '=', True),
+                    ('effective_document', '=', False)],
+                    order='start_time asc, id asc', limit=1)
+                if not anchor:
+                    anchor = self.search([
+                        ('owner_id', '=', owner.id), ('warehouse', '=', wh_id),
+                        ('is_blast_freezer', '=', bf), ('active', '=', True)],
+                        order='start_time desc, id desc', limit=1)
+                if not anchor:
+                    continue
+                # explain the residual with NAMED contributors (regular
+                # partitions; BF has no packages to decompose by):
+                #  - stocked pallets with no RR and not part of the labeled
+                #    opening-balance load (born via correction/adjustment)
+                #  - opening-balance pallets gone without a counted WR
+                detail_bits = []
+                res_html = []
+                if not bf and round(residual):
+                    # EXACT per-identity decomposition. Pallet swaps
+                    # ("Pallet #: A -> B" corrections) are folded into one
+                    # identity (net 0 — never flagged); each identity's
+                    # contribution = pallets in stock - times counted
+                    # received (RRs + opening-balance load) + times counted
+                    # withdrawn. The nonzero ones ARE the residual.
+                    # every documentless arrival counts as an entry:
+                    # picking-less move from the Inventory location without
+                    # a correction batch number = opening-balance / import
+                    # load, WHATEVER its reference says ("VENDURE OB",
+                    # "Inventory Adjustment: +...", ...). Reference-text
+                    # matching missed differently-labeled imports and made
+                    # balanced pallets look like culprits (R 366 incident).
+                    ob_load_ids = {
+                        g['result_package_id'][0]
+                        for g in MoveLine.read_group(
+                            [('state', '=', 'done'), ('picking_id', '=', False),
+                             ('owner_id', '=', owner.id),
+                             ('location_id.usage', '=', 'inventory'),
+                             ('result_package_id', '!=', False),
+                             ('adjustment_batch_number', '=', False)],
+                            ['result_package_id'], ['result_package_id'])}
+                    rc_n = {}
+                    for pkg_p, pick_p in {
+                            (x['result_package_id'][0], x['picking_id'][0])
+                            for x in MoveLine.search_read(
+                                [('state', '=', 'done'),
+                                 ('owner_id', '=', owner.id),
+                                 ('result_package_id', '!=', False),
+                                 ('picking_id.picking_type_id.code', '=',
+                                  'incoming')],
+                                ['picking_id', 'result_package_id'])}:
+                        rc_n[pkg_p] = rc_n.get(pkg_p, 0) + 1
+                    wc_n = {}
+                    for pkg_p, pick_p in {
+                            (x['package_id'][0], x['picking_id'][0])
+                            for x in MoveLine.search_read(
+                                [('state', '=', 'done'),
+                                 ('owner_id', '=', owner.id),
+                                 ('package_id', '!=', False),
+                                 '|',
+                                 ('reserved_quantity_on_validation', '=', 0),
+                                 ('reserved_quantity_on_validation', '=',
+                                  False),
+                                 ('picking_id.picking_type_id.code', '=',
+                                  'outgoing')],
+                                ['picking_id', 'package_id'])}:
+                        wc_n[pkg_p] = wc_n.get(pkg_p, 0) + 1
+                    parent = {}
+                    for sl in MoveLine.search_read(
+                            [('state', '=', 'done'), ('picking_id', '=', False),
+                             ('owner_id', '=', owner.id),
+                             ('package_id', '!=', False),
+                             ('result_package_id', '!=', False)],
+                            ['package_id', 'result_package_id']):
+                        old_id, new_id = (sl['package_id'][0],
+                                          sl['result_package_id'][0])
+                        if old_id != new_id:
+                            parent.setdefault(new_id, old_id)
+
+                    def _root(pid):
+                        seen = set()
+                        while pid in parent and pid not in seen:
+                            seen.add(pid)
+                            pid = parent[pid]
+                        return pid
+
+                    contrib = {}   # root identity -> [stocked, in, out, members]
+                    for p in (set(rc_n) | set(wc_n) | stocked_ids
+                              | ob_load_ids):
+                        rt = _root(p)
+                        d = contrib.setdefault(rt, [0, 0, 0, set()])
+                        d[0] += 1 if p in stocked_ids else 0
+                        d[1] += rc_n.get(p, 0) + (1 if p in ob_load_ids else 0)
+                        d[2] += wc_n.get(p, 0)
+                        d[3].add(p)
+                    culprits = []
+                    for rt, (stk, cin, cout, members) in contrib.items():
+                        cval = stk - cin + cout
+                        if not cval or members & event_pkgs:
+                            continue   # balanced, or already posted as event
+                        culprits.append((cval, rt, stk, cin, cout, members))
+                    culprits.sort(key=lambda t: (-abs(t[0]), t[1]))
+                    if culprits:
+                        name_ids = set()
+                        for t in culprits[:6]:
+                            name_ids.add(t[1])
+                            name_ids |= t[5]
+                        pkg_name = {p.id: p.name
+                                    for p in self.env['stock.quant.package']
+                                    .browse(list(name_ids))}
+                        # enrich pallet #s with the pallet series they
+                        # carried — the identity warehouse staff recognize
+                        self.env.cr.execute("""
+                            SELECT DISTINCT ON (ml.result_package_id)
+                                   ml.result_package_id,
+                                   ml.x_studio_pallet_series_id
+                            FROM stock_move_line ml
+                            WHERE ml.state='done'
+                              AND ml.result_package_id = ANY(%s)
+                              AND COALESCE(
+                                  ml.x_studio_pallet_series_id, '') <> ''
+                            ORDER BY ml.result_package_id, ml.date DESC
+                        """, (list(name_ids),))
+                        psi_by_pkg = dict(self.env.cr.fetchall())
+                        for pid in list(pkg_name):
+                            if psi_by_pkg.get(pid):
+                                pkg_name[pid] = '%s (PSI %s)' % (
+                                    pkg_name[pid], psi_by_pkg[pid])
+                        bits = []
+                        for cval, rt, stk, cin, cout, members in culprits[:6]:
+                            name = pkg_name.get(rt, rt)
+                            others = sorted(pkg_name.get(m, str(m))
+                                            for m in members - {rt})
+                            if len(members) > 1 and cval > 0:
+                                why = ('corrections split stock from %s '
+                                       'onto %s; the exits were counted '
+                                       'but the new pallet number(s) were '
+                                       'never received by an RR%s'
+                                       % (name, ', '.join(others),
+                                          '; %s itself is still in stock'
+                                          % name if stk else ''))
+                            elif cval > 0 and stk:
+                                why = ('in stock now: entered %dx, left '
+                                       '%dx — it returned or arrived '
+                                       'without a receiving document'
+                                       % (cin, cout))
+                            elif cval > 0:
+                                why = ('no stock left: entered %dx but '
+                                       'left %dx — one exit had no '
+                                       'matching documented entry'
+                                       % (cin, cout))
+                            else:
+                                why = ('no stock left: entered %dx but '
+                                       'only %dx exit(s) were counted — '
+                                       'it left without a withdrawal '
+                                       'document (adjustment or pallet '
+                                       'renumbering)' % (cin, cout))
+                            bits.append('%s %+g: %s' % (name, cval, why))
+                            res_html.append((name, '%+g' % cval, why))
+                        more = len(culprits) - 6
+                        detail_bits.append(
+                            '%s%s' % (
+                                ' | '.join(bits),
+                                ' | and %d more pallet(s) with the same '
+                                'kinds of causes' % more
+                                if more > 0 else ''))
+                        if more > 0:
+                            res_html.append(
+                                ('Other pallets', '%+g' % sum(
+                                    t[0] for t in culprits[6:]),
+                                 '%d more pallet(s) with the same kinds '
+                                 'of causes' % more))
+                # mass bursts (excluding the labeled opening-balance load
+                # itself), in the direction of the residual
+                if round(residual):
+                    burst_dom = [
+                        ('state', '=', 'done'), ('picking_id', '=', False),
+                        ('owner_id', '=', owner.id), ('quantity', '>', 0),
+                        ('reference', 'not ilike', 'opening balance'),
+                        ('reference', 'not ilike', 'ob part'),
+                        ('location_id.usage' if residual < 0
+                         else 'location_dest_id.usage', '=', 'inventory')]
+                    bursts = MoveLine.read_group(
+                        burst_dom, ['id'], ['date:day'])
+                    bursts = sorted(
+                        (b for b in bursts if b.get('date_count', 0) >= 20),
+                        key=lambda b: -b['date_count'])[:2]
+                    if bursts:
+                        burst_txt = 'mass inventory adjustment%s: %s' % (
+                            ' IN' if residual < 0 else ' OUT (no WR)',
+                            '; '.join('%d move(s) on %s'
+                                      % (b['date_count'], b['date:day'])
+                                      for b in bursts))
+                        detail_bits.append(burst_txt)
+                        res_html.append(('Mass adjustment', '', burst_txt))
+                anchor_vals = {}
+                note_parts = []
+                entries = html_rows.setdefault(anchor.id, [])
+                if round(residual):
+                    if detail_bits:
+                        suffix = ('. WHY (main identified causes): '
+                                  + ' | '.join(detail_bits))
+                    elif residual < 0:
+                        suffix = ('. WHY: pallets are physically in stock '
+                                  'that no receiving document ever counted '
+                                  'in')
+                    else:
+                        suffix = ('. WHY: pallets counted into stock on '
+                                  'paper are no longer physically here, and '
+                                  'no WR counted them out')
+                    note_parts.append(
+                        '%+g pallet(s) added here to make the ledger match '
+                        'the physical count%s' % (-residual, suffix))
+                    anchor_vals['adjustment_pallets'] = \
+                        anchor.adjustment_pallets - residual
+                    entries.append((
+                        'RESIDUAL (total)', '%+g' % -residual,
+                        'added on this row (opening balance) so the ledger '
+                        'equals the physical pallet count'))
+                    if res_html:
+                        entries.extend(res_html)
+                    elif residual < 0:
+                        entries.append((
+                            'Unattributed', '%+g' % -residual,
+                            'pallets are physically in stock that no '
+                            'receiving document ever counted in'))
+                    else:
+                        entries.append((
+                            'Unattributed', '%+g' % -residual,
+                            'pallets counted into stock on paper are no '
+                            'longer physically here, and no WR counted them '
+                            'out'))
+                # packaging / packs residuals ride on the same anchor row:
+                # no per-event history exists (pre-audit-era corrections,
+                # opening-balance import imprecision), so the difference is
+                # posted whole and visibly explained
+                if pack_residual:
+                    # EVIDENCE-BOUNDED balancing: the lot gaps are the
+                    # data-backed part; the remainder is claimable as
+                    # opening-balance variance ONLY when an OB import
+                    # actually exists. Without that basis the remainder is
+                    # NOT posted — it stays visibly unbalanced (the health
+                    # monitor keeps flagging it) instead of being hidden
+                    # behind an invented adjustment.
+                    gap_total = sum(g[3] for g in pack_gap_notes)
+                    pos_sum = sum(g[3] for g in pack_gap_notes if g[3] > 0)
+                    neg_sum = sum(g[3] for g in pack_gap_notes if g[3] < 0)
+                    ob_var = -pack_residual - gap_total
+                    if ob_basis or abs(ob_var) <= 0.5:
+                        posted_p, unresolved_p = -pack_residual, 0.0
+                    else:
+                        posted_p, unresolved_p = gap_total, ob_var
+                    if round(posted_p, 3):
+                        note_parts.append(
+                            '%+g packaging added (quantity ledger %g vs '
+                            'physical %g — packs changed by old '
+                            'corrections/imports that left no ledger '
+                            'record)' % (posted_p, ledger_packs, phys_packs))
+                        anchor_vals['adjustment_packaging'] = \
+                            (anchor.adjustment_packaging or 0) + posted_p
+                        entries.append((
+                            'RESIDUAL packaging', '%+g' % posted_p,
+                            'quantity (2nd UOM) ledger %g vs physical %g — '
+                            'difference from corrections/imports made '
+                            'before the audit trail existed'
+                            % (ledger_packs, phys_packs)))
+                    if round(unresolved_p, 3):
+                        note_parts.append(
+                            '%+g packaging left UNBALANCED — no data '
+                            '(no opening-balance import, no correction '
+                            'trail) supports it' % unresolved_p)
+                        entries.append((
+                            'UNRESOLVED packaging', '%+g' % unresolved_p,
+                            'ledger and physical stock differ by this '
+                            'amount but NO data explains it (this client '
+                            'has no opening-balance import and no '
+                            'correction trail for it) — deliberately left '
+                            'unbalanced; the health monitor will keep '
+                            'flagging it until investigated'))
+                    # name gaps with a PROVABLE correction event (batch)
+                    # first — those are reviewable — then by magnitude
+                    pack_gap_notes.sort(
+                        key=lambda g: (g[2] is None, -abs(g[3])))
+                    for psi_g, lname, binfo, gap_p, gap_u in \
+                            pack_gap_notes[:10]:
+                        short = (lname[:40] + '…') if len(lname) > 41 \
+                            else lname
+                        label = ('PSI %s' % psi_g) if psi_g \
+                            else 'Lot %s' % short
+                        if binfo:
+                            why = ('packs changed by correction batch %s '
+                                   'on %s, before the audit trail recorded '
+                                   'packaging deltas' % (binfo[0], binfo[1]))
+                        else:
+                            why = ('packs changed with no recorded event '
+                                   '(pre-history era), or the stock was '
+                                   'relabeled to/from another lot by a '
+                                   'correction')
+                        entries.append((label, '%+g' % gap_p, why))
+                    if len(pack_gap_notes) > 10:
+                        entries.append((
+                            'Other lots',
+                            '%+g' % sum(g[3] for g in pack_gap_notes[10:]),
+                            '%d more lot(s) with the same kinds of causes'
+                            % (len(pack_gap_notes) - 10)))
+                    if pos_sum and neg_sum and \
+                            min(pos_sum, -neg_sum) > abs(gap_total):
+                        entries.append((
+                            'Relabeled stock (pairs cancel)',
+                            'net %+g' % gap_total,
+                            'corrections relabeled stock between lots/'
+                            'series: %+g appeared on new labels and %+g '
+                            'left old labels across %d lot(s) — the pairs '
+                            'offset each other; only the net difference '
+                            'is real' % (pos_sum, neg_sum,
+                                         len(pack_gap_notes))))
+                    if ob_basis and abs(ob_var) > 0.5:
+                        entries.append((
+                            'Opening-balance variance', '%+g' % ob_var,
+                            'packs were written directly onto stock at '
+                            'import (import moves carry no packaging), so '
+                            'the OB row total was an estimate — this is '
+                            'the difference against it (backed by the '
+                            'client\'s actual import transactions)'))
+                if unit_residual:
+                    explained_u = sum(g[4] for g in pack_gap_notes)
+                    ob_var_u = -unit_residual - explained_u
+                    if ob_basis or abs(ob_var_u) <= 0.5:
+                        posted_u, unresolved_u = -unit_residual, 0.0
+                    else:
+                        posted_u, unresolved_u = explained_u, ob_var_u
+                    if round(posted_u, 3):
+                        note_parts.append(
+                            '%+g pack(s)/head(s) added (packs ledger %g vs '
+                            'physical %g)' % (posted_u, ledger_units,
+                                              phys_units))
+                        anchor_vals['adjustment_heads'] = \
+                            (anchor.adjustment_heads or 0) + posted_u
+                        entries.append((
+                            'RESIDUAL packs', '%+g' % posted_u,
+                            'packs/heads ledger %g vs physical %g — '
+                            'difference from corrections/imports made '
+                            'before the audit trail existed'
+                            % (ledger_units, phys_units)))
+                    if round(unresolved_u, 3):
+                        note_parts.append(
+                            '%+g pack(s)/head(s) left UNBALANCED — no '
+                            'transaction data supports it' % unresolved_u)
+                        entries.append((
+                            'UNRESOLVED packs', '%+g' % unresolved_u,
+                            'no transaction (document, correction line or '
+                            'import move) explains this difference — '
+                            'deliberately left unbalanced for '
+                            'investigation'))
+                if kilo_residual:
+                    # KG residuals are NEVER force-posted. Unlike
+                    # packaging, weight is transaction-recorded in EVERY
+                    # flow — documents, correction lines, even OB import
+                    # moves carry actual kilos — so a KG difference with
+                    # no line behind it is always a real error (user-side
+                    # or data), and the truth must stay visible: it is
+                    # left unbalanced and the health monitor keeps
+                    # flagging it (the FOODASIA -1173.05 case).
+                    note_parts.append(
+                        '%+g KG left UNBALANCED — weight is fully '
+                        'transaction-recorded, so a difference no line '
+                        'explains is a real error to investigate'
+                        % -kilo_residual)
+                    entries.append((
+                        'UNRESOLVED kilos', '%+g' % -kilo_residual,
+                        'weight (KG) ledger %g vs physical %g — no '
+                        'transaction (document, correction line or import '
+                        'move) explains this difference; deliberately '
+                        'left unbalanced so the error stays visible'
+                        % (ledger_kilos, phys_kilos)))
+                note = ('pallet re-sync residual %s: %s'
+                        % (today, ' | '.join(note_parts)))
+                anchor_vals['remarks'] = ((anchor.remarks + ' | ')
+                                          if anchor.remarks else '') + note
+                anchor.with_context(skip_pkr_recalc=True).write(anchor_vals)
+                residual_notes.append(', '.join(
+                    filter(None, [
+                        '%+g plt' % -residual if round(residual) else '',
+                        '%+g pkg' % -pack_residual if pack_residual else '',
+                        '%+g pcs' % -unit_residual if unit_residual else '',
+                        '%+g kg' % -kilo_residual if kilo_residual else '',
+                    ])))
+
+            # render the collected explanations as an HTML table per row
+            # (the plain-text copy already sits in remarks for the XLSX)
+            for rid, entries in html_rows.items():
+                body = ''.join(
+                    '<tr><td>%s</td>'
+                    '<td style="text-align:right;white-space:nowrap">'
+                    '<b>%s</b></td><td>%s</td></tr>'
+                    % tuple(html_escape(str(v)) for v in e)
+                    for e in entries)
+                self.browse(rid).with_context(
+                    skip_pkr_recalc=True).write({
+                        'adjustment_reason_html':
+                            '<table class="table table-sm table-bordered">'
+                            '<thead><tr><th>Pallet / Item</th>'
+                            '<th style="text-align:right">Adjustment</th>'
+                            '<th>Why</th></tr></thead>'
+                            '<tbody>%s</tbody></table>' % body})
+
+            summary.append(
+                '%s: %d row(s) repopulated, %d adjustment line(s) re-linked, '
+                '%d event(s), residual [%s]' % (
+                    owner.name, len(repop), relinked, events,
+                    ', '.join(residual_notes) or 'none'))
+
+        # -- 4. ONE full rebuild per affected partition, at the very end ----
+        for wh_id, bf in all_partitions:
+            self._recalculate_running_balances(wh_id, bf)
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Pallet Counts Re-synced',
+                'message': '\n'.join(summary) or 'Nothing to do.',
+                'type': 'success',
+                'sticky': True,
+            },
+        }
+
     def resync_all(self):
         """Resync current record"""
         for record in self:
@@ -808,17 +2024,15 @@ class PalletKilosRecordModel(models.Model):
         # Get selected quants
         quants = self.env['stock.quant'].browse(quant_ids)
 
-        # Validate quants haven't been imported before
-        existing_records = self.search([
-            ('remarks', '=', 'imported via opening balance')
-        ])
-
         # Get current datetime in UTC+8
         from datetime import datetime, timezone, timedelta
         utc_plus_8 = timezone(timedelta(hours=8))
         current_time = datetime.now(utc_plus_8).replace(tzinfo=None) - timedelta(days=5)  # Remove timezone info for Odoo
 
-        # Group quants by owner + warehouse + building
+        # Group quants by owner + warehouse + blast-freeze + building.
+        # The BF flag comes from the quant's location so BF stock lands in (and is
+        # later recalculated for) the correct partition instead of being forced
+        # into the regular one.
         grouped_data = {}
         for quant in quants:
             if not quant.location_id.warehouse_id:
@@ -828,10 +2042,12 @@ class PalletKilosRecordModel(models.Model):
             # Get building for this quant
             building = quant.location_id.x_studio_building if quant.location_id else None
             building_name = self._get_building_name(building)
-            
+            is_bf = bool(getattr(quant, 'location_is_bf', False))
+
             key = (
                 quant.owner_id.id if quant.owner_id else False,
                 quant.location_id.warehouse_id.id,
+                is_bf,
                 building_name
             )
 
@@ -839,6 +2055,7 @@ class PalletKilosRecordModel(models.Model):
                 grouped_data[key] = {
                     'owner_id': quant.owner_id.id if quant.owner_id else False,
                     'warehouse_id': quant.location_id.warehouse_id.id,
+                    'is_blast_freezer': is_bf,
                     'building_name': building_name,
                     'total_units': 0,
                     'total_packaging': 0,
@@ -847,10 +2064,10 @@ class PalletKilosRecordModel(models.Model):
                     'quant_ids': []
                 }
 
-            # Accumulate totals
+            # Accumulate totals (on-hand quantity, not the inventory-adjustment field)
             grouped_data[key]['total_units'] += quant.x_studio_total_units or 0
             grouped_data[key]['total_packaging'] += quant.x_studio_2nd_uom or 0
-            grouped_data[key]['total_kilos'] += quant.inventory_quantity_auto_apply or 0
+            grouped_data[key]['total_kilos'] += quant.quantity or 0
 
             # Track unique packages (pallets)
             if quant.package_id:
@@ -863,15 +2080,17 @@ class PalletKilosRecordModel(models.Model):
 
         # Create opening balance records
         created_records = []
-        
-        # Group by owner+warehouse for record creation (one record per owner+warehouse)
+        skipped_partitions = []
+
+        # Group by owner+warehouse+BF for record creation (one record per partition)
         owner_warehouse_data = {}
-        for (owner_id, warehouse_id, building_name), data in grouped_data.items():
-            ow_key = (owner_id, warehouse_id)
+        for (owner_id, warehouse_id, is_bf, building_name), data in grouped_data.items():
+            ow_key = (owner_id, warehouse_id, is_bf)
             if ow_key not in owner_warehouse_data:
                 owner_warehouse_data[ow_key] = {
                     'owner_id': owner_id,
                     'warehouse_id': warehouse_id,
+                    'is_blast_freezer': is_bf,
                     'total_units': 0,
                     'total_packaging': 0,
                     'total_kilos': 0,
@@ -895,7 +2114,26 @@ class PalletKilosRecordModel(models.Model):
                 'beginning_balance_in_kilos': 0,
             }
 
-        for (owner_id, warehouse_id), data in owner_warehouse_data.items():
+        for (owner_id, warehouse_id, is_bf), data in owner_warehouse_data.items():
+            # DOUBLE-IMPORT GUARD: refuse to create a second opening balance for a
+            # partition that already has one. Running the "Re sync" action twice
+            # previously doubled the owner's opening balance silently.
+            duplicate = self.search([
+                ('remarks', '=', 'imported via opening balance'),
+                ('owner_id', '=', owner_id),
+                ('warehouse', '=', warehouse_id),
+                ('is_blast_freezer', '=', is_bf),
+            ], limit=1)
+            if duplicate:
+                owner_label = (self.env['res.partner'].browse(owner_id).name
+                               if owner_id else 'No owner')
+                skipped_partitions.append(owner_label)
+                _logger.warning(
+                    "Skipping opening-balance import for owner %s / warehouse %s / bf=%s: "
+                    "record %s already exists. Archive it first to re-import.",
+                    owner_label, warehouse_id, is_bf, duplicate.id)
+                continue
+
             # Generate report number for opening balance
             report_no = f"OB-{warehouse_id}-{current_time.strftime('%Y%m%d%H%M%S')}"
             if owner_id:
@@ -947,8 +2185,8 @@ class PalletKilosRecordModel(models.Model):
                 'start_time': current_time,
                 'end_time': current_time,
 
-                # Blast freezer flag
-                'is_blast_freezer': False,
+                # Blast freezer flag (from the quants' locations, per partition)
+                'is_blast_freezer': is_bf,
 
                 # Building-level balances
                 'total_balances': data['buildings'],
@@ -962,23 +2200,29 @@ class PalletKilosRecordModel(models.Model):
             created_records.append(record)
             _logger.info(f"Created opening balance record {record.id} for warehouse {warehouse_id}, owner {owner_id}")
 
-        # After all records are created, recalculate overall warehouse totals
-        # Group by warehouse for recalculation
-        warehouses_to_recalc = set()
+        # After all records are created, recalculate each affected
+        # (warehouse, blast-freeze) partition from the beginning.
+        partitions_to_recalc = set()
         for record in created_records:
-            warehouses_to_recalc.add(record.warehouse.id)
+            partitions_to_recalc.add((record.warehouse.id, record.is_blast_freezer))
 
-        for warehouse_id in warehouses_to_recalc:
+        for warehouse_id, is_bf in partitions_to_recalc:
             # Recalculate from the beginning since these are opening balances
-            self._recalculate_running_balances(warehouse_id, False, None)
+            self._recalculate_running_balances(warehouse_id, is_bf, None)
+
+        message = f'Successfully created {len(created_records)} opening balance record(s).'
+        if skipped_partitions:
+            message += (
+                ' Skipped %d partition(s) that already have an opening balance: %s.'
+                % (len(skipped_partitions), ', '.join(sorted(set(skipped_partitions)))))
 
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': 'Opening Balances Imported',
-                'message': f'Successfully created {len(created_records)} opening balance records with building-level tracking.',
-                'type': 'success',
-                'sticky': False,
+                'message': message,
+                'type': 'success' if created_records else 'warning',
+                'sticky': bool(skipped_partitions),
             }
         }

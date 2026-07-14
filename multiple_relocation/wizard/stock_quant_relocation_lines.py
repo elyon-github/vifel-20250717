@@ -17,7 +17,9 @@ class StockQuantRelocationLine(models.TransientModel):
     x_studio_pallet_series_id = fields.Char(string='Pallet Series', readonly=True)
     package_id = fields.Many2one('stock.quant.package', string='Package', readonly=True)
     current_location = fields.Many2one('stock.location', string="Current Location", readonly=True)
-    new_location = fields.Many2one('stock.location', string="New Location")
+    new_location = fields.Many2one(
+        'stock.location', string="New Location",
+        domain=[('usage', '=', 'internal'), ('child_ids', '=', False)])
     x_studio_production_date = fields.Date(string='Production Date', readonly=True)
     x_studio_expiration_date = fields.Date(string='Expiration Date', readonly=True)
     x_studio_2nd_uom = fields.Float(string='Total Quantity', readonly=True)

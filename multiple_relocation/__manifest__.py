@@ -1,23 +1,90 @@
 # -*- coding: utf-8 -*-
 {
-    'name': "multiple_relocation",
+    'name': "VIFEL Warehouse Operations & Quant Corrections",
 
-    'summary': "Short (1 phrase/line) summary of the module's purpose",
+    'summary': "Core cold-storage WMS operations: pallet relocation, quant "
+               "corrections with approval workflow, returns, fast RR "
+               "encoding, and inventory reports",
 
     'description': """
-Long description of module's purpose
+VIFEL Warehouse Operations & Quant Corrections
+==============================================
+The operational backbone of the VIFEL cold-storage WMS on top of Odoo
+Inventory. Every receiving (RR), withdrawal (WR), relocation, return,
+correction and void in the warehouse runs through this module.
+
+Pallet relocation
+-----------------
+* Batch relocation wizard: move any number of pallets/quants between
+  bins and buildings in one operation, with building-aware allowed-
+  destination filtering (leaf bins only, occupancy- and BF-aware) and a
+  relocation reason trail.
+* Leaf-location guard: stock can only LAND on a specific pallet position
+  (e.g. .../R07/L6/P1) — validating onto an aisle/building/parent
+  location is blocked, so parent locations can never become reservable
+  stock spots.
+
+Quant corrections & approval workflow
+-------------------------------------
+* Correct Quants wizard: controlled corrections of Weight (KG), quantity
+  (2nd UOM), packs, Pallet #, product, owner, lot, production/expiration
+  dates and container # — applied immediately (Inventory Supervisors) or
+  routed through an adjustment request with per-line approve/reject,
+  batch numbers, conflict detection and mail-thread tracking.
+* Every applied correction — both flows — is stored as an approved
+  adjustment line linked to its Pallet Kilos Record row, with the
+  correction stock-move reference recoverable per line.
+* Pallet-count integrity legs posted automatically at correction time:
+  adjust-to-0 releases the pallet and posts -1; a pallet SPLIT (stock
+  moved to a new pallet # while the source keeps stock) posts +1; a
+  MERGE posts -1; plain renumbers stay net 0.
+
+Withdrawals, returns & voiding
+------------------------------
+* Return Packages wizard for partial-withdraw returns, wired to the
+  return-RR counting rules; original lot preserved (is_return lines are
+  skipped by the RR lot assigner) so restored stock merges back into the
+  same quant.
+* Void / Unvoid transfer flows: voiding an RR creates a reversing void
+  WR; voiding a WR creates a void return RR. Void returns land
+  PSI-remainder-first: if the pallet series still has stock, the
+  restored quantity goes back to that exact pallet # and location so
+  KG / quantity / packs merge into one quant.
+* Special "No RR Return Needed" client handling: partial withdrawals
+  straight off the pallet without forced returns.
+* Transacted Pallet Count on every picking, using the warehouse counting
+  rule (a pallet counts as withdrawn only when it leaves at 0 KG),
+  recomputed automatically when the reserved-at-validation stamp lands.
+
+Encoding & productivity tools
+-----------------------------
+* Fast Encode RR ("Magic Wizard"): rapid line entry for receipts with
+  pallet-series snapshots and destination-bin recommendation.
+* Select Quant wizard for multi-pallet withdrawal picking.
+* Custom list/form keyboard shortcuts (validate, generate lines, etc.).
+
+Reports
+-------
+* RR / WR Summary and Per-Pallet PDF reports (regular and blast-freeze
+  variants) sharing the ledger's pallet counting rule.
+* Client Inventory Summary and Count Sheet XLSX reports.
+
+Foundation fields used across the VIFEL system: pallet series ID (PSI),
+reserved_quantity_on_validation, adjustment batch #, original record
+reference, is_return / is_relocation flags, warehouseman, and the
+Fix Pallet Duplicates support fields for physical-inventory imports.
     """,
 
-    'author': "Mark Angelo S. Templanza",
+    'author': "Mark Angelo Templanza",
+    'company': "Elyon Solutions International Inc.",
+    'maintainer': "Elyon Solutions International Inc.",
     'website': "https://templanza-portfolio.netlify.app/",
 
-    # Categories can be used to filter modules in modules listing
-    # for the full list
-    'category': 'Uncategorized',
+    'category': 'Inventory/Inventory',
     'version': '0.1',
 
     # any module necessary for this one to work correctly
-    'depends': ['base', 'stock', 'web','report_xlsx'],
+    'depends': ['base', 'stock', 'web', 'report_xlsx', 'pallet_kilos_record_model'],
 
     'post_init_hook': 'post_init_hook',
 
@@ -36,7 +103,11 @@ Long description of module's purpose
         'reports/inventory_summary_view.xml',
         'reports/count_sheet_view.xml',
         'data/data.xml',
-        
+        'data/picking_server_actions.xml',
+        # after data.xml: the quant-detail actions reference the
+        # inventory_super_admin group defined there
+        'views/stock_quant_views.xml',
+
     ],
     # only loaded in demonstration mode
     'demo': [
@@ -60,8 +131,7 @@ Long description of module's purpose
             'multiple_relocation/static/src/js/magic_wizard_list_controller.js',
             'multiple_relocation/static/src/js/magic_wizard_list_view_template.xml',
         ],
-        
-    }
-
+    },
+    'license': 'LGPL-3',
 }
 
