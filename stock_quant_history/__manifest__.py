@@ -22,7 +22,7 @@ VIFEL customizations on top of the OCA base
   warehouse as of a chosen date, with a list-view report button.
 * Historical Inventory Summary XLSX report.
     """,
-    "version": "17.0.1.1.0",
+    "version": "17.0.1.0.0",
     "license": "AGPL-3",
     "author": "Pierre Verkest <pierreverkest84@gmail.com>, "
     "Odoo Community Association (OCA), "
