@@ -1269,8 +1269,12 @@ class PalletKilosRecordModel(models.Model):
                 #      were written straight onto quants, no per-lot
                 #      baseline exists on paper).
                 if prows:
+                    # html cleared too: rows are re-explained below, and a
+                    # row whose adjustments were wiped must not keep a
+                    # stale reason table
                     prows.with_context(skip_pkr_recalc=True).write(
-                        {'adjustment_packaging': 0, 'adjustment_heads': 0})
+                        {'adjustment_packaging': 0, 'adjustment_heads': 0,
+                         'adjustment_reason_html': False})
                 row_post = {}   # row -> [packs, units]
                 self.env.cr.execute("""
                     SELECT al.pallet_kilos_record_id,
@@ -1418,6 +1422,37 @@ class PalletKilosRecordModel(models.Model):
                                 'adjustment_packaging': d_packs,
                                 'adjustment_heads': d_units,
                             })
+                # ...and explain each posted line in the row's reason table
+                # (the user-visible answer to "where did this packaging
+                # adjustment come from?")
+                self.env.cr.execute("""
+                    SELECT al.pallet_kilos_record_id, r.batch_number,
+                           COALESCE(al.approved_date::date,
+                                    al.create_date::date),
+                           COALESCE(al.display_pallet_series, ''),
+                           COALESCE(al.new_x_studio_2nd_uom,0)
+                           - COALESCE(al.old_x_studio_2nd_uom,0),
+                           COALESCE(al.new_x_studio_total_units,0)
+                           - COALESCE(al.old_x_studio_total_units,0)
+                    FROM stock_quant_adjustment_line al
+                    JOIN stock_quant_adjustment_request r
+                      ON r.id = al.request_id
+                    WHERE al.line_state = 'approved'
+                      AND al.pallet_kilos_record_id = ANY(%s)
+                    ORDER BY al.create_date
+                """, (prows.ids or [0],))
+                for rid, bno, bdate, psi_l, dp, du in self.env.cr.fetchall():
+                    if not round(dp, 3) and not round(du, 3):
+                        continue
+                    amount = ' / '.join(filter(None, [
+                        '%+g pkg' % dp if round(dp, 3) else '',
+                        '%+g pcs' % du if round(du, 3) else '']))
+                    html_rows.setdefault(rid, []).append((
+                        ('PSI %s' % psi_l) if psi_l else 'Correction',
+                        amount,
+                        'quantity correction batch %s approved on %s — '
+                        'posted from its recorded audit line'
+                        % (bno or '?', bdate)))
 
                 grp = self.read_group(
                     [('owner_id', '=', owner.id), ('warehouse', '=', wh_id),
@@ -1520,6 +1555,13 @@ class PalletKilosRecordModel(models.Model):
                     # contribution = pallets in stock - times counted
                     # received (RRs + opening-balance load) + times counted
                     # withdrawn. The nonzero ones ARE the residual.
+                    # every documentless arrival counts as an entry:
+                    # picking-less move from the Inventory location without
+                    # a correction batch number = opening-balance / import
+                    # load, WHATEVER its reference says ("VENDURE OB",
+                    # "Inventory Adjustment: +...", ...). Reference-text
+                    # matching missed differently-labeled imports and made
+                    # balanced pallets look like culprits (R 366 incident).
                     ob_load_ids = {
                         g['result_package_id'][0]
                         for g in MoveLine.read_group(
@@ -1527,8 +1569,7 @@ class PalletKilosRecordModel(models.Model):
                              ('owner_id', '=', owner.id),
                              ('location_id.usage', '=', 'inventory'),
                              ('result_package_id', '!=', False),
-                             '|', ('reference', 'ilike', 'opening balance'),
-                                  ('reference', 'ilike', 'ob part')],
+                             ('adjustment_batch_number', '=', False)],
                             ['result_package_id'], ['result_package_id'])}
                     rc_n = {}
                     for pkg_p, pick_p in {
@@ -1623,31 +1664,29 @@ class PalletKilosRecordModel(models.Model):
                             others = sorted(pkg_name.get(m, str(m))
                                             for m in members - {rt})
                             if len(members) > 1 and cval > 0:
-                                # consolidation pallet split onto new pallet
-                                # numbers: each split-off withdrawal counted,
-                                # but no document ever counted the new
-                                # pallet(s) in
-                                why = ('stock was moved off %s onto new '
-                                       'pallet number(s) %s by correction '
-                                       'and withdrawn from there (each '
-                                       'counted -1 pallet), but no RR ever '
-                                       'counted those new pallets in%s'
+                                why = ('corrections split stock from %s '
+                                       'onto %s; the exits were counted '
+                                       'but the new pallet number(s) were '
+                                       'never received by an RR%s'
                                        % (name, ', '.join(others),
-                                          '; ' + name + ' itself is still '
-                                          'in stock' if stk else ''))
+                                          '; %s itself is still in stock'
+                                          % name if stk else ''))
+                            elif cval > 0 and stk:
+                                why = ('in stock now: entered %dx, left '
+                                       '%dx — it returned or arrived '
+                                       'without a receiving document'
+                                       % (cin, cout))
                             elif cval > 0:
-                                why = ('%s is in stock today, but on paper '
-                                       'it entered %dx and left %dx — '
-                                       'stock came back onto it without '
-                                       'any receiving document'
-                                       % (name, cin, cout))
+                                why = ('no stock left: entered %dx but '
+                                       'left %dx — one exit had no '
+                                       'matching documented entry'
+                                       % (cin, cout))
                             else:
-                                why = ('%s was counted into stock %dx '
-                                       '(RR/opening balance) but is no '
-                                       'longer in stock and no WR ever '
-                                       'counted it out — it left '
-                                       'undocumented (adjustment or pallet '
-                                       'change)' % (name, cin))
+                                why = ('no stock left: entered %dx but '
+                                       'only %dx exit(s) were counted — '
+                                       'it left without a withdrawal '
+                                       'document (adjustment or pallet '
+                                       'renumbering)' % (cin, cout))
                             bits.append('%s %+g: %s' % (name, cval, why))
                             res_html.append((name, '%+g' % cval, why))
                         more = len(culprits) - 6
@@ -1849,7 +1888,7 @@ class PalletKilosRecordModel(models.Model):
                         'adjustment_reason_html':
                             '<table class="table table-sm table-bordered">'
                             '<thead><tr><th>Pallet / Item</th>'
-                            '<th style="text-align:right">Pallets</th>'
+                            '<th style="text-align:right">Adjustment</th>'
                             '<th>Why</th></tr></thead>'
                             '<tbody>%s</tbody></table>' % body})
 
