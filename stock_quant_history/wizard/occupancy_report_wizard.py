@@ -30,6 +30,11 @@ class OccupancyReportWizard(models.TransientModel):
         string='Clients',
         help='Leave empty to include all clients.',
     )
+    warehouse_ids = fields.Many2many(
+        'stock.warehouse',
+        string='Warehouses',
+        help='Leave empty to include all warehouses.',
+    )
     date_from = fields.Date(
         string='Start Date',
         required=True,
@@ -111,6 +116,8 @@ class OccupancyReportWizard(models.TransientModel):
         ]
         if self.partner_ids:
             history_domain.append(('owner_id', 'in', self.partner_ids.ids))
+        if self.warehouse_ids:
+            history_domain.append(('warehouse_id', 'in', self.warehouse_ids.ids))
 
         history_records = self.env['stock.quant.history'].search(history_domain)
 
@@ -121,6 +128,7 @@ class OccupancyReportWizard(models.TransientModel):
             'method': 'snapshot',
             'snapshot_ids': snapshots.ids,
             'partner_ids': self.partner_ids.ids or [],
+            'warehouse_ids': self.warehouse_ids.ids or [],
             'date_from': str(self.date_from),
             'date_to': str(self.date_to),
             'history_ids': history_records.ids,
@@ -136,6 +144,7 @@ class OccupancyReportWizard(models.TransientModel):
         data = {
             'method': 'sql',
             'partner_ids': self.partner_ids.ids or [],
+            'warehouse_ids': self.warehouse_ids.ids or [],
             'date_from': str(self.date_from),
             'date_to': str(self.date_to),
         }

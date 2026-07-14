@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Detail list of quants with the columns that matter in VIFEL —
+         used by the health monitor's finding preview and available as a
+         standalone view for admins. -->
+    <record id="view_stock_quant_tree_vifel_details" model="ir.ui.view">
+        <field name="name">stock.quant.tree.vifel.details</field>
+        <field name="model">stock.quant</field>
+        <field name="priority">120</field>
+        <field name="arch" type="xml">
+            <tree create="false" delete="false" default_order="owner_id, x_studio_pallet_series_id">
+                <field name="owner_id" string="Client"/>
+                <field name="product_id"/>
+                <field name="x_studio_pallet_series_id" string="Pallet Series"/>
+                <field name="bf_pallet_char" string="BF Pallet" optional="hide"/>
+                <field name="package_id" string="Pallet #"/>
+                <field name="location_id"/>
+                <field name="quantity" string="KG" sum="Total KG"/>
+                <field name="reserved_quantity" string="Reserved" optional="show"/>
+                <field name="x_studio_2nd_uom" string="Quantity" sum="Total Qty"/>
+                <field name="x_studio_quantity_uom" string="UOM" optional="show"/>
+                <field name="x_studio_total_units" string="Packs" optional="show"/>
+                <field name="x_studio_container_number" string="Container #" optional="show"/>
+                <field name="x_studio_production_date" optional="show"/>
+                <field name="x_studio_expiration_date" optional="show"/>
+                <field name="x_studio_record_reference" string="Record Ref" optional="show"/>
+                <field name="original_record_reference" string="Original Ref" optional="show"/>
+                <field name="x_studio_opening_balance_record_reference" string="OB Ref" optional="hide"/>
+                <field name="x_studio_source" string="Source" optional="hide"/>
+                <field name="lot_id" optional="hide"/>
+                <!-- standard core quant History (move lines of this quant) -->
+                <button name="action_view_stock_moves" string="History"
+                        type="object" class="btn-link" icon="fa-history"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Quant form: surface the VIFEL pallet identity/detail fields the
+         default form hides, plus the admin-only details re-sync button. -->
+    <record id="view_stock_quant_form_vifel" model="ir.ui.view">
+        <field name="name">stock.quant.form.vifel</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id" ref="stock.view_stock_quant_form_editable"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="VIFEL Pallet Details">
+                    <group>
+                        <field name="x_studio_pallet_series_id" string="Pallet Series" readonly="1"/>
+                        <field name="bf_pallet_char" string="BF Pallet" readonly="1"/>
+                        <field name="x_studio_2nd_uom" string="Quantity (2nd UOM)" readonly="1"/>
+                        <field name="x_studio_quantity_uom" string="Quantity UOM" readonly="1"/>
+                        <field name="x_studio_total_units" string="Packs" readonly="1"/>
+                        <field name="x_studio_container_number" string="Container #" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="x_studio_record_reference" string="Record Reference" readonly="1"/>
+                        <field name="original_record_reference" string="Original Reference" readonly="1"/>
+                        <field name="x_studio_opening_balance_record_reference" string="Opening Balance Ref" readonly="1"/>
+                        <field name="x_studio_production_date" readonly="1"/>
+                        <field name="x_studio_expiration_date" readonly="1"/>
+                        <field name="x_studio_source" string="Source" readonly="1"/>
+                    </group>
+                </group>
+                <div>
+                    <button name="action_view_stock_moves" type="object"
+                            string="Moves History" class="btn btn-secondary"/>
+                    <button name="action_view_quant_history" type="object"
+                            string="Snapshot History" class="btn btn-secondary"/>
+                    <button name="action_resync_quant_details" type="object"
+                            string="Re-sync Details From Origin"
+                            class="btn btn-warning"
+                            groups="multiple_relocation.inventory_super_admin"
+                            confirm="Re-sync this quant's missing references/details from its originating RR? Only blank fields are filled — existing values are never changed."/>
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Same repair, runnable from the quant LIST on a selection
+         (Actions menu; admins only). -->
+    <record id="action_resync_quant_details_server" model="ir.actions.server">
+        <field name="name">Re-sync Details From Origin</field>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="binding_model_id" ref="stock.model_stock_quant"/>
+        <field name="binding_view_types">list</field>
+        <field name="groups_id" eval="[(4, ref('multiple_relocation.inventory_super_admin'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_resync_quant_details()</field>
+    </record>
+
+</odoo>

@@ -29,6 +29,21 @@
         <field name="users" eval="[(4, 2)]"/>
     </record>
 
+    <!-- Adjustment Approvers: members can approve/reject Pallet Detail
+         Adjustment Requests and each receives the approval to-do when a
+         request is submitted (replaces the old hardcoded notification
+         target). Seeded with DOJELLO, CYRIL JUNE A. (user 66,
+         inventory1.bulacan@) only, per instruction — (4, id) only LINKS,
+         so members added/removed via the UI are preserved across
+         upgrades. Same hardcoded-id pattern as inventory_super_admin
+         above (single-database deployment). -->
+    <record id="group_adjustment_approver" model="res.groups">
+        <field name="name">Adjustment Approvers</field>
+        <field name="category_id" ref="base.module_category_hidden"/>
+        <field name="comment">Members can approve or reject Pallet Detail Adjustment Requests and receive the approval activity when a request is submitted.</field>
+        <field name="users" eval="[(4, 66)]"/>
+    </record>
+
     
     <!-- Sequence for Adjustment Requests -->
     <record id="seq_stock_quant_adjustment_request" model="ir.sequence">

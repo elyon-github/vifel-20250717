@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <!--
+        GLOBAL warehouse record rules — the whole mechanism in one sentence:
+        every scoped model is filtered to the warehouses listed on the user's
+        "Allowed Warehouses" (res.users.allowed_warehouse_ids); a user with an
+        EMPTY list is unrestricted (that's how admins keep full access, and how
+        rollout stays safe: nothing changes until you assign warehouses).
+
+        Each domain also lets through records that have NO warehouse at all
+        (vendor/customer locations, documents without a picking type, non-client
+        partners, legacy NULL rows) so nothing silently disappears.
+
+        Note: rules are global (no groups), so they apply to every internal
+        user; only the superuser and empty-assignment users bypass them.
+    -->
+
+    <record id="rule_picking_warehouse" model="ir.rule">
+        <field name="name">Picking: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="domain_force">['|', ('picking_type_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('picking_type_id.warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_picking_type_warehouse" model="ir.rule">
+        <field name="name">Operation Type: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_picking_type"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_quant_warehouse" model="ir.rule">
+        <field name="name">Quant: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_quant"/>
+        <field name="domain_force">['|', ('location_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('location_id.warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_move_warehouse" model="ir.rule">
+        <field name="name">Stock Move: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_move"/>
+        <field name="domain_force">['|', ('picking_type_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('picking_type_id.warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_move_line_warehouse" model="ir.rule">
+        <field name="name">Move Line: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_move_line"/>
+        <field name="domain_force">['|', ('picking_id.picking_type_id.warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('picking_id.picking_type_id.warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_location_warehouse" model="ir.rule">
+        <field name="name">Location: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_location"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_warehouse_warehouse" model="ir.rule">
+        <field name="name">Warehouse: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_warehouse"/>
+        <field name="domain_force">[('id', 'in', user.allowed_warehouse_ids.ids)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_pkr_warehouse" model="ir.rule">
+        <field name="name">Pallet Kilos Record: user's allowed warehouses</field>
+        <field name="model_id" ref="pallet_kilos_record_model.model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="domain_force">['|', ('warehouse', 'in', user.allowed_warehouse_ids.ids), ('warehouse', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_audit_warehouse" model="ir.rule">
+        <field name="name">Pallet Series Audit: user's allowed warehouses</field>
+        <field name="model_id" ref="pallet_series_audit.model_pallet_series_audit"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_audit_line_warehouse" model="ir.rule">
+        <field name="name">Pallet Series Audit Line: user's allowed warehouses</field>
+        <field name="model_id" ref="pallet_series_audit.model_pallet_series_audit_line"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_history_warehouse" model="ir.rule">
+        <field name="name">Quant History: user's allowed warehouses</field>
+        <field name="model_id" ref="stock_quant_history.model_stock_quant_history"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_snapshot_warehouse" model="ir.rule">
+        <field name="name">Snapshot: user's allowed warehouses</field>
+        <field name="model_id" ref="stock_quant_history.model_stock_quant_history_snapshot"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <!-- Clients are per-warehouse (contact-per-warehouse policy); partners
+         without a warehouse (companies, vendors, users) stay visible to all. -->
+    <record id="rule_partner_warehouse" model="ir.rule">
+        <field name="name">Partner: user's allowed warehouses</field>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="domain_force">['|', ('x_studio_warehouse', 'in', user.allowed_warehouse_ids.ids), ('x_studio_warehouse', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <!-- Pallets: scoped via the Studio warehouse field on the package. -->
+    <record id="rule_package_warehouse" model="ir.rule">
+        <field name="name">Package/Pallet: user's allowed warehouses</field>
+        <field name="model_id" ref="stock.model_stock_quant_package"/>
+        <field name="domain_force">['|', ('x_studio_warehouse', 'in', user.allowed_warehouse_ids.ids), ('x_studio_warehouse', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <!-- Pallet detail adjustment requests (approval workflow). -->
+    <record id="rule_adjustment_request_warehouse" model="ir.rule">
+        <field name="name">Adjustment Request: user's allowed warehouses</field>
+        <field name="model_id" ref="multiple_relocation.model_stock_quant_adjustment_request"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+    <record id="rule_adjustment_line_warehouse" model="ir.rule">
+        <field name="name">Adjustment Line: user's allowed warehouses</field>
+        <field name="model_id" ref="multiple_relocation.model_stock_quant_adjustment_line"/>
+        <field name="domain_force">['|', ('warehouse_id', 'in', user.allowed_warehouse_ids.ids), ('warehouse_id', '=', False)] if user.allowed_warehouse_ids else [(1, '=', 1)]</field>
+    </record>
+
+    <!-- Rules for the STUDIO models (x_inventory_static_var,
+         x_warehouse_building) are created by hooks.post_init_hook — their
+         ir.model xmlids are per-database UUIDs and cannot be referenced here. -->
+
+</odoo>

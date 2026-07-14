@@ -40,15 +40,6 @@
                 <field name="print_report_name">'Daily Inventory XLSX'</field>
      </record>
 
-    <record id="xlsx_occupancy_report" model="ir.actions.report">
-                <field name="name">Occupancy XLSX Report</field>
-                <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
-                <field name="report_type">xlsx</field>
-                <field name="report_name">pallet_kilos_record_model.occupancy_report</field>
-                <field name="report_file">pallet_kilos_record_model.occupancy_report</field>
-                <field name="print_report_name">'Occupancy Inventory XLSX'</field>
-     </record>
-
     <record id="xlsx_daily_pallet_utilization" model="ir.actions.report">
                 <field name="name">Daily Pallet Utilization XLSX Report</field>
                 <field name="model">pallet_kilos_record_model.report.wizard</field>

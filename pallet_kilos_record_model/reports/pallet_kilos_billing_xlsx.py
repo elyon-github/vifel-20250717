@@ -4,6 +4,10 @@ from xlsxwriter.workbook import Workbook
 import pytz
 import logging
 
+# Adjustment columns (Adjustment Pallets/Kilos, cols 9-10) are built but
+# NOT yet enabled in the generated file. Flip to True when ready.
+SHOW_ADJUSTMENT_COLUMNS = False
+
 _logger = logging.getLogger(__name__)
 
 class PalletKilosXlsx(models.AbstractModel):
@@ -149,6 +153,8 @@ class PalletKilosXlsx(models.AbstractModel):
             'Pallets Withdrawn', 'Balance in Pallets', 'Kilos Received', 'Kilos Withdrawn',
             'Balance in Kilos'
         ]
+        if SHOW_ADJUSTMENT_COLUMNS:
+            table_headers += ['Adjustment (Pallets)', 'Adjustment (Kilos)']
         for col_index, header_text in enumerate(table_headers):
             sheet.write(row_index, col_index, header_text, table_header_format)
 
@@ -197,7 +203,9 @@ class PalletKilosXlsx(models.AbstractModel):
                 'total_pallets_received': 0,
                 'total_pallets_withdrawn': 0,
                 'total_kilos_received': 0,
-                'total_kilos_withdrawn': 0
+                'total_kilos_withdrawn': 0,
+                'total_adjustment_pallets': 0,
+                'total_adjustment_kilos': 0
             }
 
             # Initialize running balances
@@ -216,16 +224,23 @@ class PalletKilosXlsx(models.AbstractModel):
                 # Formula: Beginning Balance = Current Balance - Received + Withdrawn
                 
                 # For kilos: work backwards from the balance after the transaction
+                # The stored balance already includes the row's adjustment leg,
+                # so back it out too — otherwise a first-row adjustment silently
+                # inflates the printed beginning balance.
                 current_balance_kilos = first_record.total_balance_in_kilos or 0
                 kilos_received = first_record.kilos_received or 0
                 kilos_withdrawn = first_record.kilos_withdrawn or 0
-                beginning_kilos = current_balance_kilos - kilos_received + kilos_withdrawn
+                beginning_kilos = (current_balance_kilos - kilos_received
+                                   + kilos_withdrawn
+                                   - (first_record.adjustment_kilos or 0))
                 
                 # For pallets: work backwards from the balance after the transaction  
                 current_balance_pallets = first_record.total_balance_in_pallets or 0
                 pallets_received = first_record.pallets_received or 0
                 pallets_withdrawn = first_record.pallets_withdrawn or 0
-                beginning_pallets = current_balance_pallets - pallets_received + pallets_withdrawn
+                beginning_pallets = (current_balance_pallets - pallets_received
+                                     + pallets_withdrawn
+                                     - (first_record.adjustment_pallets or 0))
                 
             # Set initial running balances
             current_pallet_balance = beginning_pallets
@@ -254,6 +269,11 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 6, line.kilos_received or 0, kg_format)
                         sheet.write(row_index, 7, line.kilos_withdrawn or 0, kg_format)
                         sheet.write(row_index, 8, line.total_balance_in_kilos or 0, kg_format)
+                        # Adjustment columns: explain any balance change not
+                        # covered by the received/withdrawn columns
+                        if SHOW_ADJUSTMENT_COLUMNS:
+                            sheet.write(row_index, 9, line.adjustment_pallets or 0, float_format)
+                            sheet.write(row_index, 10, line.adjustment_kilos or 0, kg_format)
 
                         # Update running balances with the latest values from this record
                         current_pallet_balance = line.total_balance_in_pallets or 0
@@ -263,6 +283,8 @@ class PalletKilosXlsx(models.AbstractModel):
                         summation['total_pallets_withdrawn'] += line.pallets_withdrawn or 0
                         summation['total_kilos_received'] += line.kilos_received or 0
                         summation['total_kilos_withdrawn'] += line.kilos_withdrawn or 0
+                        summation['total_adjustment_pallets'] += line.adjustment_pallets or 0
+                        summation['total_adjustment_kilos'] += line.adjustment_kilos or 0
 
                         row_index += 1
                 else:
@@ -283,6 +305,10 @@ class PalletKilosXlsx(models.AbstractModel):
                             sheet.write(row_index, col, current_kilo_balance, kg_format)
                         else:  # Text columns (RR/WR numbers)
                             sheet.write(row_index, col, '-', base_format)
+                    # Adjustment columns: nothing on gap-fill rows
+                    if SHOW_ADJUSTMENT_COLUMNS:
+                        sheet.write(row_index, 9, 0, float_format)
+                        sheet.write(row_index, 10, 0, kg_format)
                     row_index += 1
 
             # Write totals
@@ -291,6 +317,9 @@ class PalletKilosXlsx(models.AbstractModel):
             sheet.write(row_index, 6, summation['total_kilos_received'], kg_format_bold)
             sheet.write(row_index, 7, summation['total_kilos_withdrawn'], kg_format_bold)
             sheet.write(row_index, 8, current_kilo_balance, kg_format_bold)
+            if SHOW_ADJUSTMENT_COLUMNS:
+                sheet.write(row_index, 9, summation['total_adjustment_pallets'], float_format_bold)
+                sheet.write(row_index, 10, summation['total_adjustment_kilos'], kg_format_bold)
 
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)
 
@@ -422,6 +451,8 @@ class PalletKilosXlsx_2(models.AbstractModel):
             'Pallets Withdrawn', 'Balance in Pallets', 'Kilos Received', 'Kilos Withdrawn',
             'Balance in Kilos'
         ]
+        if SHOW_ADJUSTMENT_COLUMNS:
+            table_headers += ['Adjustment (Pallets)', 'Adjustment (Kilos)']
         for col_index, header_text in enumerate(table_headers):
             sheet.write(row_index, col_index, header_text, table_header_format)
 
@@ -465,7 +496,9 @@ class PalletKilosXlsx_2(models.AbstractModel):
                 'total_pallets_received': 0,
                 'total_pallets_withdrawn': 0,
                 'total_kilos_received': 0,
-                'total_kilos_withdrawn': 0
+                'total_kilos_withdrawn': 0,
+                'total_adjustment_pallets': 0,
+                'total_adjustment_kilos': 0
             }
 
             # Initialize running balances
@@ -484,16 +517,23 @@ class PalletKilosXlsx_2(models.AbstractModel):
                 # Formula: Beginning Balance = Current Balance - Received + Withdrawn
                 
                 # For kilos: work backwards from the balance after the transaction
+                # The stored balance already includes the row's adjustment leg,
+                # so back it out too — otherwise a first-row adjustment silently
+                # inflates the printed beginning balance.
                 current_balance_kilos = first_record.total_balance_in_kilos or 0
                 kilos_received = first_record.kilos_received or 0
                 kilos_withdrawn = first_record.kilos_withdrawn or 0
-                beginning_kilos = current_balance_kilos - kilos_received + kilos_withdrawn
+                beginning_kilos = (current_balance_kilos - kilos_received
+                                   + kilos_withdrawn
+                                   - (first_record.adjustment_kilos or 0))
                 
                 # For pallets: work backwards from the balance after the transaction  
                 current_balance_pallets = first_record.total_balance_in_pallets or 0
                 pallets_received = first_record.pallets_received or 0
                 pallets_withdrawn = first_record.pallets_withdrawn or 0
-                beginning_pallets = current_balance_pallets - pallets_received + pallets_withdrawn
+                beginning_pallets = (current_balance_pallets - pallets_received
+                                     + pallets_withdrawn
+                                     - (first_record.adjustment_pallets or 0))
                 
             # Set initial running balances
             current_pallet_balance = beginning_pallets
@@ -522,6 +562,11 @@ class PalletKilosXlsx_2(models.AbstractModel):
                         sheet.write(row_index, 6, line.kilos_received or 0, kg_format)
                         sheet.write(row_index, 7, line.kilos_withdrawn or 0, kg_format)
                         sheet.write(row_index, 8, line.total_balance_in_kilos or 0, kg_format)
+                        # Adjustment columns: explain any balance change not
+                        # covered by the received/withdrawn columns
+                        if SHOW_ADJUSTMENT_COLUMNS:
+                            sheet.write(row_index, 9, line.adjustment_pallets or 0, float_format)
+                            sheet.write(row_index, 10, line.adjustment_kilos or 0, kg_format)
 
                         # Update running balances with the latest values from this record
                         current_pallet_balance = line.total_balance_in_pallets or 0
@@ -531,6 +576,8 @@ class PalletKilosXlsx_2(models.AbstractModel):
                         summation['total_pallets_withdrawn'] += line.pallets_withdrawn or 0
                         summation['total_kilos_received'] += line.kilos_received or 0
                         summation['total_kilos_withdrawn'] += line.kilos_withdrawn or 0
+                        summation['total_adjustment_pallets'] += line.adjustment_pallets or 0
+                        summation['total_adjustment_kilos'] += line.adjustment_kilos or 0
 
                         row_index += 1
                 else:
@@ -551,6 +598,10 @@ class PalletKilosXlsx_2(models.AbstractModel):
                             sheet.write(row_index, col, current_kilo_balance, kg_format)
                         else:  # Text columns (RR/WR numbers)
                             sheet.write(row_index, col, '-', base_format)
+                    # Adjustment columns: nothing on gap-fill rows
+                    if SHOW_ADJUSTMENT_COLUMNS:
+                        sheet.write(row_index, 9, 0, float_format)
+                        sheet.write(row_index, 10, 0, kg_format)
                     row_index += 1
 
             # Write totals
@@ -559,5 +610,8 @@ class PalletKilosXlsx_2(models.AbstractModel):
             sheet.write(row_index, 6, summation['total_kilos_received'], kg_format_bold)
             sheet.write(row_index, 7, summation['total_kilos_withdrawn'], kg_format_bold)
             sheet.write(row_index, 8, current_kilo_balance, kg_format_bold)
+            if SHOW_ADJUSTMENT_COLUMNS:
+                sheet.write(row_index, 9, summation['total_adjustment_pallets'], float_format_bold)
+                sheet.write(row_index, 10, summation['total_adjustment_kilos'], kg_format_bold)
 
             sheet.write(row_index + 3, 0, "GUARANTEED", header_format)

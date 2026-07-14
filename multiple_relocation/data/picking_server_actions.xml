@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Recompute Transacted Pallet Count: re-runs the stored compute on the
+         selected pickings (validated ones only contribute). Use after the
+         reserved_quantity_on_validation timing fix to repair historical
+         over-counts: select the pickings (or all via the list select-all)
+         and run this from the Actions menu. -->
+    <record id="action_recompute_transacted_pallet_count" model="ir.actions.server">
+        <field name="name">Recompute Transacted Pallet Count</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">
+records._compute_transacted_pallet_count()
+action = {
+    'type': 'ir.actions.client',
+    'tag': 'display_notification',
+    'params': {
+        'title': 'Transacted Pallet Count',
+        'message': '%d picking(s) recomputed.' % len(records),
+        'type': 'success',
+        'sticky': False,
+    },
+}
+        </field>
+    </record>
+
+    <!-- Clean Orphaned Void Child: neutralize an unvalidated void RR/WR
+         still bound to a parent that is no longer voided (same machinery
+         as the automatic unvoid cleanup). Hard-guarded in Python: refuses
+         anything that is not exactly such an orphan. Visible to Inventory
+         Supervisors and Inventory Super Admins. -->
+    <record id="action_clean_orphan_void_children" model="ir.actions.server">
+        <field name="name">Clean Orphaned Void Child</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="groups_id" eval="[(4, ref('multiple_relocation.inventory_super_admin')), (4, ref('__custom__.inventory_supervisor'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_neutralize_orphan_void_children()</field>
+    </record>
+
+</odoo>

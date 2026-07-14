@@ -42,6 +42,12 @@ class transfer_locations(models.Model):
     non_void_return_count = fields.Integer(
         string="Non-Void Returns", compute="_compute_non_void_return_count")
 
+    # Orphaned void child: an unvalidated void RR/WR still bound to a
+    # parent that is no longer voided — drives the cleanup smart button.
+    is_orphan_void_child = fields.Boolean(
+        string="Is Orphaned Void Child",
+        compute="_compute_is_orphan_void_child")
+
     # Unvalidated void child banner
     has_unvalidated_void_child = fields.Boolean(
         string="Has Unvalidated Void Child",
@@ -536,6 +542,15 @@ class transfer_locations(models.Model):
 
     @api.depends(
         'state',
+        # AR#6 stamps reserved_quantity_on_validation on the lines AFTER the
+        # picking flips to done; depending on it re-runs this compute with
+        # the stamped values, so partial pallets (reserved > 0) drop out.
+        # Depending only on 'state' froze the pre-stamp over-count (NULL
+        # reads as 0, so every pallet counted).
+        'move_line_ids.reserved_quantity_on_validation',
+        'move_line_ids.package_id',
+        'move_line_ids.result_package_id',
+        'move_line_ids.bf_pallet_char',
     )
     def _compute_transacted_pallet_count(self):
         # Count unique pallets transacted on this picking. Only validated
@@ -612,8 +627,20 @@ class transfer_locations(models.Model):
             is_blast_freezer = pallet_record.is_blast_freezer
             start_time = pallet_record.start_time
 
-            if pallet_record.readjustment_document and pallet_record.readjustment_document.id == record.id:
+            if (pallet_record.readjustment_document
+                    and pallet_record.readjustment_document.id == record.id
+                    and pallet_record.record_reference):
+                # Voiding the REVISION document only: revert the ledger row to its
+                # original document and keep it active. Archiving here would erase
+                # the original receipt from the ledger entirely. Clearing the field
+                # triggers write() which re-populates from the original and
+                # recalculates the running balances.
                 pallet_record.readjustment_document = False
+                _logger.info(
+                    "Voided revision %s: reverted pallet kilos record %s to original document %s",
+                    record.name, pallet_record.id, pallet_record.record_reference.name)
+                return
+
             pallet_record.active = False
 
             _logger.info("Deactivated pallet kilos record: %s",
@@ -978,6 +1005,34 @@ class transfer_locations(models.Model):
         if all_move_lines:
             StockMoveLine.create(all_move_lines)
 
+    def _find_psi_remainder_quant(self, owner, psi, prefer_package=None):
+        """Locate the remaining stocked quant of a pallet series (PSI) for an
+        owner — the merge target a void/partial return MUST land on. Reusing
+        its package + location (with the preserved lot) keeps all five quant
+        merge keys intact, so the KG merges natively and AR#2 adds the
+        2nd UOM / packs onto the same quant instead of creating a same-PSI
+        duplicate on another pallet. Prefers the quant on `prefer_package`
+        (the WR line's original pallet), else the one holding the most
+        stock. Returns an empty recordset when the PSI has fully left."""
+        Quant = self.env['stock.quant']
+        if not owner or not psi:
+            return Quant
+        quants = Quant.search([
+            ('owner_id', '=', owner.id),
+            ('x_studio_pallet_series_id', '=', psi),
+            ('quantity', '>', 0),
+            ('location_id.usage', '=', 'internal'),
+            ('package_id', '!=', False),
+        ])
+        if not quants:
+            return quants
+        if prefer_package:
+            preferred = quants.filtered(
+                lambda q: q.package_id == prefer_package)
+            if preferred:
+                return preferred[0]
+        return quants.sorted(key=lambda q: -q.quantity)[0]
+
     def _create_return_rr_from_wr(self, record):
         """
         Create a return RR from a voided WR by programmatically invoking the
@@ -1010,40 +1065,52 @@ class transfer_locations(models.Model):
         for move_line in record.move_line_ids:
             location_dest_id = False
             pallet_result_id = False
-            if not move_line.location_id.x_studio_is_reserved:
-                occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
-                package_occupying_owners = (move_line.package_id.quant_ids.mapped(
-                    'x_studio_pallet_series_id') if move_line.package_id else [])
-                if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
-                    location_dest_id = move_line.location_id.id
+            # PSI-REMAINDER-FIRST: when this line's pallet series still has
+            # stock (a partial withdrawal being voided), the restored stock
+            # MUST land on that remainder's pallet # and location so the
+            # quants merge back into one — no reservation/occupancy
+            # heuristics apply, the pallet is physically standing there.
+            remainder = record._find_psi_remainder_quant(
+                move_line.owner_id, move_line.x_studio_pallet_series_id,
+                prefer_package=move_line.package_id)
+            if remainder:
+                location_dest_id = remainder.location_id.id
+                pallet_result_id = remainder.package_id.id
             else:
-                package_occupying_owners = []
-            if (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners) or not move_line.package_id.location_id.id:
-                pallet_result_id = move_line.package_id.id
+                if not move_line.location_id.x_studio_is_reserved:
+                    occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
+                    package_occupying_owners = (move_line.package_id.quant_ids.mapped(
+                        'x_studio_pallet_series_id') if move_line.package_id else [])
+                    if move_line.owner_id.id in occupying_owners or not move_line.location_id.x_studio_occupied_by_1.ids:
+                        location_dest_id = move_line.location_id.id
+                else:
+                    package_occupying_owners = []
+                if (move_line.package_id.location_id.id == location_dest_id and move_line.x_studio_pallet_series_id in package_occupying_owners) or not move_line.package_id.location_id.id:
+                    pallet_result_id = move_line.package_id.id
 
-            if move_line.location_id.x_studio_is_an_aisle:
-                location_dest_id = move_line.location_id.id
+                if move_line.location_id.x_studio_is_an_aisle:
+                    location_dest_id = move_line.location_id.id
 
-            # Fallback: if location_dest_id is still blank (source bin is
-            # reserved or occupied by a different owner), drop the line into an
-            # aisle. Prefer one in the same building so the stock at least
-            # lands in the right zone; fall back to any aisle if that fails.
-            # Same algorithm as ReturnPackageWizard._compute_location_and_packages.
-            if not location_dest_id and move_line.location_id:
-                building = move_line.location_id.x_studio_building
-                if building:
-                    aisle_location = self.env['stock.location'].search([
-                        ('x_studio_is_an_aisle', '=', True),
-                        ('x_studio_building', '=', building.id),
-                    ], limit=1)
-                    if aisle_location:
-                        location_dest_id = aisle_location.id
-                if not location_dest_id:
-                    aisle_location = self.env['stock.location'].search([
-                        ('x_studio_is_an_aisle', '=', True),
-                    ], limit=1)
-                    if aisle_location:
-                        location_dest_id = aisle_location.id
+                # Fallback: if location_dest_id is still blank (source bin is
+                # reserved or occupied by a different owner), drop the line into an
+                # aisle. Prefer one in the same building so the stock at least
+                # lands in the right zone; fall back to any aisle if that fails.
+                # Same algorithm as ReturnPackageWizard._compute_location_and_packages.
+                if not location_dest_id and move_line.location_id:
+                    building = move_line.location_id.x_studio_building
+                    if building:
+                        aisle_location = self.env['stock.location'].search([
+                            ('x_studio_is_an_aisle', '=', True),
+                            ('x_studio_building', '=', building.id),
+                        ], limit=1)
+                        if aisle_location:
+                            location_dest_id = aisle_location.id
+                    if not location_dest_id:
+                        aisle_location = self.env['stock.location'].search([
+                            ('x_studio_is_an_aisle', '=', True),
+                        ], limit=1)
+                        if aisle_location:
+                            location_dest_id = aisle_location.id
 
             lines.append((0, 0, {
                 'select_package': True,  # Auto-select all
@@ -1348,6 +1415,174 @@ class transfer_locations(models.Model):
             record._void_archive_pallet_kilos_record(record)
             _logger.info("Simple-voided transfer: %s", record.name)
 
+    def _neutralize_void_child(self, child):
+        """Untangle an UNVALIDATED void child when its parent is unvoided.
+
+        The child (a void-return RR from voiding a WR, or a void WR from
+        voiding an RR) stays bound to the parent after an unvoid: real moves
+        and move lines carrying live pallet series / lots / packages, plus
+        destination bins and pallets reserved for it. Someone could validate
+        or recycle it later. This strips it down to a plain empty draft
+        leftover: reservations freed (so other clients' RRs can use the
+        bins/pallets), moves and lines deleted, bindings cleared.
+
+        PSI-pool safety — lines are deleted WHILE the child is still bound
+        (return_id set): every pool-push code path (the move-line write()
+        multi-edit sync and the pallet_series_audit unlink hook) explicitly
+        skips return pickings, and no unlink path pushes series to the pool.
+        The series therefore stay out of the owner's unused pool, which is
+        required — they still identify withdrawn/remaining stock.
+        """
+        self.ensure_one()
+        if child.state == 'done' or any(m.state == 'done' for m in child.move_ids):
+            raise UserError(_(
+                "Cannot clean up void child %s: it has validated moves.") % child.name)
+
+        # 1. Free bins/pallets reserved FOR THIS CHILD only (exact claimant
+        #    key stamped by the Return Packages wizard).
+        freed_locations = self.env['stock.location'].search([
+            ('x_studio_receiving_report_id', '=', child.id)])
+        freed_packages = self.env['stock.quant.package'].search([
+            ('x_studio_receiving_report_id', '=', child.id)])
+        if freed_locations:
+            freed_locations.write({
+                'x_studio_is_reserved': False,
+                'x_studio_receiving_report_id': False,
+            })
+        if freed_packages:
+            freed_packages.write({
+                'x_studio_is_reserved': False,
+                'x_studio_receiving_report_id': False,
+            })
+
+        # 2. A void WR child (symmetric direction) may hold quant
+        #    reservations — release them before touching its lines.
+        if child.picking_type_id.code == 'outgoing' and child.state not in ('draft', 'cancel'):
+            child.do_unreserve()
+
+        # 3. Delete lines then moves — order matters, see docstring.
+        line_count = len(child.move_line_ids)
+        if child.move_line_ids:
+            child.move_line_ids.with_context(
+                skip_pallet_series_sync=True,
+                audit_source='unvoid_cleanup',
+            ).unlink()
+        if child.move_ids:
+            child.move_ids._action_cancel()
+            child.move_ids.unlink()
+
+        # 4. Unbind + normalize: with no moves the picking computes back to
+        #    'draft' — a plain leftover, invisible to the void machinery
+        #    (reuse filter, banners, guards all key on the cleared flags).
+        unbind_vals = {
+            'return_id': False,
+            'is_void_return': False,
+            'is_void_wr': False,
+            'void_source_picking_id': False,
+            'return_reason': False,
+            # descriptive leftovers copied from the voided parent — a plain
+            # draft leftover must not carry them (union of both directions:
+            # RR children have Source, WR children have Destination)
+            'x_studio_source': False,
+            'x_studio_destination': False,
+            'x_studio_record_remarks': False,
+            'x_studio_remarks': False,
+        }
+        if child.x_studio_manual_document_ == 'VOIDED':
+            unbind_vals['x_studio_manual_document_'] = False
+        child.write(unbind_vals)
+
+        # 5. Traceability on both sides (chatter only — no state).
+        note = _(
+            "Void child %(child)s neutralized on unvoid of %(parent)s: "
+            "%(lines)d line(s) removed, %(locs)d location(s) and %(pkgs)d "
+            "pallet(s) unreserved. Pallet series pool untouched.",
+            child=child.name, parent=self.name, lines=line_count,
+            locs=len(freed_locations), pkgs=len(freed_packages),
+        )
+        child.message_post(body=note)
+        self.message_post(body=note)
+        _logger.info(note)
+
+    @api.depends('is_void_return', 'is_void_wr', 'state', 'return_id',
+                 'return_id.x_studio_voided', 'void_source_picking_id',
+                 'void_source_picking_id.x_studio_voided')
+    def _compute_is_orphan_void_child(self):
+        for record in self:
+            parent = (record.return_id if record.is_void_return
+                      else record.void_source_picking_id)
+            record.is_orphan_void_child = bool(
+                (record.is_void_return or record.is_void_wr)
+                and record.state not in ('done', 'cancel')
+                and parent and not parent.x_studio_voided)
+
+    def action_neutralize_orphan_void_children(self):
+        """Clean ORPHANED void children on demand (Actions menu).
+
+        An orphaned void child is an UNVALIDATED void RR/WR still bound to
+        a parent that is no longer voided (the parent was unvoided before
+        the automatic cleanup existed). This action untangles it with the
+        same machinery the unvoid flow uses (_neutralize_void_child):
+        reservations freed, moves/lines deleted without recycling any PSI,
+        bindings and leftover details cleared -> plain empty draft.
+
+        HARD GUARD: every selected record must be exactly such an orphan —
+        a live void pair (parent still voided), a validated child, or a
+        normal document is refused with an itemized explanation. Allowed
+        for Inventory Supervisors and Inventory Super Admins.
+        """
+        user = self.env.user
+        if not (user.has_group('multiple_relocation.inventory_super_admin')
+                or user.has_group('__custom__.inventory_supervisor')):
+            raise UserError(_(
+                "Only Inventory Supervisors or Inventory Super Admins can "
+                "clean orphaned void children."))
+
+        problems = []
+        pairs = []
+        for child in self:
+            parent = (child.return_id if child.is_void_return
+                      else child.void_source_picking_id)
+            if not (child.is_void_return or child.is_void_wr):
+                problems.append(_(
+                    "%s is not a void child document.") % child.name)
+            elif child.state in ('done', 'cancel'):
+                problems.append(_(
+                    "%(name)s is %(state)s — only unvalidated void children "
+                    "can be cleaned.", name=child.name, state=child.state))
+            elif not parent:
+                problems.append(_(
+                    "%s is not bound to any parent document.") % child.name)
+            elif parent.x_studio_voided:
+                problems.append(_(
+                    "%(name)s belongs to %(parent)s which is still VOIDED — "
+                    "this void pair is active, not orphaned.",
+                    name=child.name, parent=parent.name))
+            else:
+                pairs.append((parent, child))
+        if problems:
+            raise UserError(_(
+                "This action only cleans ORPHANED void children (still "
+                "bound to an equivalent record that is no longer voided). "
+                "Invalid selection:\n• %s") % '\n• '.join(problems))
+        if not pairs:
+            raise UserError(_("No records selected."))
+
+        cleaned = []
+        for parent, child in pairs:
+            parent._neutralize_void_child(child)
+            cleaned.append('%s (parent %s)' % (child.name, parent.name))
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Orphaned Void Children Cleaned'),
+                'message': _('Untangled: %s') % ', '.join(cleaned),
+                'type': 'success',
+                'sticky': True,
+            },
+        }
+
     def unvoid_transfer(self):
         """Reverse the void operation: unmark transfer as voided and reactivate the associated pallet kilos record."""
         for record in self:
@@ -1364,11 +1599,18 @@ class transfer_locations(models.Model):
             # If the void created an equivalent Void WR/RR that's already been
             # validated, the void is permanent. Letting an unvoid through here
             # would leave the validated child as an orphan inventory move.
-            void_child = self.env['stock.picking'].search([
-                ('void_source_picking_id', '=', record.id),
-                '|', ('is_void_wr', '=', True), ('is_void_return', '=', True),
-            ], limit=1)
-            if void_child and void_child.state == 'done':
+            # NOTE: void-return RRs bind via return_id (void_source_picking_id
+            # is never set on them — verified 0/44 in production data), so the
+            # search must cover both link fields.
+            void_children = self.env['stock.picking'].search([
+                '|',
+                '&', ('void_source_picking_id', '=', record.id),
+                     '|', ('is_void_wr', '=', True), ('is_void_return', '=', True),
+                '&', ('return_id', '=', record.id), ('is_void_return', '=', True),
+            ])
+            done_children = void_children.filtered(lambda c: c.state == 'done')
+            if done_children:
+                void_child = done_children[0]
                 raise UserError(_(
                     "Cannot unvoid %(record_name)s: its equivalent void %(kind)s "
                     "%(child_name)s has already been validated. This void is "
@@ -1378,6 +1620,12 @@ class transfer_locations(models.Model):
                     kind="WR" if void_child.is_void_wr else "RR",
                     child_name=void_child.name,
                 ))
+
+            # Untangle every unvalidated void child so nothing stays bound to
+            # the revived document (frees its reserved bins/pallets, deletes
+            # its moves/lines without recycling any PSI into the pool).
+            for void_child in void_children:
+                record._neutralize_void_child(void_child)
 
             # Unmark as voided
             record.x_studio_voided = False
@@ -2386,22 +2634,45 @@ class transfer_locations(models.Model):
 
     def get_picklist_sorted_move_line_ids(self):
         """
-        Returns move lines sorted by container number to keep the same containers grouped together in the picklist.
-        Sorting order: product name -> container_number -> pallet_series_id
-        Returns: Sorted recordset of move.line ordered by container grouping
+        Returns move lines sorted for the picklist.
+
+        Base order: product name → production date → expiration date →
+        container → pallet series.
+
+        Grouping override: lines sharing the same pallet series id (a mixed
+        pallet holding several products/batches) are ALWAYS rendered as one
+        contiguous block, anchored at the position of the pallet's first
+        line under the base order — so the picker handles one physical
+        pallet in one place. Lines without a series, or with a unique
+        series, keep the plain base order (identical to the old sort).
         """
         move_lines = self.move_line_ids
 
-        # Sort by product name → production date → expiration date → container → pallet series
-        def get_sort_key(line):
+        def base_key(line):
             product_name = line.product_id.name if line.product_id else ''
             prod_date = str(
                 line.x_studio_production_date) if line.x_studio_production_date else ''
             exp_date = str(
                 line.x_studio_expiration_date) if line.x_studio_expiration_date else ''
             container = line.x_studio_container_number or ''
-            pallet_id = line.x_studio_pallet_series_id or ''
-            return (product_name, prod_date, exp_date, container, pallet_id)
+            return (product_name, prod_date, exp_date, container)
+
+        # anchor each pallet series at its first line's base position
+        anchor_by_psi = {}
+        for line in move_lines:
+            psi = line.x_studio_pallet_series_id
+            if not psi:
+                continue
+            key = base_key(line)
+            if psi not in anchor_by_psi or key < anchor_by_psi[psi]:
+                anchor_by_psi[psi] = key
+
+        def get_sort_key(line):
+            psi = line.x_studio_pallet_series_id or ''
+            anchor = anchor_by_psi[psi] if psi else base_key(line)
+            # anchor places the whole series group; psi keeps distinct
+            # groups apart; base_key orders the lines inside a group
+            return (anchor, psi, base_key(line))
 
         sorted_lines = sorted(move_lines, key=get_sort_key)
         return self.env['stock.move.line'].browse([l.id for l in sorted_lines])
@@ -2653,11 +2924,19 @@ class transfer_locations(models.Model):
                 child_locations = self.env['stock.location'].search(
                     [('id', 'child_of', record.location_id.id)])
 
-                # Search quants where owner_id matches the picking's owner_id
+                # Search quants where owner_id matches the picking's owner_id.
+                # NOTE: available_quantity is computed and NON-STORED — a
+                # domain leaf on it cannot be translated to SQL, so Odoo
+                # logged "Non-stored field stock.quant.available_quantity
+                # cannot be searched" and silently treated the condition as
+                # ALWAYS TRUE (no filtering at all). quantity is the stored,
+                # searchable equivalent; fully-reserved stock is deliberately
+                # kept so a picking that reserved its own stock still lists
+                # those products as allowed.
                 quants = self.env['stock.quant'].search([
                     ('location_id', 'in', child_locations.ids),
                     ('owner_id', '=', record.owner_id.id),  # Filter by owner_id
-                    ('available_quantity', '>', 0)
+                    ('quantity', '>', 0)
                 ])
 
                 # Map the quants to product_ids
