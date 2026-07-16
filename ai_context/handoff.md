@@ -1,8 +1,11 @@
 # VIFEL Session Handoff
 
-_Last updated: 2026-07-14. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_12_2026`
+_Last updated: 2026-07-17. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_12_2026`
 (Postgres localhost:5432, openpg/openpgpwd). Odoo 17 Enterprise, runs via nodemon
-(`python odoo-bin -c odoo.conf`), NOT the Windows service._
+(`python odoo-bin -c odoo.conf`), NOT the Windows service.
+**Business rules, per-client special cases, and hard-won learnings live in
+`BUSINESS_CONTEXT_AND_LEARNINGS.md` — read it before touching counting, voids, or
+client-facing material.**_
 
 ## 1. Goal
 
@@ -19,8 +22,8 @@ rule that **MAIN is never written by the assistant — reads only**.
 **Git (remote):**
 | Branch | Tip | State |
 |---|---|---|
-| `MAIN` | `129650a` | Production. UNTOUCHED, always. |
-| `client-trial` | `b2fb684` | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5) |
+| `MAIN` | `d8762a3` | Production (user pushed it themselves). UNTOUCHED by assistant, always. |
+| `client-trial` | (tip = this commit; run `git log --oneline -1`) | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md |
 | `consultant-test` (lowercase) | `15465c4` | Rehearsal merge of the PRE-pin client-trial — STALE, needs re-merge |
 | `Consultant-test` (capital) | `ac374a4` | User's own rehearsal merge (17:42 Jul 14) |
 | `main` (lowercase) | `d2136dc` | Untouched, never analyzed |
@@ -36,8 +39,8 @@ upgraded; `vifel_health_monitor` INSTALLED with committed baseline (~176 open fi
 user already ran Re-sync + neutralized 3 orphan RRs here). Health dashboard live under
 Inventory → Reporting → System Health (admin-only).
 
-**Working tree: 3 files modified, NOT committed** (user commits under own authorship):
-see §3. Everything else committed through `0a291aa`.
+**Working tree: clean** (only the untracked ESII .docx template). Everything committed
+and pushed through `d6591bf` on client-trial.
 
 ## 3. Active Files
 
@@ -146,3 +149,95 @@ Odoo.sh auto-updating on merge builds.
    Studio archives #502/#394/#395 (±#506 hardcoded 2280); SA#513 + vifel_multi_warehouse
    install (Tagoloan phase); health-check B6 "stuck 2nd UOM signature" (v1.1 after
    baseline tuning); the 94 split-PSI merge campaign (after deploy + Re-sync).
+6. **Client-Specific Requirement Enhancement — fully planned, AWAITING GO SIGNAL (§7)**.
+
+## 7. READY-TO-BUILD: Client-Specific Requirement Enhancement
+
+_Design settled interactively 2026-07-16/17 with the user; client-facing design page +
+PDF delivered (artifact `ef072cc7…`, `Downloads/Vifel-Pallet-Merge-Enhancement.pdf`).
+Client timeline: dev starts Mon Jul 20, Internal Testing Mon Jul 27, UAT Tue Jul 28,
+go-live Wed Jul 29 (committed latest Fri Jul 31). Estimate: avg 8.60 mandays.
+**DO NOT implement until the user explicitly says go.** Update this section per phase._
+
+### 7.1 Feature summary (all decisions final)
+- **Client Profile** — new "VIFEL Configuration" notebook tab on partner form (extend
+  existing inherit `multiple_relocation/views/views.xml:372`). Checkbox cascade, all OFF
+  by default, progressive disclosure:
+  - `vifel_can_merge_pallets` "Can Merge Pallets" (master switch)
+  - `vifel_multiple_pallet_support` "Multiple Pallet Support" (mode switch, EXCLUSIVE):
+    OFF → Fixed Merge Pallet: `vifel_fixed_package_id` + `vifel_fixed_psi`, both-or-neither
+    constraint (Wonder Meats: R 5666 / WMF-00230, offered forever);
+    ON → PSI Types o2m table (fixed fields hidden)
+  - `vifel_include_regular_pallets` "Include Regular Pallets" (visible under Multiple only)
+  - `vifel_show_lot_no` "Show Lot No." (independent of merging)
+- **PSI Types** — new model `vifel.psi.type`: partner_id, name (seeded = prefix), prefix,
+  next_number (default 1, editable), pool (Json ints). Unique (partner, prefix). Auto-seed
+  MDGM/BOC/TDMG/SDMG on Multiple flipping ON (in write/create, NOT onchange). Format
+  `prefix-zfill(6)` → SDMG-000001. Draw: pool smallest-first, else counter++. Special
+  numbers never mix with the client's normal pool (prefix-aware routing).
+- **Merge** — per-line button in Pallet Breakdown → new transient `pallet.merge.wizard`.
+  Available iff: client merge-enabled AND incoming AND non-BF AND not return AND not done.
+  Fixed mode: pinned package pre-selected. Multiple mode: stocked packages (qty>0, internal,
+  same owner, same warehouse, non-BF) with PSI prefix ∈ client types; + regular stocked if
+  Include Regular; fallback regular when types list empty. Window shows target PSI/location/
+  KG/2nd-uom ("full" = Documentation Staff judgment, no capacity rule).
+  Confirm: adopt target's PSI (single distinct PSI required; empty pinned fixed package →
+  profile `vifel_fixed_psi`), location_dest = target quant location, `is_pallet_merge=True`,
+  recycle the previously drawn PSI (only if unused elsewhere in picking), free previously
+  reserved empty pallet/location, write with `skip_pallet_series_sync=True`, do NOT stamp
+  reservation fields on the stocked target, chatter on RR ("…pallet count not incremented").
+  "Create new special pallet" path (Multiple; also first-of-type / current-full): pick type
+  → draw_number() → user picks EMPTY pallet + location → plain line, counted +1.
+- **Un-merge**: `stock_move.py` write override — package changed away on flagged line
+  without merge context → clear flag, do NOT recycle adopted PSI, existing
+  `original_pallet_series_id` restore machinery runs.
+- **Lot No.** — `client_lot_no` (Char, copy=False) on stock.move.line + stock.quant;
+  picking compute `show_client_lot_no`; gated column in Pallet Breakdown tree + FastEncodeRR
+  wizard; stamped line→quant post-`button_validate` (match product/location/lot/package/
+  owner; last-write-wins documented); optional column in quant trees.
+- **PKR counting** — merged lines: pallets +0; Weight/Quantity/Heads still count
+  (sums at `pallet_kilos_record_model/models/models.py:145-152` untouched).
+
+### 7.2 Code anchors (explored, verified)
+- Pool logic `multiple_relocation/models/models.py:17-113` (push_unused_pallet :23,
+  get_smallest :45, generate_new :64, get_by_id :77); audit wrapper in
+  `pallet_series_audit/models/res_partner.py` (super() chain must stay intact).
+- Prior merge art: `stock_move.py:706-943` write override; `FastEncodeRR.py:624-663`
+  `_sync_pallet_series_and_location`.
+- Guards to relax ONLY for flagged lines: `FastEncodeRR.py:16-66`
+  `_validate_result_package_availability`. Empty-pallet dropdown domains (`views.xml:992`,
+  `FastEncodeRR.xml:40`) stay unchanged — merge has its own wizard.
+- Recycle paths (`FastEncodeRR.py:184-201`, `:344-374`, `stock_move.py:851-858`) all funnel
+  through `push_unused_pallet` → harden THERE: prefix-aware routing to type pools + global
+  guard "never recycle a PSI present on stocked quants". Same for `get_pallet_series_by_id`.
+- PKR: live received loop `models.py:214-217`; Re-sync counted_in `:1164-1173`; residual
+  rc_n `:1601-1611` → all three get `('is_pallet_merge','!=',True)` / skip. Withdrawn/
+  returns/OB/void unchanged (copy=False keeps void mirrors unflagged).
+- ACLs: add `vifel.psi.type` + `pallet.merge.wizard` to
+  `multiple_relocation/security/ir.model.access.csv`.
+- PSI→quant stamping is a DB automation — adopted PSI flows automatically. NO new SA/AR.
+
+### 7.3 Build phases
+- **A (Mon–Tue): profile + types + Lot No.** — partner fields/constraint; `models/vifel_psi_type.py`
+  (draw_number/take_number/give_back with stocked-guard); seeding hook; prefix-aware routing
+  in push_unused_pallet/get_pallet_series_by_id; Lot No. fields + stamping + columns;
+  VIFEL Configuration tab; ACLs.
+- **B (Wed–Thu, risk center): merge core** — is_pallet_merge field+column; PalletMergeWizard
+  (+view+button+availability compute); confirm logic; create-new-special path; guard
+  exemptions; FastEncodeRR locks flagged lines; un-merge handling.
+- **C (Thu–Fri): PKR** — skip flagged lines in the three counting spots; confirm void/return
+  paths unchanged.
+- **D (Fri + Mon Jul 27): tests + docs** — shell driver `merge_test.py` (commit-only-if-all-
+  pass): fixed/multiple merge e2e; seeding idempotent; pool-first draw; give_back routing
+  (deleted line/un-merge → own type pool, never normal; stocked never recycled, all 3 paths);
+  Include Regular widens; empty types fallback; cross-owner/BF/return blocked; un-merge
+  restore; Lot No. flow; void/unvoid merge RR; picklist contiguity; health checks
+  pallet_drift/kg_pack_drift/split_psi = 0; full 72-owner Re-sync sweep 0 regressions.
+  py_compile; local commits per phase (user authorship, NO push unless told; manifest
+  versions stay pinned — re-bump at deploy only).
+
+### 7.4 Deploy additions (on top of §6.4 checklist)
+- Upgrade multiple_relocation + pallet_kilos_record_model.
+- Prod profiles: Wonder Meats = Can Merge ON / Multiple OFF / pin R 5666 + WMF-00230;
+  Consistent = Can Merge ON / Multiple ON (types auto-seed); Show Lot No. per client.
+- Optional: add Lot No. column to the Studio "Inventory Overview" action DB-side.

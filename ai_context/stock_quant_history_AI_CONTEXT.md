@@ -1,6 +1,6 @@
 # `stock_quant_history` — AI Context Document
 
-> **Module path**: `addons/custom_addons/consultant-test/stock_quant_history/`
+> **Module path**: `addons/custom_addons/vifel-20250717/stock_quant_history/`
 > **Origin**: OCA fork — `https://github.com/OCA/stock-logistics-reporting`
 > **Authors**: Foodles (Pierre Verkest), OCA + heavy local customization for VIFEL
 > **License**: AGPL-3.0
@@ -109,7 +109,7 @@ Entry point: `snapshot._generate_stock_quant_history()` (Snapshot model). Algori
 - **Idempotent**: if a snapshot exists for yesterday and is already `generated`, it skips. If it exists but `draft`, it just generates it.
 
 ### Backfill (`ir_cron_backfill_snapshots`)
-- Runs every 20 minutes; method `_cron_backfill_snapshots`
+- Runs every 10 minutes (cron #489 in DB; doc previously said 20 — corrected 2026-07-17); method `_cron_backfill_snapshots`
 - Walks backward from today up to `MAX_SNAPSHOTS - 1` days; collects up to `BACKFILL_BATCH = 5` missing dates per run and generates them at 23:59:59 Manila.
 - **Auto-deactivates itself** by writing `active=False` on its own `ir.cron` record once all 60 days are covered (or once a backfill batch leaves zero remaining).
 

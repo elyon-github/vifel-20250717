@@ -1,5 +1,10 @@
 # Plan: Void-return lands on the PSI remainder (same pallet #, location, lot)
 
+> **STATUS: ✅ IMPLEMENTED** (verified 2026-07-17: `_find_psi_remainder_quant` live in
+> `multiple_relocation/models/stock_picking.py` and `wizard/ReturnPackageWizard.py`).
+> Kept for the rationale/rule reference. Follow-up SA#478 rev 2 historical-duplicate
+> cleanup remains a parked paste (see handoff.md §6.5).
+
 ## Problem (confirmed 2026-07-06)
 Voiding a WR restores stock through a void return RR
 (`_create_return_rr_from_wr` → Return Packages wizard). The destination
