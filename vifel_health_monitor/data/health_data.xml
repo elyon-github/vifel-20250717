@@ -120,6 +120,14 @@
         <field name="sequence">33</field>
         <field name="description">Quants at 0 KG that still show packaging or packs — inconsistent zeros that distort pack-based reports.</field>
     </record>
+    <record id="check_owner_mismatch" model="vifel.health.check">
+        <field name="code">owner_mismatch</field>
+        <field name="name">Owner Mismatch</field>
+        <field name="category">stock</field>
+        <field name="severity">critical</field>
+        <field name="sequence">35</field>
+        <field name="description">Stock whose owner no longer matches its origin: quants owned by a different client than their reference document, validated returns re-owned versus the document they return to (the M/RR/03721 pattern — now also blocked at write time), and lots stocked under two owners at once.</field>
+    </record>
     <record id="check_stuck_zero_quants" model="vifel.health.check">
         <field name="code">stuck_zero_quants</field>
         <field name="name">Stuck Zero Quants</field>

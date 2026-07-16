@@ -583,6 +583,94 @@ class VifelHealthCheck(models.Model):
             })
         return out
 
+    def _check_owner_mismatch(self):
+        """Stock whose owner no longer matches where it came from — the
+        changed-owner-on-return pattern (M/RR/03721): three angles.
+
+        1. Stocked quants whose owner differs from their record-reference
+           document's owner (aggregated per document-owner -> quant-owner
+           pair).
+        2. Validated RETURN documents whose owner differs from the parent
+           document they return to — the root event that creates angle 1.
+        3. One lot stocked under more than one owner at once — the physical
+           end state when a re-owned return merges back beside original
+           stock (0 today; tripwire).
+        """
+        out = []
+        # -- 1. quant owner vs reference-document owner (per owner pair) --
+        rows = self._sql("""
+            SELECT sp.owner_id, q.owner_id,
+                   array_agg(q.id), count(*), SUM(q.quantity)
+            FROM stock_quant q
+            JOIN stock_location l ON l.id = q.location_id
+            JOIN stock_picking sp ON sp.id = q.x_studio_record_reference
+            WHERE l.usage = 'internal' AND q.quantity > 0
+              AND sp.owner_id IS NOT NULL AND q.owner_id IS NOT NULL
+              AND q.owner_id <> sp.owner_id
+            GROUP BY 1, 2
+        """)
+        for doc_owner, quant_owner, quant_ids, n, kg in rows:
+            out.append({
+                'dedup_key': 'ownermm:pair:%s:%s' % (doc_owner, quant_owner),
+                'owner_id': doc_owner,
+                'reference': '%s → %s' % (self._owner_name(doc_owner),
+                                          self._owner_name(quant_owner)),
+                'detail': '%d stocked quant(s) (%.1f KG) reference documents '
+                          'of %s but are owned by %s — the stock changed '
+                          'owner after receipt.'
+                          % (n, kg or 0, self._owner_name(doc_owner),
+                             self._owner_name(quant_owner)),
+                'measured': '%d quants' % n,
+                'quant_domain': repr([('id', 'in', sorted(quant_ids))]),
+            })
+        # -- 2. return documents whose owner differs from the parent -----
+        rows = self._sql("""
+            SELECT child.id, child.name, child.owner_id,
+                   parent.name, parent.owner_id
+            FROM stock_picking child
+            JOIN stock_picking parent ON parent.id = child.return_id
+            WHERE child.state = 'done'
+              AND child.owner_id IS NOT NULL
+              AND parent.owner_id IS NOT NULL
+              AND child.owner_id <> parent.owner_id
+        """)
+        for pick_id, name, c_owner, p_name, p_owner in rows:
+            out.append({
+                'dedup_key': 'ownermm:return:%s' % pick_id,
+                'owner_id': p_owner,
+                'res_model': 'stock.picking', 'res_id': pick_id,
+                'reference': name,
+                'detail': 'Return %s is owned by %s but returns to %s '
+                          'which belongs to %s — the returned stock was '
+                          're-owned on the way back.'
+                          % (name, self._owner_name(c_owner), p_name,
+                             self._owner_name(p_owner)),
+                'measured': '%s ≠ %s' % (self._owner_name(c_owner),
+                                         self._owner_name(p_owner)),
+            })
+        # -- 3. one lot stocked under two owners --------------------------
+        rows = self._sql("""
+            SELECT q.lot_id, lot.name, count(DISTINCT q.owner_id)
+            FROM stock_quant q
+            JOIN stock_location l ON l.id = q.location_id
+            JOIN stock_lot lot ON lot.id = q.lot_id
+            WHERE l.usage = 'internal' AND q.quantity > 0
+              AND q.lot_id IS NOT NULL AND q.owner_id IS NOT NULL
+            GROUP BY 1, 2 HAVING count(DISTINCT q.owner_id) > 1
+        """)
+        for lot_id, lot_name, n_owners in rows:
+            out.append({
+                'dedup_key': 'ownermm:lot:%s' % lot_id,
+                'reference': lot_name,
+                'detail': 'Lot %s is stocked under %d different owners at '
+                          'once — one receipt line can only belong to one '
+                          'client.' % (lot_name, n_owners),
+                'measured': '%d owners' % n_owners,
+                'quant_domain': repr([('lot_id', '=', lot_id),
+                                      ('quantity', '>', 0)]),
+            })
+        return out
+
     # ==================================================================
     # PROCESS & RESERVATIONS
     # ==================================================================
