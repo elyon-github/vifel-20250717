@@ -809,8 +809,13 @@ class transfer_locations(models.Model):
         Returns the created WR picking record.
         """
         # this generator legitimately (re)builds void-WR lines — exempt it
-        # from the void-mirror guards that block USER edits on those lines
+        # from the void-mirror guards that block USER edits on those lines.
+        # BOTH recordsets need the flag: the fresh void WR is created via
+        # record.copy() (which also copies its operations), so a flag-less
+        # `record` made the guard block the void machinery itself
+        # (M/WR/06825 incident).
         self = self.with_context(skip_void_mirror_guard=True)
+        record = record.with_context(skip_void_mirror_guard=True)
         is_blast_freeze, is_receiving = record.operation_type_checker(
             record.picking_type_id)
 
@@ -1060,8 +1065,10 @@ class transfer_locations(models.Model):
         Returns the wizard's action result (navigation to the RR).
         """
         # this generator legitimately (re)builds void-return lines — exempt
-        # it from the void-mirror guards that block USER edits on those lines
+        # it from the void-mirror guards that block USER edits on those
+        # lines (both recordsets, same reason as _create_void_wr_from_rr)
         self = self.with_context(skip_void_mirror_guard=True)
+        record = record.with_context(skip_void_mirror_guard=True)
 
         # Verify this is an outgoing operation
         is_blast_freeze, is_receiving = record.operation_type_checker(
