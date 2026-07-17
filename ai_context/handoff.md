@@ -59,6 +59,10 @@ stays untracked). Latest additions beyond the earlier list:
 - `sa317_rr_scoped_requant.py` → SA#317 (AR#15) — RR-only, reference-matched re-update
   (+ AR#15 "Apply on" domain: `[("state","=","done"),("picking_type_code","=","incoming")]`)
 - `sa317_BACKUP.txt` — verbatim backup of prod SA#317
+- `sa_clean_picking_reset.py` → NEW SA "Clean Picking (Reset to Empty Draft)" — Actions-menu
+  reset of unvalidated pickings (recycle PSIs on normal RR w/ stocked-guard pool repair;
+  never on returns/WR/BF; frees reservations; severs links both ways; dynamic x_studio
+  wipe). Tested 15/15 on debug DB. Restrict to Inventory Super Admin when creating.
 - Also parked: hardened AR#17/SA#333 2nd_uom reducer (HEX-015573 fix), SA#478 rev 2
 
 **Test scripts (rolled-back odoo-shell suites, ~55 checks total):** scratchpad
