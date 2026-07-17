@@ -23,7 +23,7 @@ rule that **MAIN is never written by the assistant — reads only**.
 | Branch | Tip | State |
 |---|---|---|
 | `MAIN` | `d8762a3` | Production (user pushed it themselves). UNTOUCHED by assistant, always. |
-| `client-trial` | (tip = this commit; run `git log --oneline -1`) | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md |
+| `client-trial` | (tip = this commit; run `git log --oneline -1`) | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md |
 | `consultant-test` (lowercase) | `15465c4` | Rehearsal merge of the PRE-pin client-trial — STALE, needs re-merge |
 | `Consultant-test` (capital) | `ac374a4` | User's own rehearsal merge (17:42 Jul 14) |
 | `main` (lowercase) | `d2136dc` | Untouched, never analyzed |
