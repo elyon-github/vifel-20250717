@@ -1,6 +1,6 @@
 # `pallet_kilos_record_model` — AI Context Document
 
-> **Module path**: `addons/custom_addons/consultant-test/pallet_kilos_record_model/`
+> **Module path**: `addons/custom_addons/vifel-20250717/pallet_kilos_record_model/`
 > **Odoo version**: 17 Enterprise
 > **Depends on**: `report_xlsx`, `stock` (and implicitly the data produced by `multiple_relocation`)
 > **Last updated**: 2026-06-17
@@ -280,3 +280,25 @@ SNAPSHOT_REPORTS = {'daily_pallet_utilization'}  # don't need date range — pas
 > - **Dependency or run-command change** → update the header and section 12.
 >
 > Keep the tone tight and architectural. Reference file paths with line numbers when useful, but do not paste long code blocks. Update the **Last updated** date at the top each time. If a section becomes uncertain, mark it `⚠️ NEEDS VERIFICATION` rather than removing it.
+
+---
+
+## Update 2026-07-17 — the Re-sync engine (major addition since this document)
+
+`action_resync_pallet_counts` is now the canonical repair tool (details in `handoff.md`):
+wipe-and-rebuild per (owner, warehouse, BF) partition — received/withdrawn counts from
+document events (received = unique result_package per RR; withdrawn = unique package per WR
+where reserved_quantity_on_validation == 0; BF by unique bf_pallet_char), adjustment
+packaging/heads/kilos rebuilt ONLY from approved `stock.quant.adjustment.line` records posted
+to their LINKED rows (never synthesized), per-lot gap analysis is explanation-only (the
+VERDURE −350 scatter incident is why), residual anchor on the OB row with structural OB
+detection (batch-less documentless arrivals from inventory usage — not reference-text match).
+
+**Evidence policy (truth retention)**: packaging/units residuals are force-balanced ONLY
+with transaction evidence (OB basis); KG residuals are NEVER posted — they remain visible as
+"UNRESOLVED kilos" remarks (e.g. FOODASIA −1173.05 KG is a real unexplained error, kept
+visible by design). 6 partitions legitimately show UNRESOLVED drift after the 72-owner sweep.
+
+Also: PKR create() archives void transfers; `pallets_received`/`pallets_withdrawn` populate
+rules documented in handoff §7.2 will gain an `is_pallet_merge` exclusion when the
+Client-Specific Requirement Enhancement ships (merge RRs count +0 pallets, KG still counts).

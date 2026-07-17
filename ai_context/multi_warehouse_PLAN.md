@@ -1,5 +1,8 @@
 # Multi-Warehouse Migration Plan — Vulnerability Audit & Phased Roadmap
 
+> **STATUS 2026-07-17: PARKED — do NOT install `vifel_multi_warehouse` in the current prod deploy.**
+> Reserved for the Tagoloan phase together with SA#513 warehouse scoping (STUDIO_PHASE1_PACKAGE §3).
+
 > **Scope**: All custom modules under `addons/custom_addons/vifel-20250717/` (except `app_common`, `app_odoo_customize`, `odoo_calculator_tool`).
 > **Goal**: Treat each warehouse as **completely separate data** — isolation of clients, pallets, audit logs, ledgers, snapshots, reports, and user access — while removing the many places where the code silently assumes "one warehouse".
 > **Operating assumption (confirmed with user)**: each `res.partner` (client) is assigned to exactly one warehouse via `res.partner.x_studio_warehouse`. Users are **restricted** to one or more warehouses via a new warehouse-aware security layer.

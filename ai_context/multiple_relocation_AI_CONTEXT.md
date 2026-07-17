@@ -1,6 +1,6 @@
 # `multiple_relocation` — AI Context Document
 
-> **Module path**: `addons/custom_addons/consultant-test/multiple_relocation/`
+> **Module path**: `addons/custom_addons/vifel-20250717/multiple_relocation/`
 > **Odoo version**: 17 Enterprise
 > **Author**: Mark Angelo S. Templanza
 > **Depends on**: `base`, `stock`, `web`, `report_xlsx`
@@ -78,7 +78,7 @@ package only, so voiding a **BF receiving (BFRR)** produced an **empty void WR**
 - Void / return / adjustment workflows that keep `stock.quant` and accounting consistent
 - Custom XLSX and HTML reports (delivery slips, count sheets, inventory summaries)
 
-It is the **heaviest module in the repository** (~7.4k LOC across 5 model files + 6 wizard files) and most other custom modules in `consultant-test/` depend on it (directly or indirectly via shared field conventions).
+It is the **heaviest module in the repository** (~7.4k LOC across 5 model files + 6 wizard files) and most other custom modules in `vifel-20250717/` depend on it (directly or indirectly via shared field conventions).
 
 ---
 
@@ -308,3 +308,35 @@ There is also an `inventory_super_admin` group used for unlock/lock toggles on v
 > - **Database, config, or upgrade command changes** → update section 12.
 >
 > Keep the tone tight and architectural. Do not paste full method bodies — link/refer to file paths with line numbers instead. Update the **Last updated** date at the top each time. If a section becomes inaccurate and you don't know the correct answer, mark it `⚠️ NEEDS VERIFICATION` rather than deleting it.
+
+---
+
+## Update 2026-07-17 — features added since this document was written
+
+All on branch client-trial (tip `d6591bf`); details + test coverage in `handoff.md`.
+
+- **Void-mirror guards** (`stock_move.py`, `stock_picking.py`): a linked, unvalidated void
+  equivalent (void WR / void return RR) must mirror the voided document exactly. Blocked:
+  Client/Owner change, KG (`quantity`), Packaging (`x_studio_2nd_uom`), Packs
+  (`x_studio_total_units`) edits, and adding/removing lines AND operations. Exemptions via
+  `skip_void_mirror_guard` context (must be set on BOTH `self` and `record` — the copy()
+  in `_create_void_wr_from_rr`/`_create_return_rr_from_wr` copies operations; missing this
+  caused the M/WR/06825 bug), `voided` context, `audit_source='unvoid_cleanup'`.
+- **Unvoid neutralization** (`_neutralize_void_child`): unvoiding turns unvalidated void
+  children into plain empty drafts — frees reservations by claimant key, deletes lines
+  WITHOUT recycling PSIs, unbinds return_id/is_void_return/is_void_wr/void_source_picking_id,
+  wipes Source/Destination/Record Remarks/Other Remarks + VOIDED tag. Permanent guard covers
+  BOTH link directions (return_id and void_source_picking_id).
+- **Owner-change guard** (`write()`): partner/owner edits blocked on pickings linked as
+  returns or void WRs unless unlinked in the same write (M/RR/03721 class of drift).
+- **Correction wizard**: PSI group-move cascade (same-series quants move together, banner,
+  BF exempt), all-or-nothing per-series approval guard, zeroed quants GC'd right after
+  apply (audit survives via SET NULL), "Adjustment Approvers" res.groups drives
+  approve/reject + notifications.
+- **Picklist**: `get_picklist_sorted_move_line_ids` — same-PSI lines always contiguous
+  (anchored at first appearance).
+- **Return wizard**: `_find_existing_return` excludes void returns unless `voided` context;
+  PSI-remainder-first landing for void/manual partial returns (`_find_psi_remainder_quant`).
+- **PLANNED (awaiting go — full spec in handoff.md §7)**: per-client pallet merge (Fixed /
+  Multiple PSI types with own numbering + pools), `client_lot_no`, `is_pallet_merge`,
+  pallet.merge.wizard, prefix-aware pool routing in `push_unused_pallet`.

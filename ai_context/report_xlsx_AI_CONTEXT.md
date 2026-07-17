@@ -1,6 +1,6 @@
 # `report_xlsx` — AI Context Document
 
-> **Module path**: `addons/custom_addons/consultant-test/report_xlsx/`
+> **Module path**: `addons/custom_addons/vifel-20250717/report_xlsx/`
 > **Origin**: OCA (Odoo Community Association) — `https://github.com/OCA/reporting-engine`
 > **Authors**: ACSONE SA/NV, Creu Blanca, OCA
 > **License**: AGPL-3.0
@@ -14,7 +14,7 @@
 
 ## 1. Purpose (1-paragraph elevator pitch)
 
-`report_xlsx` is the **OCA-provided base module** that adds a new `report_type='xlsx'` value to `ir.actions.report`, enabling downloadable Excel (`.xlsx`) outputs alongside Odoo's built-in PDF and HTML reports. It is **infrastructure only** — it does not ship any business reports. Every other module in `consultant-test/` that produces an XLSX (e.g. `pallet_kilos_record_model`, `stock_quant_history`, `multiple_relocation`) declares an `ir.actions.report` with `report_type="xlsx"` and inherits the `report.report_xlsx.abstract` abstract model defined here.
+`report_xlsx` is the **OCA-provided base module** that adds a new `report_type='xlsx'` value to `ir.actions.report`, enabling downloadable Excel (`.xlsx`) outputs alongside Odoo's built-in PDF and HTML reports. It is **infrastructure only** — it does not ship any business reports. Every other module in `vifel-20250717/` that produces an XLSX (e.g. `pallet_kilos_record_model`, `stock_quant_history`, `multiple_relocation`) declares an `ir.actions.report` with `report_type="xlsx"` and inherits the `report.report_xlsx.abstract` abstract model defined here.
 
 Treat this module as a **stable third-party library**: keep it pristine unless you're upstreaming a fix to OCA.
 
