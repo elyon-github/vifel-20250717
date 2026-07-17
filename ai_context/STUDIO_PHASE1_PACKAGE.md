@@ -1,5 +1,10 @@
 # Studio Phase-1 Package — reference scan, archive list, patches (FOR REVIEW)
 
+> **STATUS 2026-07-17: STILL PENDING — nothing here has been applied.** Parked with the
+> other Studio decisions (handoff.md §6.5): archives #502/#394/#395 (±#506), SA#513
+> warehouse-scoped paste (Tagoloan phase). Note: SA#317 and SA#297 have NEWER paste files
+> in ai_context/ that supersede any references here.
+
 > Generated 2026-07-04 against `vifel_06_30_2026_1` (read-only). Nothing here has been applied.
 > Apply order: review §1 → approve §2 archive → paste §3 patch → schedule §4 items.
 

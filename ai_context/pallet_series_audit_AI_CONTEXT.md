@@ -1,6 +1,6 @@
 # `pallet_series_audit` — AI Context Document
 
-> **Module path**: `addons/custom_addons/consultant-test/pallet_series_audit/`
+> **Module path**: `addons/custom_addons/vifel-20250717/pallet_series_audit/`
 > **Odoo version**: 17 Enterprise
 > **Author**: Mark Angelo S. Templanza
 > **Depends on**: `multiple_relocation`

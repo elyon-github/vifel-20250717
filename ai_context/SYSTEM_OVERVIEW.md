@@ -2,6 +2,8 @@
 
 > **Audience**: future Odoo consultants / developers taking over the project.
 > **Scope of this overview**: the 4 business-critical custom modules + the live Studio (DB) automation layer.
+> **Companion docs**: `handoff.md` (current state), `BUSINESS_CONTEXT_AND_LEARNINGS.md`
+> (business process, counting/identity doctrine, per-client cases, operational lessons).
 > **Grounding**: built from the code (AST graph in `graphify-core/`) and read-only inspection of the live DB
 > `vifel_06_19_2026`. Claims that contradicted the older `ai_context/*.md` notes were corrected — see
 > `VERIFICATION_NOTES.md` for the evidence and the CONFIRMED/OUTDATED list. Navigate the system visually with
@@ -126,3 +128,39 @@ method nodes; `[model] …` hub nodes link both layers per Odoo model).
   server actions (kept in the graph tagged `unwired` for review). Don't assume a server action is live just
   because it exists.
 - **PKR engine has a `_dead_…_legacy` method** alongside the current one — confirm which path runs before editing.
+
+---
+
+## 7. Update 2026-07-17 — what changed since this overview was written
+
+There is now a **fifth module**: **`vifel_health_monitor`** — 20 read-only system-health checks
+(ledger drift, split PSI, orphan voids, owner mismatch, …) with a findings lifecycle
+(new→open→resolved + Ignore), check-card dashboard (Inventory → Reporting → System Health,
+admin-only), weekly cron Sun 19:00 PH, notifications to Inventory Super Admins on NEW findings.
+
+Major behavior added in `multiple_relocation` (all on client-trial, `d6591bf`):
+- **Void-mirror guards**: linked unvalidated void equivalents must mirror the voided document
+  exactly — Client/Owner change, KG/Packaging/Packs line edits, and line/operation add/remove
+  are blocked (exemptions for the void generators, unvoid cleanup, validation).
+- **Unvoid neutralization**: unvoiding cleans unvalidated void children into plain empty
+  drafts — frees reservations, deletes lines WITHOUT recycling PSIs, unbinds, wipes remarks.
+- **Owner-change guard** on linked returns and void WRs (unlink-first warning).
+- **PSI cascade** in the correction wizard (one series moves as a group), **all-or-nothing
+  per-series approvals**, **zero-quant GC after apply**, **Adjustment Approvers group**
+  (drives approvals + notifications).
+- **Picklist**: same-PSI lines always print contiguous.
+- **PSI-remainder-first void returns** (see VOID_PSI_REMAINDER_PLAN.md — implemented).
+
+In `pallet_kilos_record_model`:
+- **Re-sync Pallet Counts** is now a full wipe-and-rebuild engine per (owner, warehouse, BF)
+  partition under an **evidence policy**: adjustments rebuilt ONLY from approved audit lines
+  posted to their linked rows; residuals posted only with transaction evidence (OB basis);
+  KG residuals are NEVER force-balanced — they stay visible as "UNRESOLVED" (truth retention).
+
+DB-side (paste files in ai_context/, some still pending): SA#297 race fix (sorted FOR UPDATE
+lock), SA#317 RR-scoped re-update + AR#15 domain. See handoff.md §3/§6.
+
+**Planned next (awaiting go): Client-Specific Requirement Enhancement** — per-client pallet
+merge (Fixed pinned pallet à la Wonder Meats / Multiple special PSI types MDGM·BOC·TDMG·SDMG
+with own numbering+pools), Lot No. column, PKR merge-aware counting. Full build spec:
+handoff.md §7.

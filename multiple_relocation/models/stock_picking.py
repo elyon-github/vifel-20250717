@@ -1903,46 +1903,17 @@ class transfer_locations(models.Model):
                 WR (outgoing) normal:   x_studio_withdraw_units
                 WR (outgoing) special:  x_studio_actual_min
             """
-            # Operation type decides the sort order below and the
-            # total_units field mapping further down
+            # Operation type decides the total_units field mapping further down
             is_outgoing = self.picking_type_id.code == 'outgoing'
 
-            if is_outgoing:
-                # WR/BFWR: reuse the picklist sort (PSI-anchored groups,
-                # chronological dates) so withdrawal report rows match the
-                # picklist 1:1. RR/BFRR keep the legacy order below.
-                sorted_move_lines = list(self.get_picklist_sorted_move_line_ids())
-            else:
-                all_move_lines = []
-
-                # Collect all move lines
-                for move in self.move_ids:
-                    for line in move.move_line_ids:
-                        all_move_lines.append(line)
-
-                # Sort by description key (product|container|prod_date|exp_date) first,
-                # then by pallet series ID (groups items with same description together)
-                def get_sort_key(line):
-                    product_name = line.product_id.name if line.product_id else ''
-                    container_number = line.x_studio_container_number or ''
-
-                    production_date = ''
-                    if line.x_studio_production_date:
-                        production_date = line.x_studio_production_date.strftime('%b%d.%Y').upper()
-
-                    expiration_date = ''
-                    if line.x_studio_expiration_date:
-                        expiration_date = line.x_studio_expiration_date.strftime('%b%d.%Y').upper()
-
-                    description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
-                    pallet_id = line.x_studio_pallet_series_id or ''
-
-                    return (description_key, pallet_id)
-
-                sorted_move_lines = sorted(all_move_lines, key=get_sort_key)
+            # All operation types reuse the picklist sort (PSI-anchored
+            # groups, chronological dates): one pallet series = one physical
+            # pallet, so its lines always render as one contiguous block —
+            # WR since 9ac8f7e, RR by the same ruling. BF lines carry no PSI
+            # and simply keep the plain base order (product/dates/container).
+            sorted_move_lines = list(self.get_picklist_sorted_move_line_ids())
     
             processed_lines = []
-            seen_descriptions = set()
             grand_total_by_uom = {}
             grand_packs_by_uom = {}
     
@@ -1971,7 +1942,6 @@ class transfer_locations(models.Model):
             is_single_pallet_single_product = len(unique_descriptions) == 1 and len(sorted_move_lines) == 1
     
             # Second pass: process lines
-            seen_descriptions_current_page = set()
             # Must match the paginating XML template: the WR per-pallet
             # template renders 14 rows per page, the RR/BFRR/BFWR ones 15
             items_per_page = 14 if is_outgoing else 15
@@ -2026,22 +1996,15 @@ class transfer_locations(models.Model):
     
                 is_new_page = line_index > 0 and line_index % items_per_page == 0
     
-                if is_new_page:
-                    seen_descriptions_current_page = set()
     
+                # The PSI-anchored order can interleave description groups
+                # (mixed pallets), so a per-page "seen" set would blank the
+                # description when a group resumes under a different
+                # product. Compare with the previous row instead, and
+                # always re-show at a page start.
                 show_description = False
-                if is_outgoing:
-                    # The PSI-anchored order can interleave description
-                    # groups (mixed pallets), so a per-page "seen" set would
-                    # blank the description when a group resumes under a
-                    # different product. Compare with the previous row
-                    # instead, and always re-show at a page start.
-                    if line_index == 0 or is_new_page or description_key != prev_description_key:
-                        show_description = True
-                else:
-                    if description_key not in seen_descriptions_current_page or is_new_page:
-                        show_description = True
-                        seen_descriptions_current_page.add(description_key)
+                if line_index == 0 or is_new_page or description_key != prev_description_key:
+                    show_description = True
                 prev_description_key = description_key
     
                 uom = move.x_studio_quantity_uom.name if move and move.x_studio_quantity_uom else move.x_studio_quantity_uom_delivery.name

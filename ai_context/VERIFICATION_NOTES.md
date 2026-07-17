@@ -1,5 +1,10 @@
 # VIFEL — Verification Notes (code + live DB vs. the curated docs)
 
+> **HISTORICAL SNAPSHOT (2026-06-24).** Evidence remains valid for that date, but much has
+> shipped since (void-mirror guards, evidence-policy Re-sync, vifel_health_monitor module,
+> Adjustment Approvers group, PSI cascade, SA#297 race fix). For current state always read
+> `handoff.md` first.
+
 > **Generated**: 2026-06-24 · **DB verified against**: `vifel_06_19_2026` (latest dated clone)
 > **Method**: read-only SQL on the live DB + AST/graph of the 4 core modules. Where a hand-written
 > `ai_context/*.md` claim disagreed with reality, reality (code/DB) wins and is recorded here.
