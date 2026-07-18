@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Picking list used by the Contact transfer buttons: identical to the
+        standard VIFEL transfer list, except the leading Responsible column
+        is replaced by Documentation Staff — the person who actually owns
+        the document in this operation.
+
+        A primary view (not a global extension) so every other transfer
+        list keeps Responsible.
+    -->
+    <record id="view_picking_tree_vifel_client" model="ir.ui.view">
+        <field name="name">stock.picking.tree.vifel.client</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.vpicktree"/>
+        <field name="mode">primary</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <field name="user_id" position="replace">
+                <field name="documentation_staff_id" string="Documentation Staff"
+                       optional="show" widget="many2one_avatar"
+                       readonly="state in ['cancel', 'done']"/>
+            </field>
+        </field>
+    </record>
+
+</odoo>

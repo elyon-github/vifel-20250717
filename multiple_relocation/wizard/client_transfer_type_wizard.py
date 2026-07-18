@@ -62,11 +62,20 @@ class ClientTransferTypeWizard(models.TransientModel):
 
     def _open(self, code, label):
         self.ensure_one()
+        # Client transfer list shows Documentation Staff instead of
+        # Responsible; other transfer lists are untouched.
+        tree_view = self.env.ref(
+            'multiple_relocation.view_picking_tree_vifel_client',
+            raise_if_not_found=False)
+        views = [(tree_view.id if tree_view else False, 'tree'),
+                 (False, 'kanban'), (False, 'form'),
+                 (False, 'calendar'), (False, 'activity')]
         return {
             'type': 'ir.actions.act_window',
             'name': '%s — %s' % (label, self.partner_id.name),
             'res_model': 'stock.picking',
             'view_mode': 'tree,kanban,form,calendar,activity',
+            'views': views,
             'domain': self._domain(code),
             'target': 'current',
             # Odoo's sample data (ghost REF0001... rows) reads as real

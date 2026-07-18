@@ -109,6 +109,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         # inventory_super_admin group defined there
         'views/stock_quant_views.xml',
         'views/client_location_search_views.xml',
+        'views/client_picking_tree_views.xml',
         'views/res_partner_client_buttons.xml',
         'views/quant_report_button_views.xml',
 
