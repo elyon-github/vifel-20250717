@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Clients hub: the entry point of the Inventory app.
+
+        Encoders start from the client, not from a document type — pick a
+        client here and every transfer, stock inquiry and occupied location
+        of theirs is one click away through the smart buttons on the form.
+        Uses the standard Contacts kanban/list/form, filtered to the
+        "Client" tag.
+    -->
+    <record id="action_vifel_clients" model="ir.actions.act_window">
+        <field name="name">Clients</field>
+        <field name="res_model">res.partner</field>
+        <field name="view_mode">kanban,tree,form</field>
+        <field name="domain">[('category_id.name', '=', 'Client')]</field>
+        <field name="search_view_id" ref="base.view_res_partner_filter"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Add a client</p>
+            <p>
+                Clients tagged <b>Client</b> appear here. Open one to see its
+                transfers, stocks and occupied locations.
+            </p>
+        </field>
+    </record>
+
+    <record id="action_vifel_clients_kanban" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">kanban</field>
+        <field name="view_id" ref="base.res_partner_kanban_view"/>
+        <field name="act_window_id" ref="action_vifel_clients"/>
+    </record>
+
+    <record id="action_vifel_clients_tree" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="base.view_partner_tree"/>
+        <field name="act_window_id" ref="action_vifel_clients"/>
+    </record>
+
+    <record id="action_vifel_clients_form" model="ir.actions.act_window.view">
+        <field name="sequence">3</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="base.view_partner_form"/>
+        <field name="act_window_id" ref="action_vifel_clients"/>
+    </record>
+
+    <!-- Sequence 0: first child of Inventory, so the app opens here -->
+    <menuitem id="menu_vifel_clients"
+              name="Clients"
+              parent="stock.menu_stock_root"
+              action="action_vifel_clients"
+              sequence="0"/>
+
+    <!--
+        Creating a client from this screen should tag it Client, otherwise
+        it vanishes from the list. The tag is a plain DB record with no XML
+        id, so the default is wired by name on module update.
+    -->
+    <function model="ir.actions.act_window" name="vifel_set_client_tag_default"/>
+
+</odoo>

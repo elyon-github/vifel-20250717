@@ -221,3 +221,29 @@ class IrActionsActWindowVifel(models.Model):
             context['show_pkr_report'] = True
             action.sudo().write({'context': repr(context)})
         return True
+
+    @api.model
+    def vifel_set_client_tag_default(self):
+        """Default the Client tag on contacts created from the Clients hub.
+
+        The tag is a plain res.partner.category row without an XML id, so
+        its id is resolved by name on every module update (idempotent, and
+        a no-op when the tag or the action is missing).
+        """
+        action = self.env.ref('multiple_relocation.action_vifel_clients',
+                              raise_if_not_found=False)
+        tag = self.env['res.partner.category'].search(
+            [('name', '=', CLIENT_TAG)], limit=1)
+        if not action or not tag:
+            return True
+        try:
+            context = literal_eval(action.context or '{}')
+        except (ValueError, SyntaxError):
+            context = {}
+        if not isinstance(context, dict):
+            context = {}
+        if context.get('default_category_id') == [(6, 0, [tag.id])]:
+            return True
+        context['default_category_id'] = [(6, 0, [tag.id])]
+        action.sudo().write({'context': repr(context)})
+        return True
