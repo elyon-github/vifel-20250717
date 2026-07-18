@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- VIFEL client smart buttons on the Contact form -->
+    <record id="view_partner_form_vifel_client_buttons" model="ir.ui.view">
+        <field name="name">res.partner.form.vifel.client.buttons</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <button name="action_vifel_normal_transfers" type="object"
+                        class="oe_stat_button" icon="fa-exchange"
+                        invisible="not is_vifel_client">
+                    <field name="vifel_normal_transfer_count" widget="statinfo"
+                           string="Normal Transfers"/>
+                </button>
+                <button name="action_vifel_bf_transfers" type="object"
+                        class="oe_stat_button" icon="fa-snowflake-o"
+                        invisible="not is_vifel_client">
+                    <field name="vifel_bf_transfer_count" widget="statinfo"
+                           string="BF Transfers"/>
+                </button>
+                <button name="action_vifel_normal_stocks" type="object"
+                        class="oe_stat_button" icon="fa-cubes"
+                        invisible="not is_vifel_client">
+                    <field name="vifel_normal_pallet_count" widget="statinfo"
+                           string="Normal Pallets"/>
+                </button>
+                <button name="action_vifel_bf_stocks" type="object"
+                        class="oe_stat_button" icon="fa-cube"
+                        invisible="not is_vifel_client">
+                    <field name="vifel_bf_pallet_count" widget="statinfo"
+                           string="BF Pallets"/>
+                </button>
+                <button name="action_vifel_locations" type="object"
+                        class="oe_stat_button" icon="fa-map-marker"
+                        invisible="not is_vifel_client">
+                    <field name="vifel_location_count" widget="statinfo"
+                           string="Locations"/>
+                </button>
+                <field name="is_vifel_client" invisible="1"/>
+            </div>
+        </field>
+    </record>
+
+</odoo>

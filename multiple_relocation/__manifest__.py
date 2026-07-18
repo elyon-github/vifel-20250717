@@ -107,6 +107,8 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         # after data.xml: the quant-detail actions reference the
         # inventory_super_admin group defined there
         'views/stock_quant_views.xml',
+        'views/res_partner_client_buttons.xml',
+        'views/quant_report_button_views.xml',
 
     ],
     # only loaded in demonstration mode
@@ -130,6 +132,8 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
             'multiple_relocation/static/src/js/fast_encode_rr_list_view_template.xml',
             'multiple_relocation/static/src/js/magic_wizard_list_controller.js',
             'multiple_relocation/static/src/js/magic_wizard_list_view_template.xml',
+            'multiple_relocation/static/src/js/quant_report_button.js',
+            'multiple_relocation/static/src/js/quant_report_button.xml',
         ],
     },
     'license': 'LGPL-3',
