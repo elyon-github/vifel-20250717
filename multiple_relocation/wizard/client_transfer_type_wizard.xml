@@ -5,34 +5,43 @@
         <field name="name">client.transfer.type.wizard.form</field>
         <field name="model">multiple_relocation.client.transfer.type.wizard</field>
         <field name="arch" type="xml">
-            <form string="Select Transfer Type">
+            <form string="Select Transfer Type" class="o_vifel_type_picker">
                 <field name="partner_id" invisible="1"/>
                 <field name="is_blast_freeze" invisible="1"/>
                 <field name="incoming_label" invisible="1"/>
                 <field name="outgoing_label" invisible="1"/>
-                <div class="text-center o_row" style="padding: 8px 0 4px;">
-                    <h4 class="mb-3">
-                        Which transfers of <field name="partner_id" readonly="1"
-                                                  nolabel="1" class="oe_inline"/>
-                        would you like to see?
-                    </h4>
-                    <div class="d-flex justify-content-center gap-3 flex-wrap">
+                <field name="incoming_icon" invisible="1"/>
+                <field name="outgoing_icon" invisible="1"/>
+
+                <div class="o_vifel_picker_body">
+                    <p class="o_vifel_picker_hint">
+                        Choose which transfers to open — Draft, Waiting and
+                        Ready are shown first.
+                    </p>
+                    <div class="o_vifel_picker_options">
                         <button name="action_open_incoming" type="object"
-                                class="btn btn-primary btn-lg d-flex flex-column py-3 px-4">
-                            <span class="fw-bold" style="font-size: 1.6rem;">
+                                class="o_vifel_picker_card">
+                            <i class="fa fa-sign-in o_vifel_picker_icon" role="img"/>
+                            <span class="o_vifel_picker_count">
                                 <field name="incoming_count" nolabel="1" readonly="1"/>
                             </span>
-                            <span><field name="incoming_label" nolabel="1" readonly="1"/></span>
+                            <span class="o_vifel_picker_label">
+                                <field name="incoming_label" nolabel="1" readonly="1"/>
+                            </span>
                         </button>
                         <button name="action_open_outgoing" type="object"
-                                class="btn btn-primary btn-lg d-flex flex-column py-3 px-4">
-                            <span class="fw-bold" style="font-size: 1.6rem;">
+                                class="o_vifel_picker_card">
+                            <i class="fa fa-sign-out o_vifel_picker_icon" role="img"/>
+                            <span class="o_vifel_picker_count">
                                 <field name="outgoing_count" nolabel="1" readonly="1"/>
                             </span>
-                            <span><field name="outgoing_label" nolabel="1" readonly="1"/></span>
+                            <span class="o_vifel_picker_label">
+                                <field name="outgoing_label" nolabel="1" readonly="1"/>
+                            </span>
                         </button>
                     </div>
                 </div>
+
                 <footer>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>

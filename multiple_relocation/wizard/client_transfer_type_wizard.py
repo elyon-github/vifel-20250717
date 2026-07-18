@@ -22,6 +22,8 @@ class ClientTransferTypeWizard(models.TransientModel):
                                     string='Withdrawal Transfers')
     incoming_label = fields.Char(compute='_compute_counts')
     outgoing_label = fields.Char(compute='_compute_counts')
+    incoming_icon = fields.Char(compute='_compute_counts')
+    outgoing_icon = fields.Char(compute='_compute_counts')
 
     # ------------------------------------------------------------------
     def _domain(self, code):
@@ -42,6 +44,8 @@ class ClientTransferTypeWizard(models.TransientModel):
             else:
                 wiz.incoming_label = 'Receiving'
                 wiz.outgoing_label = 'Withdrawal'
+            wiz.incoming_icon = 'fa-sign-in'
+            wiz.outgoing_icon = 'fa-sign-out'
 
     # ------------------------------------------------------------------
     def _open(self, code, label):

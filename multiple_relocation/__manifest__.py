@@ -122,6 +122,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         'web.assets_backend': [
             'multiple_relocation/static/src/images/logo_1.jpg',
             'multiple_relocation/static/src/css/custom_css.scss',
+            'multiple_relocation/static/src/css/transfer_type_picker.scss',
             'multiple_relocation/static/src/js/test.js',
             'multiple_relocation/static/src/js/test2.js',
             'multiple_relocation/static/src/js/list_controller_custom_keybinds.js',

@@ -138,7 +138,7 @@ class ResPartnerClientButtons(models.Model):
             'view_mode': 'form',
             'views': [(False, 'form')],
             'target': 'new',
-            'context': self.env.context,
+            'context': dict(self.env.context, dialog_size='medium'),
         }
 
     def action_vifel_normal_transfers(self):
