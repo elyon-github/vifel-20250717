@@ -49,4 +49,13 @@
                 <field name="print_report_name">'Daily Pallet Utilization XLSX'</field>
      </record>
 
+     <record id="action_report_outbound_log_xlsx" model="ir.actions.report">
+                <field name="name">Outbound Log XLSX</field>
+                <field name="model">stock.picking</field>
+                <field name="report_type">xlsx</field>
+                <field name="report_name">pallet_kilos_record_model.outbound_log_xlsx</field>
+                <field name="report_file">pallet_kilos_record_model.outbound_log_xlsx</field>
+                <field name="print_report_name">'Outbound Log - %s' % (object.partner_id.name or 'All Clients')</field>
+     </record>
+
 </odoo>
