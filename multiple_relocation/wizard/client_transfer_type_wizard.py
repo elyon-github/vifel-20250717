@@ -7,6 +7,7 @@ the count of each so the choice is informed, then opens that list scoped
 to the client.
 """
 from odoo import api, fields, models
+from odoo.tools import html_escape
 
 
 class ClientTransferTypeWizard(models.TransientModel):
@@ -48,6 +49,17 @@ class ClientTransferTypeWizard(models.TransientModel):
             wiz.outgoing_icon = 'fa-sign-out'
 
     # ------------------------------------------------------------------
+    def _empty_help(self, label):
+        """Plain-language empty state instead of Odoo's sample records."""
+        self.ensure_one()
+        return (
+            '<p class="o_view_nocontent_smiling_face">Create a new %(label)s '
+            'transaction</p><p>No %(label)s transaction of %(client)s is in '
+            '<b>Draft</b>, <b>Waiting</b> or <b>Ready</b> right now.<br/>'
+            'Remove the filter above to see the other %(label)s '
+            'transactions of this client.</p>'
+        ) % {'label': html_escape(label), 'client': html_escape(self.partner_id.name or '')}
+
     def _open(self, code, label):
         self.ensure_one()
         return {
@@ -57,6 +69,10 @@ class ClientTransferTypeWizard(models.TransientModel):
             'view_mode': 'tree,kanban,form,calendar,activity',
             'domain': self._domain(code),
             'target': 'current',
+            # Odoo's sample data (ghost REF0001... rows) reads as real
+            # records to users; show a clear empty state instead.
+            'useSampleModel': False,
+            'help': self._empty_help(label),
             'context': {
                 'search_default_draft': 1,
                 'search_default_waiting': 1,
