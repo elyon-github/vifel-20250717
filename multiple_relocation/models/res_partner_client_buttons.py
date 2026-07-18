@@ -122,33 +122,32 @@ class ResPartnerClientButtons(models.Model):
             'context': dict(self.env.context, **(context or {})),
         }
 
+    def _vifel_transfer_type_wizard(self, blast_freeze=False):
+        """Ask Receiving or Withdrawal before opening the transfers."""
+        self.ensure_one()
+        wizard = self.env['multiple_relocation.client.transfer.type.wizard'].create({
+            'partner_id': self.id,
+            'is_blast_freeze': blast_freeze,
+        })
+        return {
+            'type': 'ir.actions.act_window',
+            'name': '%s Transfer Transactions — %s' % (
+                'Blast Freeze' if blast_freeze else 'Normal', self.name),
+            'res_model': wizard._name,
+            'res_id': wizard.id,
+            'view_mode': 'form',
+            'views': [(False, 'form')],
+            'target': 'new',
+            'context': self.env.context,
+        }
+
     def action_vifel_normal_transfers(self):
-        """Client's normal transfers, grouped by operation type."""
-        return self._vifel_action(
-            'Normal Transfer Transactions — %s' % self.name,
-            'stock.picking', self._vifel_picking_domain(),
-            'tree,kanban,form,calendar,activity',
-            {
-                'search_default_picking_type': 1,
-                'search_default_draft': 1,
-                'search_default_waiting': 1,
-                'search_default_available': 1,
-                'vifel_client_id': self.id,
-            })
+        """Pick Receiving or Withdrawal, then open the client's transfers."""
+        return self._vifel_transfer_type_wizard()
 
     def action_vifel_bf_transfers(self):
-        """Client's blast-freeze transfers, grouped by operation type."""
-        return self._vifel_action(
-            'Blast Freeze Transfer Transactions — %s' % self.name,
-            'stock.picking', self._vifel_picking_domain(blast_freeze=True),
-            'tree,kanban,form,calendar,activity',
-            {
-                'search_default_picking_type': 1,
-                'search_default_draft': 1,
-                'search_default_waiting': 1,
-                'search_default_available': 1,
-                'vifel_client_id': self.id,
-            })
+        """Pick BF IN or BF OUT, then open the client's transfers."""
+        return self._vifel_transfer_type_wizard(blast_freeze=True)
 
     def action_vifel_normal_stocks(self):
         """Normal Inventory Overview, scoped to this client."""
@@ -157,6 +156,7 @@ class ResPartnerClientButtons(models.Model):
             'stock.quant', self._vifel_quant_domain(),
             'tree,form,kanban,pivot,graph',
             {'show_pkr_report': True, 'vifel_client_id': self.id,
+             'search_default_productgroup': 1,
              'default_partner_ids': [(6, 0, [self.id])]})
 
     def action_vifel_bf_stocks(self):
@@ -166,15 +166,23 @@ class ResPartnerClientButtons(models.Model):
             'stock.quant', self._vifel_quant_domain(blast_freeze=True),
             'tree,form,kanban,pivot,graph',
             {'show_pkr_report': True, 'vifel_client_id': self.id,
+             'search_default_productgroup': 1,
              'default_partner_ids': [(6, 0, [self.id])]})
 
     def action_vifel_locations(self):
         """Storage locations this client currently occupies."""
-        return self._vifel_action(
+        action = self._vifel_action(
             'Occupied Locations — %s' % self.name,
             'stock.location', [('x_studio_occupied_by_1', 'in', self.id)],
             'tree,form,kanban',
             {'vifel_client_id': self.id})
+        # Pin the standard location search view so its filters, group-bys
+        # and the Favorites menu are available on this list.
+        search_view = self.env.ref('stock.view_location_search',
+                                   raise_if_not_found=False)
+        if search_view:
+            action['search_view_id'] = (search_view.id, search_view.name)
+        return action
 
 
 class IrActionsActWindowVifel(models.Model):
