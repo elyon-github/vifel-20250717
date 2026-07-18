@@ -20,7 +20,7 @@
                     </p>
                     <div class="o_vifel_picker_options">
                         <button name="action_open_incoming" type="object"
-                                class="o_vifel_picker_card">
+                                class="o_vifel_picker_card o_vifel_in">
                             <i class="fa fa-sign-in o_vifel_picker_icon" role="img"/>
                             <span class="o_vifel_picker_count">
                                 <field name="incoming_count" nolabel="1" readonly="1"/>
@@ -30,7 +30,7 @@
                             </span>
                         </button>
                         <button name="action_open_outgoing" type="object"
-                                class="o_vifel_picker_card">
+                                class="o_vifel_picker_card o_vifel_out">
                             <i class="fa fa-sign-out o_vifel_picker_icon" role="img"/>
                             <span class="o_vifel_picker_count">
                                 <field name="outgoing_count" nolabel="1" readonly="1"/>

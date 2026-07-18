@@ -23,14 +23,22 @@
                 <button name="action_vifel_normal_stocks" type="object"
                         class="oe_stat_button" icon="fa-cubes"
                         invisible="not is_vifel_client">
-                    <field name="vifel_normal_pallet_count" widget="statinfo"
-                           string="Normal Pallets"/>
+                    <div class="o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="vifel_normal_pallet_count"/> Pallets
+                        </span>
+                        <span class="o_stat_text">Normal Stock Inquiry</span>
+                    </div>
                 </button>
                 <button name="action_vifel_bf_stocks" type="object"
                         class="oe_stat_button" icon="fa-cube"
                         invisible="not is_vifel_client">
-                    <field name="vifel_bf_pallet_count" widget="statinfo"
-                           string="BF Pallets"/>
+                    <div class="o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="vifel_bf_pallet_count"/> Pallets
+                        </span>
+                        <span class="o_stat_text">BF Stock Inquiry</span>
+                    </div>
                 </button>
                 <button name="action_vifel_locations" type="object"
                         class="oe_stat_button" icon="fa-map-marker"

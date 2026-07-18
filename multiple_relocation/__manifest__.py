@@ -108,6 +108,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         # after data.xml: the quant-detail actions reference the
         # inventory_super_admin group defined there
         'views/stock_quant_views.xml',
+        'views/client_location_search_views.xml',
         'views/res_partner_client_buttons.xml',
         'views/quant_report_button_views.xml',
 

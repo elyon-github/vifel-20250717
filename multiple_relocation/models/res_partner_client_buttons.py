@@ -170,16 +170,22 @@ class ResPartnerClientButtons(models.Model):
              'default_partner_ids': [(6, 0, [self.id])]})
 
     def action_vifel_locations(self):
-        """Storage locations this client currently occupies."""
+        """Internal storage locations this client currently occupies."""
         action = self._vifel_action(
             'Occupied Locations — %s' % self.name,
-            'stock.location', [('x_studio_occupied_by_1', 'in', self.id)],
+            'stock.location',
+            [('x_studio_occupied_by_1', 'in', self.id),
+             ('usage', '=', 'internal')],
             'tree,form,kanban',
             {'vifel_client_id': self.id})
-        # Pin the standard location search view so its filters, group-bys
-        # and the Favorites menu are available on this list.
-        search_view = self.env.ref('stock.view_location_search',
-                                   raise_if_not_found=False)
+        # Pin the VIFEL location search view (standard filters + Building
+        # search/group-by) so filters, group-bys and Favorites are there.
+        search_view = self.env.ref(
+            'multiple_relocation.view_location_search_vifel_building',
+            raise_if_not_found=False)
+        if not search_view:
+            search_view = self.env.ref('stock.view_location_search',
+                                       raise_if_not_found=False)
         if search_view:
             action['search_view_id'] = (search_view.id, search_view.name)
         return action
