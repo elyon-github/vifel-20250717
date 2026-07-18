@@ -25,4 +25,29 @@
         </field>
     </record>
 
+    <!--
+        Transfers reached through a client's smart button belong to that
+        client by construction: the list is already filtered to them, so a
+        new record must not be able to drift to a different contact.
+
+        The lock is context-gated (vifel_lock_partner), so this is inert on
+        every other transfer form. force_save="1" is required — the web
+        client drops readonly fields from the payload otherwise.
+
+        Priority 200: Studio already rewrites this field's readonly at
+        priority 160, so anything lower is silently overwritten.
+    -->
+    <record id="view_picking_form_vifel_client_lock" model="ir.ui.view">
+        <field name="name">stock.picking.form.vifel.client.lock</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id'][@nolabel='1']" position="attributes">
+                <attribute name="readonly">state in ['cancel', 'done'] or context.get('vifel_lock_partner')</attribute>
+                <attribute name="force_save">1</attribute>
+            </xpath>
+        </field>
+    </record>
+
 </odoo>

@@ -9,9 +9,11 @@ buttons show the same data, scoped to the contact being viewed.
 """
 from ast import literal_eval
 
-from odoo import api, fields, models
+from odoo import api, fields, models, _
+from odoo.exceptions import ValidationError
 
 CLIENT_TAG = 'Client'
+CLIENT_CODE_FIELD = 'x_studio_client_unique_code_1'
 
 # Locations excluded by the Inventory Overview actions (Partners/Vendors,
 # Partners/Customers) — kept verbatim so the buttons match those screens.
@@ -52,6 +54,64 @@ class ResPartnerClientButtons(models.Model):
         string='Locations Occupied', compute='_compute_vifel_client_counts')
 
     # ------------------------------------------------------------------
+    # Client Unique Code — the PSI prefix, so it must identify ONE client
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _normalize_client_code(code):
+        return (code or '').strip()
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if CLIENT_CODE_FIELD in vals:
+                vals[CLIENT_CODE_FIELD] = self._normalize_client_code(
+                    vals[CLIENT_CODE_FIELD])
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if CLIENT_CODE_FIELD in vals:
+            vals[CLIENT_CODE_FIELD] = self._normalize_client_code(
+                vals[CLIENT_CODE_FIELD])
+        return super().write(vals)
+
+    @api.constrains(CLIENT_CODE_FIELD)
+    def _check_client_unique_code(self):
+        """No two contacts may share a Client Unique Code.
+
+        The code prefixes every Pallet Series ID of the client, so a
+        duplicate makes two clients mint the same series (AP-000001 for
+        both) — the identity the whole warehouse relies on.
+
+        Comparison ignores case and surrounding spaces, and archived
+        contacts count too: unarchiving one would revive the clash.
+        """
+        for partner in self:
+            code = self._normalize_client_code(partner[CLIENT_CODE_FIELD])
+            if not code:
+                continue
+            # ilike narrows to a superset in SQL (it also catches 'hex'
+            # and legacy ' HEX '); the exact call is made in Python below.
+            others = self.with_context(active_test=False).search([
+                ('id', '!=', partner.id),
+                (CLIENT_CODE_FIELD, 'ilike', code),
+            ])
+            clash = others.filtered(
+                lambda o: self._normalize_client_code(
+                    o[CLIENT_CODE_FIELD]).lower() == code.lower())
+            if clash:
+                raise ValidationError(_(
+                    "Client Unique Code \"%(code)s\" is already used by "
+                    "%(client)s%(more)s.\n\n"
+                    "The code prefixes this client's Pallet Series IDs, so it "
+                    "must belong to one client only — otherwise two clients "
+                    "would issue the same series."
+                ) % {
+                    'code': code,
+                    'client': clash[0].display_name,
+                    'more': (_(" and %s more") % (len(clash) - 1)
+                             if len(clash) > 1 else ''),
+                })
+
     @api.depends('category_id')
     def _compute_is_vifel_client(self):
         for partner in self:

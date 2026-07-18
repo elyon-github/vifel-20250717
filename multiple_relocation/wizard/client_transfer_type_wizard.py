@@ -60,6 +60,22 @@ class ClientTransferTypeWizard(models.TransientModel):
             'transactions of this client.</p>'
         ) % {'label': html_escape(label), 'client': html_escape(self.partner_id.name or '')}
 
+    def _picking_type(self, code):
+        """The operation type this list represents, when there is only one.
+
+        Today each (direction x blast-freeze) pair maps to exactly one
+        operation type, so a new transfer can be pre-filled with it. If a
+        second warehouse ever adds a rival type the pair stops being
+        unambiguous — leave the field empty then rather than guess wrong.
+        """
+        self.ensure_one()
+        types = self.env['stock.picking.type'].search([
+            ('code', '=', code),
+            ('is_blast_freeze_operation',
+             '=' if self.is_blast_freeze else '!=', True),
+        ])
+        return types if len(types) == 1 else self.env['stock.picking.type']
+
     def _open(self, code, label):
         self.ensure_one()
         # Client transfer list shows Documentation Staff instead of
@@ -87,6 +103,12 @@ class ClientTransferTypeWizard(models.TransientModel):
                 'search_default_waiting': 1,
                 'search_default_available': 1,
                 'vifel_client_id': self.partner_id.id,
+                # Creating from here means creating *for this client*: the
+                # contact is pre-filled and locked, and the operation type
+                # matches the list the encoder is standing in.
+                'default_partner_id': self.partner_id.id,
+                'default_picking_type_id': self._picking_type(code).id,
+                'vifel_lock_partner': 1,
             },
         }
 
