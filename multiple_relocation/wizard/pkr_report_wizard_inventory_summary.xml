@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Inventory Summary reads current stock.quant: only the client
+         filter applies, so hide the date range and the warehouse filter
+         (which the report does not honor) for that type. -->
+    <record id="view_pkr_report_wizard_form_inventory_summary" model="ir.ui.view">
+        <field name="name">pkr.report.wizard.form.inventory.summary</field>
+        <field name="model">pallet_kilos_record_model.report.wizard</field>
+        <field name="inherit_id" ref="pallet_kilos_record_model.view_pkr_report_wizard_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='warehouse_ids']" position="attributes">
+                <attribute name="invisible">report_type == 'inventory_summary'</attribute>
+            </xpath>
+            <xpath expr="//field[@name='date_from']/.." position="attributes">
+                <attribute name="invisible">report_type == 'inventory_summary'</attribute>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

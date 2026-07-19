@@ -101,6 +101,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         'wizard/stock_quant_correction.xml',
         'wizard/FastEncodeRR.xml',
         'wizard/client_transfer_type_wizard.xml',
+        'wizard/pkr_report_wizard_inventory_summary.xml',
         'reports/inventory_summary_view.xml',
         'reports/count_sheet_view.xml',
         'data/data.xml',
