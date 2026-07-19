@@ -75,7 +75,7 @@
                                 <span class="text-bg-danger">Archived</span>
                             </div>
                             <div class="oe_kanban_details d-flex flex-column">
-                                <strong class="o_kanban_record_title oe_partner_heading">
+                                <strong class="o_kanban_record_title oe_partner_heading fw-bold">
                                     <field name="display_name"/>
                                 </strong>
                                 <t t-if="record.is_vifel_client.raw_value">
