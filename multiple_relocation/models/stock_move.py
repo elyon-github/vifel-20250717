@@ -11,6 +11,8 @@ import re
 from odoo import _, api, fields, models, SUPERUSER_ID
 from odoo.osv.expression import AND, OR
 from odoo.tools.float_utils import float_compare, float_is_zero, float_round
+
+from .models import psi_sort_key
 from collections import defaultdict
 _logger = logging.getLogger(__name__)
 
@@ -890,7 +892,8 @@ class stock_move_line_Override(models.Model):
                 else:
                     # Pick the smallest original_pallet_series_id among selected lines as winner
                     sorted_lines = sorted(
-                        incoming_lines, key=lambda r: r.original_pallet_series_id or r.x_studio_pallet_series_id or '')
+                        incoming_lines, key=lambda r: psi_sort_key(
+                            r.original_pallet_series_id or r.x_studio_pallet_series_id))
                     winner = sorted_lines[0]
                     winning_series = winner.original_pallet_series_id or winner.x_studio_pallet_series_id
                     winning_location = winner.location_dest_id.id if winner.location_dest_id else False

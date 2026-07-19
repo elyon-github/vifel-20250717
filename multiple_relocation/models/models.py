@@ -14,6 +14,19 @@ from collections import defaultdict
 _logger = logging.getLogger(__name__)
 from ast import literal_eval
 
+
+def psi_sort_key(series):
+    """Sort Pallet Series IDs by (prefix, number), not as plain strings.
+
+    zfill(6) stops padding past 999999, and lexicographically
+    'X-1000000' < 'X-999999' — a plain string sort would crown the
+    numerically NEWER series the "smallest" at the rollover. Parsing the
+    trailing number keeps every smallest-wins pick correct at any width.
+    """
+    prefix, _sep, number = (series or '').rpartition('-')
+    return (prefix, int(number)) if number.isdigit() else (series or '', -1)
+
+
 class ResPartner(models.Model):
     _inherit = 'res.partner'
 

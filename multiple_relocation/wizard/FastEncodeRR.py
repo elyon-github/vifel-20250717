@@ -4,6 +4,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from ..models.models import psi_sort_key as _psi_sort_key
+
+
 class FastEncodeRRWizard(models.TransientModel):
     _name = 'stock.move.line.fast_encode_rr'
     _description = 'Stock Move Line Fast Encode RR'
@@ -132,7 +135,8 @@ class FastEncodeRRWizard(models.TransientModel):
         
         for pallet_id, lines in pallet_lines.items():
             # Sort by original_pallet_series_id — smallest wins
-            sorted_lines = sorted(lines, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+            sorted_lines = sorted(lines, key=lambda l: _psi_sort_key(
+                l.original_pallet_series_id or l.pallet_series_id))
             winner = sorted_lines[0]
             pallet_to_first_series[pallet_id] = winner.pallet_series_id
             pallet_to_first_location[pallet_id] = winner.location_dest_id.id if winner.location_dest_id else False
@@ -841,7 +845,8 @@ class FastEncodeRRWizardLine(models.TransientModel):
             logger.info('Cascade skip: siblings exist but none use series %s', old_series)
             return
         # Find new winner among remaining siblings (smallest OG PSI)
-        sorted_siblings = sorted(siblings, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+        sorted_siblings = sorted(siblings, key=lambda l: _psi_sort_key(
+            l.original_pallet_series_id or l.pallet_series_id))
         new_winner = sorted_siblings[0]
         new_series = new_winner.original_pallet_series_id or new_winner.pallet_series_id
         if new_series == old_series:
@@ -1043,7 +1048,8 @@ class FastEncodeRRWizardLine(models.TransientModel):
                             super(FastEncodeRRWizardLine, record).write(sync_vals)
                 else:
                     # No external match — pick the lowest original_pallet_series_id as winner
-                    sorted_lines = sorted(self, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+                    sorted_lines = sorted(self, key=lambda l: _psi_sort_key(
+                        l.original_pallet_series_id or l.pallet_series_id))
                     winner = sorted_lines[0]
                     
                     series, needs_new = winner._resolve_series_for_unique_line()

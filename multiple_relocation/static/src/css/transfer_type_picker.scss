@@ -56,34 +56,34 @@
         }
     }
 
-    // Receiving — stock coming IN
+    // Receiving — stock coming IN, green like a go signal
     .o_vifel_picker_card.o_vifel_in {
-        border-top-color: $o-enterprise-action-color;
+        border-top-color: $success;
 
         .o_vifel_picker_icon, .o_vifel_picker_count {
-            color: $o-enterprise-action-color;
+            color: $success;
         }
 
         &:hover, &:focus {
-            border-color: $o-enterprise-action-color;
-            background-color: rgba($o-enterprise-action-color, 0.06);
-            box-shadow: 0 4px 12px rgba($o-enterprise-action-color, 0.22);
+            border-color: $success;
+            background-color: rgba($success, 0.06);
+            box-shadow: 0 4px 12px rgba($success, 0.22);
             transform: translateY(-2px);
         }
     }
 
-    // Withdrawal — stock going OUT
+    // Withdrawal — stock going OUT, red
     .o_vifel_picker_card.o_vifel_out {
-        border-top-color: $o-enterprise-color;
+        border-top-color: $danger;
 
         .o_vifel_picker_icon, .o_vifel_picker_count {
-            color: $o-enterprise-color;
+            color: $danger;
         }
 
         &:hover, &:focus {
-            border-color: $o-enterprise-color;
-            background-color: rgba($o-enterprise-color, 0.06);
-            box-shadow: 0 4px 12px rgba($o-enterprise-color, 0.22);
+            border-color: $danger;
+            background-color: rgba($danger, 0.06);
+            box-shadow: 0 4px 12px rgba($danger, 0.22);
             transform: translateY(-2px);
         }
     }
