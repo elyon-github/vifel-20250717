@@ -246,8 +246,11 @@ flipping Multiple ON; merge button NOT group-gated (availability rules only)._
   PSI protected by the Phase-A stocked-guard; original restore machinery untouched).
   FastEncodeRR: flagged lines skip availability validation + winner grouping, confirm
   writes cargo fields only, PSI/pallet columns readonly via is_pallet_merge.
-- **C (Thu–Fri): PKR** — skip flagged lines in the three counting spots; confirm void/return
-  paths unchanged.
+- **C (Thu–Fri): PKR — ✅ DONE Jul 20, verified 7/7.** Live received loop skips flagged
+  lines via getattr (module doesn't depend on multiple_relocation); Re-sync counted_in and
+  residual rc_n get a field-guarded `('is_pallet_merge','!=',True)` clause; Re-sync step 1
+  reuses the patched live loop. KG/qty/packs sums untouched; verified -1/+1 pallet on
+  flag/unflag of a real RR pallet and a full-owner Re-sync (189 rows) with zero drift.
 - **D (Fri + Mon Jul 27): tests + docs** — shell driver `merge_test.py` (commit-only-if-all-
   pass): fixed/multiple merge e2e; seeding idempotent; pool-first draw; give_back routing
   (deleted line/un-merge → own type pool, never normal; stocked never recycled, all 3 paths);
