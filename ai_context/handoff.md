@@ -251,14 +251,16 @@ flipping Multiple ON; merge button NOT group-gated (availability rules only)._
   residual rc_n get a field-guarded `('is_pallet_merge','!=',True)` clause; Re-sync step 1
   reuses the patched live loop. KG/qty/packs sums untouched; verified -1/+1 pallet on
   flag/unflag of a real RR pallet and a full-owner Re-sync (189 rows) with zero drift.
-- **D (Fri + Mon Jul 27): tests + docs** — shell driver `merge_test.py` (commit-only-if-all-
-  pass): fixed/multiple merge e2e; seeding idempotent; pool-first draw; give_back routing
-  (deleted line/un-merge → own type pool, never normal; stocked never recycled, all 3 paths);
-  Include Regular widens; empty types fallback; cross-owner/BF/return blocked; un-merge
-  restore; Lot No. flow; void/unvoid merge RR; picklist contiguity; health checks
-  pallet_drift/kg_pack_drift/split_psi = 0; full 72-owner Re-sync sweep 0 regressions.
-  py_compile; local commits per phase (user authorship, NO push unless told; manifest
-  versions stay pinned — re-bump at deploy only).
+- **D (Fri + Mon Jul 27): tests + docs — ✅ DONE Jul 20, verified 8/8 (73 checks total
+  across the four suites: A 27, B 31, C 7, D 8).** Drivers preserved in
+  `ai_context/cr2_shell_tests/phase_{a,b,c,d}_test.py` — pipe each into
+  `odoo-bin shell -d vifel_07_06_2026` to re-verify for Internal Testing/UAT; all
+  rollback-only. D covered: Lot No. stamped onto a real quant; copy() drops flag+lot
+  (void mirrors safe); BF/return/outgoing never offer the button; candidates strictly
+  owner-scoped; picklist sorts an RR with a merged line; **full Re-sync sweep 72 owners /
+  9,992 rows, zero regressions**. Bonus evidence: leaving a done line flagged shifts its
+  owner exactly -1 received +1 residual adjustment — the merge semantics end-to-end.
+  py_compile clean over all four custom modules. Manifest versions untouched.
 
 ### 7.4 Deploy additions (on top of §6.4 checklist)
 - Upgrade multiple_relocation + pallet_kilos_record_model.

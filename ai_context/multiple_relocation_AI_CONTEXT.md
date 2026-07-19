@@ -337,6 +337,52 @@ All on branch client-trial (tip `d6591bf`); details + test coverage in `handoff.
   (anchored at first appearance).
 - **Return wizard**: `_find_existing_return` excludes void returns unless `voided` context;
   PSI-remainder-first landing for void/manual partial returns (`_find_psi_remainder_quant`).
-- **PLANNED (awaiting go — full spec in handoff.md §7)**: per-client pallet merge (Fixed /
-  Multiple PSI types with own numbering + pools), `client_lot_no`, `is_pallet_merge`,
-  pallet.merge.wizard, prefix-aware pool routing in `push_unused_pallet`.
+- ~~PLANNED (awaiting go — full spec in handoff.md §7)~~ → **BUILT, see next section.**
+
+## Update 2026-07-20 — Client-Specific Requirement Enhancement (branch CR2-test)
+
+Built per handoff.md §7 (phases A–D status there); dev DB `vifel_07_06_2026`.
+
+- **Client profile** (`models/res_partner_vifel_config.py`): "VIFEL Configuration" tab on
+  the partner form. Cascade all OFF by default: `vifel_can_merge_pallets` →
+  `vifel_multiple_pallet_support` (exclusive with `vifel_fixed_package_id` +
+  `vifel_fixed_psi`, both-or-neither constraint) → `vifel_include_regular_pallets`;
+  `vifel_show_lot_no` independent. Flipping Multiple ON seeds PSI types
+  MDGM/BOC/TDMG/SDMG for ANY client (idempotent, in create/write NOT onchange).
+- **`vifel.psi.type`** (`models/vifel_psi_type.py`): per-client special series —
+  prefix (upper-normalized, unique per partner, may not shadow the client code),
+  editable `next_number`, recycling **`number_pool`** (⚠ a field literally named `pool`
+  shadows `Model.pool` = the registry and breaks setup with a misleading KeyError).
+  `draw_number()` pool-smallest-first then counter++; `take_number()`; `give_back()`
+  refuses stocked series and never-issued numbers.
+- **Prefix-aware pool routing** (`models.py` `push_unused_pallet`/`get_pallet_series_by_id`):
+  special series round-trip through their type's pool; foreign prefixes are dropped (the
+  normal pool stores bare ints re-issued under the client code → duplicate series risk).
+  Global guard `res.partner._vifel_series_is_stocked`: a PSI on stocked internal quants is
+  NEVER recycled, from any path. `pallet_series_audit` super() chain untouched.
+- **Merge** (`models/stock_move_line_merge.py`, `wizard/pallet_merge_wizard.py`):
+  `is_pallet_merge` (copy=False) + per-line button in Pallet Breakdown (merge-enabled
+  client, incoming, non-BF, not return, not done; NO group gate). Fixed mode pre-selects
+  the pinned pallet only. Multiple mode candidates: stocked, internal, same warehouse,
+  non-BF, **owner-scoped** — "regular" = ANY stocked pallet of the client, NOT
+  prefix==code (legacy prefixes like BGZ-… under code BG must be mergeable); widened by
+  Include Regular or empty types. Confirm adopts the target's single PSI (multi-PSI
+  refused; empty target only the pinned fixed pallet via profile PSI), moves to the
+  target quant location, recycles the previously drawn PSI if unused in the RR, frees old
+  reservations, does NOT stamp reservations on the stocked target, chatters on the RR.
+  Create-new-special: type draw + empty pallet + location = plain counted line WITH
+  reservations. **Un-merge** = pallet changed away outside the wizard (context
+  `vifel_pallet_merge` marks wizard writes): flag cleared inside the stock_move.py write
+  intercept, adopted PSI protected by the stocked-guard, original restore machinery runs.
+  FastEncodeRR: flagged lines skip availability validation + winner grouping, write back
+  cargo fields only, PSI/pallet cells readonly.
+- **Client Lot No.** (`models/client_lot_no.py`): `client_lot_no` on move line + quant
+  (copy=False), picking compute `show_client_lot_no` gates the columns (Pallet Breakdown
+  via `action_detailed_operations` context key; FastEncodeRR via its action context),
+  stamped line→quant post-`button_validate` (product/location/lot/package/owner,
+  last-write-wins).
+- **PKR counting** (`pallet_kilos_record_model/models/models.py`): merged lines count
+  +0 pallets (live loop getattr-skip; Re-sync counted_in + residual rc_n get a
+  field-guarded `('is_pallet_merge','!=',True)` clause) while KG/qty/packs still count.
+- **Deploy** (per §7.4): upgrade both modules; set Wonder Meats (Fixed: R 5666 /
+  WMF-00230) and Consistent (Multiple ON) profiles; Show Lot No. per client.
