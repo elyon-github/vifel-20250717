@@ -52,6 +52,10 @@ class ResPartnerClientButtons(models.Model):
         string='Blast Freeze Pallets', compute='_compute_vifel_client_counts')
     vifel_location_count = fields.Integer(
         string='Locations Occupied', compute='_compute_vifel_client_counts')
+    vifel_latest_psi = fields.Char(
+        string='Latest Pallet Series', compute='_compute_vifel_latest_psi',
+        help='Most recently issued Pallet Series ID — the client code plus '
+             'the last number the series counter handed out.')
 
     # ------------------------------------------------------------------
     # Client Unique Code — the PSI prefix, so it must identify ONE client
@@ -116,6 +120,22 @@ class ResPartnerClientButtons(models.Model):
     def _compute_is_vifel_client(self):
         for partner in self:
             partner.is_vifel_client = CLIENT_TAG in partner.category_id.mapped('name')
+
+    def _compute_vifel_latest_psi(self):
+        """Prefix + last issued number, e.g. BGZ-000041.
+
+        The Studio counter stores the NEXT number to hand out
+        (generate_new_pallet_series_id uses it, then increments), so the
+        most recently issued series is counter - 1. getattr keeps a bare
+        DB without the Studio fields from crashing.
+        """
+        for partner in self:
+            code = self._normalize_client_code(
+                getattr(partner, CLIENT_CODE_FIELD, ''))
+            counter = int(getattr(partner, 'x_studio_pallet_series_id', 0) or 0)
+            partner.vifel_latest_psi = (
+                '%s-%s' % (code, str(counter - 1).zfill(6))
+                if code and counter > 0 else False)
 
     def _vifel_quant_domain(self, blast_freeze=False):
         """Inventory Overview domain scoped to this client."""

@@ -48,6 +48,19 @@
                 </button>
                 <field name="is_vifel_client" invisible="1"/>
             </div>
+            <!-- Clients are warehouse customers, not people with a job
+                 title — hide the person-ish fields for them. The attribute
+                 match pins the MAIN form's nodes (the child-contact
+                 sub-form uses a different invisible), so contact persons
+                 under a client keep their Job Position. -->
+            <xpath expr="//field[@name='function'][@invisible='is_company']"
+                   position="attributes">
+                <attribute name="invisible">is_company or is_vifel_client</attribute>
+            </xpath>
+            <xpath expr="//field[@name='title'][@invisible='is_company']"
+                   position="attributes">
+                <attribute name="invisible">is_company or is_vifel_client</attribute>
+            </xpath>
         </field>
     </record>
 
