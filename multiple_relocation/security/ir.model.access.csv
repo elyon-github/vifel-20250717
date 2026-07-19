@@ -13,3 +13,4 @@ access_stock_quant_reject_wizard,stock.quant.reject.wizard,model_stock_quant_rej
 access_stock_quant_adjustment_request_user,stock.quant.adjustment.request user,model_stock_quant_adjustment_request,stock.group_stock_user,1,1,1,0
 access_stock_quant_adjustment_line_user,stock.quant.adjustment.line user,model_stock_quant_adjustment_line,stock.group_stock_user,1,1,1,0
 access_stock_quant_adjustment_line_manager,stock.quant.adjustment.line manager,model_stock_quant_adjustment_line,stock.group_stock_manager,1,1,1,1
+access_vifel_psi_type,vifel.psi.type,model_vifel_psi_type,stock.group_stock_user,1,1,1,1

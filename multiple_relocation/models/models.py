@@ -20,12 +20,47 @@ class ResPartner(models.Model):
     # JSON field to store pallet series IDs
     unused_pallet_series_ids = fields.Json("Unused Pallet Series IDs", default=[])
 
+    @api.model
+    def _vifel_series_is_stocked(self, pallet_series_id):
+        """The series is still on stock physically on the floor.
+
+        Such a series must never be recycled: re-issuing it would mint a
+        duplicate of live stock. Internal locations only — quants at
+        customer locations are history, not stock.
+        """
+        if not pallet_series_id:
+            return False
+        return bool(self.env['stock.quant'].search_count([
+            ('x_studio_pallet_series_id', '=', pallet_series_id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ]))
+
     def push_unused_pallet(self, pallet_series_id):
         # Extract the integer part after the hyphen
         try:
             series_number = int(pallet_series_id.split('-')[-1])
         except (ValueError, IndexError):
             # raise UserError("Invalid pallet series ID format. Expected format: 'JBL-<integer>'")
+            return
+
+        # Never recycle a series that is still on stocked quants (e.g. the
+        # adopted PSI of a merge target).
+        if self._vifel_series_is_stocked(pallet_series_id):
+            return
+
+        # Special PSI types own their prefix: their numbers go back to the
+        # type's own pool. The normal pool below stores bare integers and
+        # re-issues them under the CLIENT's code, so a special number in it
+        # would come back out as a duplicate normal series.
+        ptype = self.env['vifel.psi.type']._type_for_series(self, pallet_series_id)
+        if ptype:
+            ptype.give_back(pallet_series_id)
+            return
+        prefix = pallet_series_id.rpartition('-')[0]
+        code = (self.x_studio_client_unique_code_1 or '').strip()
+        if code and prefix and prefix != code:
+            # foreign prefix without a type — drop rather than pollute
             return
 
         # Get the current list of IDs or initialize it as an empty list if None
@@ -86,6 +121,12 @@ class ResPartner(models.Model):
         Returns:
             list: Single-item list with the pallet series ID
         """
+        # A special-type series is served by its own type: pool first,
+        # then that type's counter — never the client's normal pool.
+        ptype = self.env['vifel.psi.type']._type_for_series(self, pallet_series_id)
+        if ptype:
+            return [ptype.take_number(pallet_series_id)]
+
         # Extract the integer part after the hyphen
         try:
             series_number = int(pallet_series_id.split('-')[-1])

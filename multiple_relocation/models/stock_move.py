@@ -1459,6 +1459,7 @@ class stock_move_line_Override(models.Model):
                 'result_package_id': line.result_package_id.id,
                 'location_dest_id': line.location_dest_id.id,
                 'container_number': line.x_studio_container_number or '',
+                'client_lot_no': line.client_lot_no or '',
                 'production_date': line.x_studio_production_date,
                 'expiration_date': line.x_studio_expiration_date,
                 'quantity_uom': line.x_studio_quantity_uom.id if line.x_studio_quantity_uom else False,
@@ -1502,7 +1503,9 @@ class stock_move_line_Override(models.Model):
             'context': {
                 'default_wizard_id': wizard.id,
                 'default_transfer_id': picking_id,
-                'is_blast_freeze': is_blast_freeze
+                'is_blast_freeze': is_blast_freeze,
+                'show_client_lot_no': bool(
+                    self and self[0].picking_id.show_client_lot_no),
             }
         }
 

@@ -3084,6 +3084,7 @@ class transfer_locations(models.Model):
                 'x_studio_record_lines_counter': self.x_studio_record_lines_counter,
                 'state': self.state,
                 'is_blast_freeze': self.x_studio_is_a_blast_freezer,
+                'show_client_lot_no': self.show_client_lot_no,
                 # 'parent_location': self.location_dest_id,
             },
             'target': 'current'

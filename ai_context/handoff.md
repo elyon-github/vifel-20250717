@@ -222,10 +222,19 @@ go-live Wed Jul 29 (committed latest Fri Jul 31). Estimate: avg 8.60 mandays.
 - PSI→quant stamping is a DB automation — adopted PSI flows automatically. NO new SA/AR.
 
 ### 7.3 Build phases
-- **A (Mon–Tue): profile + types + Lot No.** — partner fields/constraint; `models/vifel_psi_type.py`
-  (draw_number/take_number/give_back with stocked-guard); seeding hook; prefix-aware routing
-  in push_unused_pallet/get_pallet_series_by_id; Lot No. fields + stamping + columns;
-  VIFEL Configuration tab; ACLs.
+_Build started Mon Jul 20 on branch **CR2-test** (from client-trial @ be0c9a9), dev DB
+**vifel_07_06_2026**. Decisions added at kickoff: seed all 4 prefixes for ANY client
+flipping Multiple ON; merge button NOT group-gated (availability rules only)._
+- **A (Mon–Tue): profile + types + Lot No. — ✅ DONE Jul 20, verified 27/27.**
+  `models/res_partner_vifel_config.py` (cascade fields + fixed-pair constraint + seeding in
+  create/write), `models/vifel_psi_type.py` (field is `number_pool` NOT `pool` — `pool`
+  shadows the registry property and breaks setup; draw/take/give_back with stocked-guard +
+  never-issued guard; prefix normalized upper; prefix≠client-code constraint),
+  `models/client_lot_no.py` (line+quant Char, picking compute, stamping post-validate),
+  prefix-aware routing + global stocked-guard (`_vifel_series_is_stocked`, internal-only)
+  in push_unused_pallet/get_pallet_series_by_id, Pallet Breakdown ctx key in
+  `action_detailed_operations`, VIFEL Configuration tab, gated/optional Lot No. columns
+  (Pallet Breakdown + FastEncodeRR + both quant trees), ACL.
 - **B (Wed–Thu, risk center): merge core** — is_pallet_merge field+column; PalletMergeWizard
   (+view+button+availability compute); confirm logic; create-new-special path; guard
   exemptions; FastEncodeRR locks flagged lines; un-merge handling.
