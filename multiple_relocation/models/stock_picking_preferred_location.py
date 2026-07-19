@@ -69,6 +69,17 @@ class StockLocation(models.Model):
                 return by_preset[loc_id]
         return self.env[BUILDING_MODEL]
 
+    def _vifel_inside(self, locations):
+        """True when this location is one of `locations`, or below one.
+
+        Preferring M/A allows M/A/1/Aisle 1.
+        """
+        self.ensure_one()
+        if not locations:
+            return True
+        ancestors = {int(x) for x in (self.parent_path or '').strip('/').split('/') if x}
+        return bool(set(locations.ids) & (ancestors | {self.id}))
+
     def _vifel_buildings(self):
         """Buildings covering this set of locations."""
         by_preset = self._vifel_buildings_by_preset()
@@ -103,16 +114,11 @@ class StockPicking(models.Model):
         return bool(self._vifel_preferred_locations())
 
     def _vifel_location_allowed(self, location):
-        """A location is allowed when it sits inside a preferred one.
-
-        Descendants count: preferring M/A allows M/A/1/Aisle 1.
-        """
+        """A location is allowed when it sits inside a preferred one."""
         self.ensure_one()
         if not location:
             return True
-        prefs = self._vifel_preferred_locations()
-        ancestors = {int(x) for x in (location.parent_path or '').strip('/').split('/') if x}
-        return bool(prefs and (set(prefs.ids) & (ancestors | {location.id})))
+        return location._vifel_inside(self._vifel_preferred_locations())
 
     def _vifel_default_placement(self):
         """(building, destination) this client's preference dictates.
@@ -247,26 +253,54 @@ class StockPicking(models.Model):
 class StockMoveLine(models.Model):
     _inherit = 'stock.move.line'
 
-    @api.constrains('location_dest_id', 'picking_id')
+    def _vifel_placement_client(self):
+        """Whose goods this line is placing, and where they may go.
+
+        Two ways stock reaches a shelf, and the client is named differently
+        in each:
+
+          * a receipt line, where the client is the picking's partner
+          * a relocation, which moves quants through an inventory move with
+            no picking at all (56k lines in this database) — there the
+            client is the line's owner
+
+        Returns an empty partner when the placement is not governed.
+        """
+        self.ensure_one()
+        dest = self.location_dest_id
+        empty = self.env['res.partner']
+        if not dest or dest.usage != 'internal':
+            return empty
+        picking = self.picking_id
+        if picking:
+            return picking.partner_id if picking._vifel_placement_restricted() else empty
+        # A destination outside the building structure — the blast freeze
+        # chambers — is not something a building preference speaks about.
+        if not dest._vifel_building():
+            return empty
+        return self.owner_id if self.owner_id[PREFERRED_FIELD] else empty
+
+    @api.constrains('location_dest_id', 'picking_id', 'owner_id')
     def _check_vifel_preferred_placement(self):
         """The line is where the pallet physically lands.
 
-        The form already limits "Store To" to the header destination, but
-        that is a client-side domain — this catches every other writer.
+        The receipt form already limits "Store To" to the header
+        destination, but that is a client-side domain — this catches every
+        other writer, including relocations, which never touch a picking.
         """
         for line in self:
-            picking = line.picking_id
-            if not picking or not picking._vifel_placement_restricted():
+            client = line._vifel_placement_client()
+            if not client:
                 continue
-            if picking._vifel_location_allowed(line.location_dest_id):
+            prefs = client[PREFERRED_FIELD]
+            if line.location_dest_id._vifel_inside(prefs):
                 continue
             raise ValidationError(_(
-                "%(client)s may only be stored in %(prefs)s. Pallet line "
-                "\"%(product)s\" is being stored in %(dest)s."
+                "%(client)s may only be stored in %(prefs)s. \"%(product)s\" "
+                "is being placed in %(dest)s."
             ) % {
-                'client': picking.partner_id.display_name,
-                'prefs': ', '.join(
-                    picking._vifel_preferred_locations().mapped('complete_name')),
+                'client': client.display_name,
+                'prefs': ', '.join(prefs.mapped('complete_name')),
                 'product': line.product_id.display_name,
                 'dest': line.location_dest_id.complete_name,
             })
