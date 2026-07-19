@@ -235,9 +235,17 @@ flipping Multiple ON; merge button NOT group-gated (availability rules only)._
   in push_unused_pallet/get_pallet_series_by_id, Pallet Breakdown ctx key in
   `action_detailed_operations`, VIFEL Configuration tab, gated/optional Lot No. columns
   (Pallet Breakdown + FastEncodeRR + both quant trees), ACL.
-- **B (Wed–Thu, risk center): merge core** — is_pallet_merge field+column; PalletMergeWizard
-  (+view+button+availability compute); confirm logic; create-new-special path; guard
-  exemptions; FastEncodeRR locks flagged lines; un-merge handling.
+- **B (Wed–Thu, risk center): merge core — ✅ DONE Jul 20 (ahead of schedule), verified 31/31.**
+  `models/stock_move_line_merge.py` (flag + button compute + opener),
+  `wizard/pallet_merge_wizard.py` + `.xml` (fixed pre-select; Multiple candidates
+  owner-scoped so "regular" is ANY stocked pallet of the client — NOT prefix==code,
+  legacy-prefix stock like BGZ-... under code BG is mergeable; single-PSI required;
+  empty target only for the pinned fixed pallet; no reservation stamped on target;
+  create-new-special = plain counted line WITH reservations). Un-merge inside the
+  stock_move.py write intercept (flag cleared unless ctx vifel_pallet_merge; adopted
+  PSI protected by the Phase-A stocked-guard; original restore machinery untouched).
+  FastEncodeRR: flagged lines skip availability validation + winner grouping, confirm
+  writes cargo fields only, PSI/pallet columns readonly via is_pallet_merge.
 - **C (Thu–Fri): PKR** — skip flagged lines in the three counting spots; confirm void/return
   paths unchanged.
 - **D (Fri + Mon Jul 27): tests + docs** — shell driver `merge_test.py` (commit-only-if-all-

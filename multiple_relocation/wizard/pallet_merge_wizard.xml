@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_pallet_merge_wizard_form" model="ir.ui.view">
+        <field name="name">pallet.merge.wizard.form</field>
+        <field name="model">pallet.merge.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Merge Pallet">
+                <field name="move_line_id" invisible="1"/>
+                <field name="picking_id" invisible="1"/>
+                <field name="partner_id" invisible="1"/>
+                <field name="is_multiple_mode" invisible="1"/>
+                <field name="allowed_package_ids" invisible="1"/>
+                <field name="target_psi_count" invisible="1"/>
+
+                <div class="alert alert-info" role="alert">
+                    The line joins an already stocked pallet: it adopts that
+                    pallet's <b>PSI</b> and <b>location</b>, and is
+                    <b>not counted</b> as a received pallet. Whether the
+                    target still has room is your call — check its load below.
+                </div>
+
+                <group>
+                    <group string="Merge Onto">
+                        <field name="line_psi"/>
+                        <field name="target_package_id"
+                               options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                    <group string="Target Pallet Load">
+                        <field name="target_psi"/>
+                        <field name="target_location_id" options="{'no_open': True}"/>
+                        <field name="target_kg"/>
+                        <field name="target_qty"/>
+                    </group>
+                </group>
+
+                <group string="… or start a NEW special pallet (counted as +1)"
+                       invisible="not is_multiple_mode">
+                    <group>
+                        <field name="psi_type_id" options="{'no_create': True, 'no_open': True}"/>
+                        <field name="new_package_id" options="{'no_create': True, 'no_open': True}"/>
+                        <field name="new_location_id" options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                </group>
+
+                <footer>
+                    <button name="action_confirm" string="Merge" type="object"
+                            class="btn-primary" icon="fa-compress"/>
+                    <button name="action_create_special" type="object"
+                            string="Create New Special Pallet"
+                            invisible="not is_multiple_mode"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

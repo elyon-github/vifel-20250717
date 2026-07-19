@@ -253,6 +253,11 @@
             <!-- Client Lot No. — only for clients whose profile shows it
                  (flag rides in via action_detailed_operations context) -->
             <field name="client_lot_no" string="Lot No." optional="show" column_invisible="not context.get('show_client_lot_no')" readonly="state == 'done'"/>
+            <!-- Pallet merge: per-line entry to the merge wizard, and the
+                 flag showing a line that was merged (counted +0) -->
+            <field name="vifel_show_merge_button" column_invisible="1"/>
+            <field name="is_pallet_merge" string="Merged" optional="show" readonly="1" column_invisible="picking_code == 'outgoing'"/>
+            <button name="action_open_pallet_merge_wizard" type="object" icon="fa-compress" title="Merge onto a stocked pallet" invisible="not vifel_show_merge_button"/>
 
             <!--<field optional="show" name="x_studio_is_reserved" invisible="picking_type_id in [45, 46, 47, 48, 2, 7]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48, 2, 7]" readonly="state == 'done'"/>  -->
         </xpath>
