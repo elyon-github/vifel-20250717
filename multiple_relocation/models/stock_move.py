@@ -742,6 +742,15 @@ class stock_move_line_Override(models.Model):
                 'series': record.x_studio_pallet_series_id or '',
             }
 
+        # UN-MERGE: a merged line whose pallet is changed away outside the
+        # merge wizard becomes a plain line again. Its adopted PSI belongs
+        # to the stocked target and is NOT recycled — push_unused_pallet's
+        # stocked-guard refuses it — while the restore machinery below
+        # brings back the line's original series as usual.
+        unmerged = incoming_lines.filtered('is_pallet_merge') \
+            if not self.env.context.get('vifel_pallet_merge') \
+            else self.browse()
+
         new_pallet_id = vals.get('result_package_id')
         picking_id = incoming_lines[0].picking_id.id
         owner = incoming_lines[0].owner_id
@@ -939,6 +948,10 @@ class stock_move_line_Override(models.Model):
                     'x_studio_is_reserved': True,
                     'x_studio_receiving_report_id': picking_id,
                 })
+
+        if unmerged:
+            super(stock_move_line_Override, unmerged).write(
+                {'is_pallet_merge': False})
 
         return res
 
@@ -1459,6 +1472,8 @@ class stock_move_line_Override(models.Model):
                 'result_package_id': line.result_package_id.id,
                 'location_dest_id': line.location_dest_id.id,
                 'container_number': line.x_studio_container_number or '',
+                'client_lot_no': line.client_lot_no or '',
+                'is_pallet_merge': line.is_pallet_merge,
                 'production_date': line.x_studio_production_date,
                 'expiration_date': line.x_studio_expiration_date,
                 'quantity_uom': line.x_studio_quantity_uom.id if line.x_studio_quantity_uom else False,
@@ -1502,7 +1517,13 @@ class stock_move_line_Override(models.Model):
             'context': {
                 'default_wizard_id': wizard.id,
                 'default_transfer_id': picking_id,
-                'is_blast_freeze': is_blast_freeze
+                'is_blast_freeze': is_blast_freeze,
+                # getattr: show_client_lot_no is computed by
+                # vifel_client_requirements. Without that module the key stays
+                # False and the Lot No. column simply never renders.
+                'show_client_lot_no': bool(
+                    self and getattr(self[0].picking_id,
+                                     'show_client_lot_no', False)),
             }
         }
 

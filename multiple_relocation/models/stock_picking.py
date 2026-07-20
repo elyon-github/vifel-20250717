@@ -3107,6 +3107,11 @@ class transfer_locations(models.Model):
                 'x_studio_record_lines_counter': self.x_studio_record_lines_counter,
                 'state': self.state,
                 'is_blast_freeze': self.x_studio_is_a_blast_freezer,
+                # getattr: computed by vifel_client_requirements. Without that
+                # module the key stays False and the Lot No. column, which is
+                # gated on it, simply never renders.
+                'show_client_lot_no': getattr(
+                    self, 'show_client_lot_no', False),
                 # 'parent_location': self.location_dest_id,
             },
             'target': 'current'

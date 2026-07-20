@@ -28,13 +28,14 @@
                 <field name="pending_resync_new_series" column_invisible="1"/>
                 <field name="pending_resync_type" column_invisible="1"/>
                 <field name="wizard_id" column_invisible="1"/>
+                <field name="is_pallet_merge" column_invisible="1"/>
                 <field name="is_pallet_series_winner" readonly="1"/>
                 <field name="x_studio_" string="#" readonly="1"/>
                 <field name="product_id"/>
                 <field name="original_pallet_series_id" readonly="1" groups="base.group_erp_manager"/>
                 <field name="needs_new_pallet_series" readonly="1" groups="base.group_erp_manager"/>
                 <field name="original_location_dest_id" readonly="1" groups="base.group_erp_manager"/>
-                <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')" force_save="1" decoration-success="needs_new_pallet_series"/>
+                <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')" force_save="1" decoration-success="needs_new_pallet_series" readonly="is_pallet_merge" decoration-info="is_pallet_merge"/>
                 <field name="warehouse_id" column_invisible="1" invisible="1"/>
                 <field name="result_package_id" string="RR Pallet #" groups="stock.group_tracking_lot"
                     domain="[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'),
@@ -42,10 +43,11 @@
                              ('x_studio_warehouse', '=', warehouse_id),
                              '|', ('x_studio_receiving_report_id', '=', False),
                              ('x_studio_receiving_report_id', '=', transfer_id)]"
-                    options="{'no_create': True}" column_invisible="context.get('is_blast_freeze')" force_save="1"  decoration-danger="has_duplicate_pallet"/>
+                    options="{'no_create': True}" column_invisible="context.get('is_blast_freeze')" force_save="1"  decoration-danger="has_duplicate_pallet" readonly="is_pallet_merge"/>
                 <field name="bf_pallet_char" string="BFRR Pallet #" column_invisible="not context.get('is_blast_freeze')"/>
                 <field name="location_dest_id" string="Location" column_invisible="context.get('is_blast_freeze')" readonly="1" force_save="1"/>
                 <field name="container_number" string="Container #"/>
+                <field name="client_lot_no" string="Lot No." column_invisible="not context.get('show_client_lot_no')"/>
                 <field name="production_date" string="Prod. Date"/>
                 <field name="expiration_date" string="Exp. Date"/>
                 <field name="quantity"/>

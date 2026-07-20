@@ -30,6 +30,9 @@ class FastEncodeRRWizard(models.TransientModel):
         errors = []
         seen = set()
         for line in self.line_ids:
+            # Merged lines point at an occupied, stocked pallet ON PURPOSE
+            if line.is_pallet_merge:
+                continue
             pkg = line.result_package_id
             if not pkg or pkg.id in seen:
                 continue
@@ -125,6 +128,10 @@ class FastEncodeRRWizard(models.TransientModel):
             if line.result_package_id:
                 pallet_id = line.result_package_id.id
                 current_pallets.add(pallet_id)
+                if line.is_pallet_merge:
+                    # merged lines keep their adopted series — they never
+                    # compete in the winner grouping
+                    continue
                 pallet_lines.setdefault(pallet_id, []).append(line)
             
             if line.location_dest_id:
@@ -259,6 +266,24 @@ class FastEncodeRRWizard(models.TransientModel):
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
                 
+                if line.is_pallet_merge:
+                    # Merged lines are locked to their adopted pallet / PSI /
+                    # location — only cargo details may change here, and the
+                    # stocked target must never be stamped as reserved.
+                    move_line.with_context(skip_pallet_series_sync=True).write({
+                        'bf_pallet_char': line.bf_pallet_char,
+                        'x_studio_2nd_uom': line.quantity,
+                        'x_studio_total_units': line.min_uom_unit,
+                        'quantity': line.kilogram,
+                        'x_studio_container_number': line.container_number or '',
+                        'client_lot_no': line.client_lot_no or False,
+                        'x_studio_production_date': line.production_date,
+                        'x_studio_expiration_date': line.expiration_date,
+                        'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
+                        'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
+                    })
+                    continue
+
                 # Determine which pallet_series_id and location_dest_id to use
                 pallet_series_to_use = line.pallet_series_id
                 location_dest_to_use = line.location_dest_id.id if line.location_dest_id else False
@@ -277,6 +302,7 @@ class FastEncodeRRWizard(models.TransientModel):
                     'quantity': line.kilogram,
                     'x_studio_pallet_series_id': pallet_series_to_use,
                     'x_studio_container_number': line.container_number or '',
+                    'client_lot_no': line.client_lot_no or False,
                     'x_studio_production_date': line.production_date,
                     'x_studio_expiration_date': line.expiration_date,
                     'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
@@ -401,6 +427,8 @@ class FastEncodeRRWizardLine(models.TransientModel):
         'stock.location', string='Destination Location',
         domain=[('usage', '=', 'internal'), ('child_ids', '=', False)])
     container_number = fields.Char(string='Container #')
+    client_lot_no = fields.Char(string='Lot No.')
+    is_pallet_merge = fields.Boolean(string='Merged Pallet', readonly=True)
     production_date = fields.Date(string='Production Date')
     expiration_date = fields.Date(string='Expiration Date')
     quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM')

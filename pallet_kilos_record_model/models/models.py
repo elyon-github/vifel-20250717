@@ -224,7 +224,14 @@ class PalletKilosRecordModel(models.Model):
                             pallets.add(move_line.bf_pallet_char)
                             building_operations[building_name]['pallets'].add(move_line.bf_pallet_char)
                     else:
-                        if move_line.result_package_id and move_line.result_package_id.id not in pallets:
+                        # Merged lines (Client-Specific Requirement Enh.) join
+                        # a pallet already stocked on the floor: their KG /
+                        # quantity / packs count above, the pallet does not.
+                        # getattr: the flag lives in multiple_relocation,
+                        # which this module does not depend on.
+                        if getattr(move_line, 'is_pallet_merge', False):
+                            pass
+                        elif move_line.result_package_id and move_line.result_package_id.id not in pallets:
                             pallet_count += 1
                             pallets.add(move_line.result_package_id.id)
                             building_operations[building_name]['pallets'].add(move_line.result_package_id.id)
@@ -1173,12 +1180,19 @@ class PalletKilosRecordModel(models.Model):
             counted_in = {}
             counted_out = {}
             psi_by_pkg = {}
+            # Merged lines never originate a pallet — exclude them wherever
+            # received-counts are rebuilt. The field is owned by
+            # multiple_relocation, which this module does not depend on, so
+            # guard for a bare install.
+            merge_free = [('is_pallet_merge', '!=', True)] \
+                if 'is_pallet_merge' in MoveLine._fields else []
             if dead_pkgs:
                 for line in MoveLine.search([
                         ('state', '=', 'done'),
                         ('result_package_id', 'in', list(dead_pkgs)),
                         ('owner_id', '=', owner.id),
-                        ('picking_id.picking_type_id.code', '=', 'incoming')],
+                        ('picking_id.picking_type_id.code', '=', 'incoming')]
+                        + merge_free,
                         order='date asc'):
                     rr_by_pkg.setdefault(line.result_package_id.id,
                                          line.picking_id)
@@ -1611,6 +1625,10 @@ class PalletKilosRecordModel(models.Model):
                              ('result_package_id', '!=', False),
                              ('adjustment_batch_number', '=', False)],
                             ['result_package_id'], ['result_package_id'])}
+                    # same merge exclusion as counted_in: a merged line does
+                    # not make its RR count the pallet as received
+                    merge_free_rc = [('is_pallet_merge', '!=', True)] \
+                        if 'is_pallet_merge' in MoveLine._fields else []
                     rc_n = {}
                     for pkg_p, pick_p in {
                             (x['result_package_id'][0], x['picking_id'][0])
@@ -1619,7 +1637,7 @@ class PalletKilosRecordModel(models.Model):
                                  ('owner_id', '=', owner.id),
                                  ('result_package_id', '!=', False),
                                  ('picking_id.picking_type_id.code', '=',
-                                  'incoming')],
+                                  'incoming')] + merge_free_rc,
                                 ['picking_id', 'result_package_id'])}:
                         rc_n[pkg_p] = rc_n.get(pkg_p, 0) + 1
                     wc_n = {}

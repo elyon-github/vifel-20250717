@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- VIFEL Configuration tab on the Contact form.
+
+         Config is Elyon/Vifel-side: encoders never open this, they only ever
+         see the resulting Merge Pallet button on their transfer lines. -->
+    <record id="view_partner_form_vifel_config" model="ir.ui.view">
+        <field name="name">res.partner.form.vifel.config</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//notebook" position="inside">
+                <!-- Shown for contacts tagged Client (category 1), OR for any
+                     contact that already carries VIFEL settings. The second
+                     clause is the escape hatch: hard-coding the tag id means a
+                     contact tagged differently would otherwise be permanently
+                     unconfigurable, with the tab silently absent and no clue
+                     why. Anything already configured stays reachable. -->
+                <page string="VIFEL Configuration" name="vifel_configuration"
+                      invisible="not set(category_id).intersection([1])
+                                 and not vifel_can_merge_pallets
+                                 and not vifel_show_lot_no">
+                    <group>
+                        <group string="Pallet Merging">
+                            <field name="vifel_can_merge_pallets"/>
+                            <field name="vifel_multiple_pallet_support"
+                                   invisible="not vifel_can_merge_pallets"/>
+                            <field name="vifel_include_regular_pallets"
+                                   invisible="not vifel_can_merge_pallets
+                                              or not vifel_multiple_pallet_support"/>
+                            <field name="vifel_fixed_package_id"
+                                   invisible="not vifel_can_merge_pallets
+                                              or vifel_multiple_pallet_support"
+                                   options="{'no_create': True}"/>
+                            <field name="vifel_fixed_psi"
+                                   invisible="not vifel_can_merge_pallets
+                                              or vifel_multiple_pallet_support"/>
+                        </group>
+                        <group string="Documents">
+                            <field name="vifel_show_lot_no"/>
+                        </group>
+                    </group>
+
+                    <group string="PSI Types"
+                           invisible="not vifel_can_merge_pallets
+                                      or not vifel_multiple_pallet_support">
+                        <div class="text-muted" colspan="2">
+                            Each type is an independent series with its own
+                            prefix and numbering — SDMG issues
+                            <b>SDMG-000001</b>, <b>SDMG-000002</b>, and so on.
+                            <b>Next Number</b> is what the counter issues when
+                            no freed number is waiting to be reused; change it
+                            only to continue an existing paper series.
+                        </div>
+                        <field name="vifel_psi_type_ids" nolabel="1" colspan="2">
+                            <tree editable="bottom">
+                                <field name="name"/>
+                                <field name="prefix"/>
+                                <field name="next_number"/>
+                            </tree>
+                        </field>
+                    </group>
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>
