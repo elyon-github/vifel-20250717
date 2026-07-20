@@ -2156,34 +2156,49 @@ class transfer_locations(models.Model):
                 page_packs_by_uom[uom] += packs
  
         return page_packs_by_uom
+    @staticmethod
+    def _pdf_pallet_count_key(kind, identifier, line):
+        """PDF pallet-count identity: the physical pallet PLUS the line's PSI.
+
+        PSI is the pallet identity of the house doctrine — one series, one
+        pallet. Opening-balance imports sometimes parked several PSIs on
+        ONE physical pallet #; the client's paperwork counts those as
+        separate pallets, so the PDFs must too. Normal single-PSI pallets
+        are unaffected (their PSI is constant across lines), and BF lines
+        carry no PSI so their key stays the plain pallet text. PDF-only:
+        the ledger and Transacted Pallet Count keep the physical rule.
+        """
+        psi = getattr(line, 'x_studio_pallet_series_id', False) or ''
+        return (kind, identifier, psi)
+
     def get_pallet_count_for_page(self, processed_lines, start_idx, end_idx):
         """
         Calculate unique pallet count for a specific page range.
         Only counts pallets that appear for the FIRST time in the entire dataset
         and happen to be on this specific page.
- 
+
         Args:
             processed_lines: List of processed line data
             start_idx: Start index for page
             end_idx: End index for page
- 
+
         Returns:
             int: Number of unique pallets that first appear on this page
         """
         # Build a map of which line index each pallet first appears at
         first_occurrence = {}
- 
+
         for idx, line_data in enumerate(processed_lines):
             line = line_data['original_line']
             pallet_id = None
- 
+
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
-                pallet_id = ('package', line.package_id.id)
+                pallet_id = self._pdf_pallet_count_key('package', line.package_id.id, line)
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
-                pallet_id = ('result_package', line.result_package_id.id)
+                pallet_id = self._pdf_pallet_count_key('result_package', line.result_package_id.id, line)
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
- 
+
             if pallet_id and pallet_id not in first_occurrence:
                 first_occurrence[pallet_id] = idx
  
@@ -2205,11 +2220,11 @@ class transfer_locations(models.Model):
             # only when it really left FULLY (0 KG remaining at validation)
             # AND no other pending outgoing picking still holds the lot.
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
-                pallet_id = ('package', line.package_id.id)
+                pallet_id = self._pdf_pallet_count_key('package', line.package_id.id, line)
                 if first_occurrence.get(pallet_id) == line_idx:
                     page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
-                pallet_id = ('result_package', line.result_package_id.id)
+                pallet_id = self._pdf_pallet_count_key('result_package', line.result_package_id.id, line)
                 if first_occurrence.get(pallet_id) == line_idx:
                     page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
@@ -2358,12 +2373,18 @@ class transfer_locations(models.Model):
                     ('picking_id.id', '!=', move_line.picking_id.id),
                     ('picking_id.picking_type_code', '=', 'outgoing')
                 ])
-                # Track unique packages for pallet count
+                # Track unique pallets for the count. The dedupe key is
+                # (pallet, PSI), not the bare pallet: opening-balance
+                # imports parked several PSIs on one physical pallet #,
+                # and the client's paperwork counts each PSI as its own
+                # pallet (see _pdf_pallet_count_key).
                 if move_line.package_id and not move_line.picking_id.x_studio_is_a_blast_freezer:
                     grouped_moves[key]['package_ids'].add(
                         move_line.package_id.id)
-                    if move_line.package_id.id not in package_ids:
-                        package_ids.add(move_line.package_id.id)
+                    count_key = self._pdf_pallet_count_key(
+                        'package', move_line.package_id.id, move_line)
+                    if count_key not in package_ids:
+                        package_ids.add(count_key)
                         grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
 
                 elif move_line.bf_pallet_char and move_line.picking_id.x_studio_is_a_blast_freezer:
@@ -2377,8 +2398,10 @@ class transfer_locations(models.Model):
                 elif move_line.result_package_id:
                     grouped_moves[key]['package_ids'].add(
                         move_line.result_package_id.id)
-                    if move_line.result_package_id.id not in package_ids:
-                        package_ids.add(move_line.result_package_id.id)
+                    count_key = self._pdf_pallet_count_key(
+                        'result_package', move_line.result_package_id.id, move_line)
+                    if count_key not in package_ids:
+                        package_ids.add(count_key)
                         grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
 
         # Convert to list and calculate final pallet counts
