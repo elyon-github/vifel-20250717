@@ -178,13 +178,26 @@ class PalletKilosRecordModel(models.Model):
                             pallets.add(move_line.bf_pallet_char)
                             building_operations[building_name]['pallets'].add(move_line.bf_pallet_char)
                     else:
-                        if move_line.package_id and move_line.package_id.id not in pallets:
+                        # Withdrawn identity is (pallet #, PSI), not the bare
+                        # pallet: opening-balance imports accidentally parked
+                        # several PSIs on ONE physical pallet #, and each PSI
+                        # is a real pallet in the client's ledger. Same key as
+                        # the WR PDFs (_pdf_pallet_count_key). Single-PSI
+                        # pallets count identically; the 0-stamp rule still
+                        # gates. counted_out/wc_n in Re-sync stay per-package
+                        # on purpose (per-PSI there would flag spurious split
+                        # culprits; the residual anchor absorbs the interim
+                        # difference and zeroes out once the pallet clears).
+                        wkey = (move_line.package_id.id,
+                                getattr(move_line, 'x_studio_pallet_series_id',
+                                        False) or '')
+                        if move_line.package_id and wkey not in pallets:
                             # (a per-line stock.move.line search used to run here;
                             # its result was never used — removed for performance)
                             if move_line.reserved_quantity_on_validation == 0:
                                 pallet_count += 1
-                                pallets.add(move_line.package_id.id)
-                                building_operations[building_name]['pallets'].add(move_line.package_id.id)
+                                pallets.add(wkey)
+                                building_operations[building_name]['pallets'].add(wkey)
             else:
                 for move_line in record.effective_document.move_line_ids:
                     # Get building for incoming operations
