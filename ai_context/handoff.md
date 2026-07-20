@@ -23,7 +23,7 @@ rule that **MAIN is never written by the assistant — reads only**.
 | Branch | Tip | State |
 |---|---|---|
 | `MAIN` | `d8762a3` | Production (user pushed it themselves). UNTOUCHED by assistant, always. |
-| `client-trial` | (tip = this commit; run `git log --oneline -1`) | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md |
+| `client-trial` | (tip = this commit; run `git log --oneline -1`) | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: **WR/RR PDF pallet count AND the PKR withdrawn count now dedupe by (pallet #, PSI)** — opening-balance pallets accidentally carrying several PSIs count once per PSI (each PSI is a real pallet; the shared pallet # is the import accident). Ledger change is the LIVE loop only — Re-sync's counted_out/wc_n stay per-package on purpose (per-PSI there would flag spurious split culprits; the wipe-and-rebuild residual absorbs the interim gap and zeroes once the pallet clears). Affected on next recompute/Re-sync: 6 WRs of CHEF BUDDY/FOSTER FOODS/MEATS SUPREME/TWINFISH (+1..+2 each). Transacted Pallet Count on the picking still physical. evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md. NOTE: branch `CR2-test` (from `be0c9a9`) carries the built Client-Specific Requirement Enhancement, pushed `25a29a0`. |
 | `consultant-test` (lowercase) | `15465c4` | Rehearsal merge of the PRE-pin client-trial — STALE, needs re-merge |
 | `Consultant-test` (capital) | `ac374a4` | User's own rehearsal merge (17:42 Jul 14) |
 | `main` (lowercase) | `d2136dc` | Untouched, never analyzed |
@@ -59,6 +59,10 @@ stays untracked). Latest additions beyond the earlier list:
 - `sa317_rr_scoped_requant.py` → SA#317 (AR#15) — RR-only, reference-matched re-update
   (+ AR#15 "Apply on" domain: `[("state","=","done"),("picking_type_code","=","incoming")]`)
 - `sa317_BACKUP.txt` — verbatim backup of prod SA#317
+- `sa_clean_picking_reset.py` → NEW SA "Clean Picking (Reset to Empty Draft)" — Actions-menu
+  reset of unvalidated pickings (recycle PSIs on normal RR w/ stocked-guard pool repair;
+  never on returns/WR/BF; frees reservations; severs links both ways; dynamic x_studio
+  wipe). Tested 15/15 on debug DB. Restrict to Inventory Super Admin when creating.
 - Also parked: hardened AR#17/SA#333 2nd_uom reducer (HEX-015573 fix), SA#478 rev 2
 
 **Test scripts (rolled-back odoo-shell suites, ~55 checks total):** scratchpad

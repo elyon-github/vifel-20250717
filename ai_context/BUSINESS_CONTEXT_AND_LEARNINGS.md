@@ -63,6 +63,219 @@ unvalidated children into empty drafts; their PSIs are NOT recycled into the poo
 - Corrections that move one quant of a PSI must move ALL quants of that PSI together
   (PSI cascade + all-or-nothing approval) — otherwise the physical pallet and the system
   disagree about what's on it.
+- **"Talon-talon" (jumping numbers) is a FEATURE of recycling, not a loss** (user-confirmed
+  2026-07-17, corrects the meeting transcript's "IDs are lost" claim): documents are never
+  deleted, only move LINES — a deleted line's PSI returns to the pool, and draws are
+  smallest-first. Timing then produces e.g. RR-C carrying 6–10 AFTER RR-B got 11–13, or one
+  RR showing 4,5,11,12,13 (pool leftovers + counter continuation). Trade-off axis of the
+  Pallet Series ID Controversy (meeting 2026-07-15, in the NotebookLM knowledge base):
+  compact number space via recycling VS strict chronology via never-recycle + void-tagged
+  gaps. Decision deferred; UI simplification prioritized. Nothing downstream breaks either
+  way — PSI is an identity, never a sequence, everywhere in code.
+- **Mark's proposal (on record in the meeting): system-guided reuse + supervised
+  acknowledgment.** System suggests latest+1 as starting pallet AND proactively offers
+  previously deleted IDs for reuse ("RR2 starts at 4,5 instead of jumping to 6"); a
+  supervisor explicitly acknowledges, keeping an audit trail. Rejects gaps instead of
+  void-labeling them. Objections: simultaneous-container timing race, checker confusion,
+  human-decision error risk → "revisit later". KEY INSIGHT: the built pool already reuses
+  deleted PSIs smallest-first — Mark's proposal is mostly a UX layer (visible reuse prompt +
+  acknowledgment, e.g. via FastEncodeRR `_preview_next_series`) over existing machinery,
+  not a rebuild. CAVEATS: (a) reuse repairs the sequence FORWARD only — numbers already
+  issued to a concurrent RR can't be recalled, so gaps are reduced, never guaranteed gone
+  (promise "gaps close quickly", not "no gaps"); (b) a reuse prompt MUST carry the
+  stocked-quant guard (never offer a number present on stocked quants) or it actively
+  invites split PSIs — same hole as the unguarded ondelete auto-push; (c) reuse needs a
+  scope rule (same shipment/day), else weeks-old numbers resurface on unrelated RRs and
+  look as odd as the jumps; (d) physical tag order inverts vs arrival order (checker
+  confusion objection is legitimate).
+- **Void/cancelled idea (Ma'am Erika, check-ledger analogy) — room reaction:** accepted on
+  data/identity grounds, stalled on FLOOR VISIBILITY: Rocky — "hahanapin nila ang 10" (the
+  racks guy still hunts the number); "paano si checker nakikita?"; recall double-count risk
+  for voided-but-tagged numbers; "human decides = more prone to error". Mark's close: tech
+  manageable, "clarity sa taong gumagalaw" unresolved → postponed for front-end work.
+  **Converged best-solution (2026-07-18 brainstorm, after eliminating dock printing/rollback/
+  reuse/renumber/blank tags against floor constraints):** (1) AUTOMATIC void on printed-line
+  deletion (no human judgment — answers the error objection) with destroyed-tags ☑;
+  (2) cancelled series PRINTED ON FLOOR DOCUMENTS (Tally Sheet/Picklist show "38–40 —
+  CANCELLED, do not locate" — answers Rocky/checker objections); (3) smart sibling-draft-
+  aware Start-PSI suggestion + supervisor-gated override (answers simultaneous containers);
+  (4) "Nasaan yung series?" lookup + owner timeline (answers audits + recall). Key argument
+  for the team: every alternative is PROVABLY impossible under print-at-unload + concurrent
+  RRs; this package answers each objection raised in the meeting in the room's own words.
+- **★ CURRENT #1 SOLUTION (user-designated 2026-07-18): void/cancelled PSI.** Core insight:
+  it's mostly REMOVAL — stop recycling (all paths funnel through `push_unused_pallet`, flip
+  that one choke point to "record CANCELLED"), generation counter-only from the client
+  profile. Decisions: bulk-cancel existing pools at cutover; cancelled ledger fed from
+  pallet_series_audit (queryable for tally-sheet printing + lookup); update Clean Picking SA
+  to cancel instead of recycle. FLOOR FACT (user 2026-07-18): **deletions ALWAYS happen
+  after tags are printed** (checker count arrives post-attach) → auto-compaction and
+  counter-rollback DROPPED — never legally fire. Final rule, no exceptions:
+  **"Every freed number cancels. Nothing ever renumbers. The counter only moves forward."**
+  (Chicken 1-5/Beef 6-10/Pork 11-15, delete chicken #5 → tally prints
+  "1-4 · [5 — CANCELLED] · 6-15" — 14 valid + 1 cancelled, count matches, no hunt.)
+  - One mechanism, two labels: post-print deletion → "CANCELLED — tags destroyed ☑";
+    encode-phase release (wizard regroup frees a loser series before first print) →
+    "unused — never printed" (no checkbox, no paper existed).
+  - DROPPED (user 2026-07-18): the "simultaneous containers collide at start 1" problem and
+    its fix (draft-aware suggestion + supervisor Start-PSI override) — that problem only
+    exists in the TEAM'S manual-start proposal track. Under #1 the PSI stays automated,
+    drawn atomically from the single owner counter → concurrent RRs simply draw
+    consecutive ranges; no collision, no start field needed.
+  - **Product-blank tags (user idea 2026-07-18, inverts the team's blank-tag proposal):**
+    Pallet Tag Form keeps PSI/owner/container PRINTED, leaves product (+ its PD/ED dates)
+    handwritten at attach time. Floor attaches tags 1..N in unload order and writes what
+    they see → product-mix corrections (the most common checker fix) become simple product
+    edits on the line, ZERO cancellations, sequence stays perfect 1..N; only total-count
+    shortfalls cancel, and those are naturally TAIL numbers (leftover papers). Politically:
+    adopts the team's blank-tag idea but blanks the safe descriptive field, not the
+    identity. TO VERIFY with floor: (1) handwriting product+dates acceptable (less than
+    their own all-blank proposal), (2) tags attached in unload order not product blocks,
+    (3) pre-validation product edit on encoded lines is clean (it is, PSI untouched).
+  - **KEY CLOSURE (user 2026-07-18): product-blank tags SOLVE the post-print mid-deletion
+    problem entirely.** Numbers aren't reserved per product, so the physical pallets always
+    consume 1..N contiguously — a mid-sequence hole is impossible by construction. The
+    "auto re-compute" is therefore NOT PSI renumbering (never happens, printed numbers
+    frozen) but PRODUCT RE-MAPPING across fixed PSIs (line 5 chicken→beef edits, matching
+    what the pens already wrote at attach); only leftover TAIL papers cancel (destroyed ☑).
+    One-breath rule: "Numbers march forward and never move. Tags print numbers, pens write
+    products. Products re-map to match the pens. Freed numbers cancel — labeled."
+    Standard Assign Pallet Series flow unchanged — draws just come counter-only.
+  - **CORRECTION WORKFLOW FACT (user 2026-07-18): Pallet Tag Forms always print at pallet-
+    line ESTIMATION; the Tally Sheet returns to Documentation with dead lines CROSSED OUT —
+    crossing IS the deletion instruction.** Implications: checker habit unchanged (they
+    cross exactly as today; only the system's post-delete behavior changes to cancel+label);
+    the in-line CANCELLED label works at any position. Product-blank tags' role:
+    mix shift (same total) → floor pens actual product, checker ANNOTATES (not crosses),
+    documentation EDITS the product — no deletion, no cancel.
+    **TAIL-CASCADE RULE (user-confirmed): with product-blank tags attached in numeric
+    unload order, shortages SLIDE TO THE TAIL** — chicken short of #5 → beef starts at 5,
+    boundaries annotate (only block-boundary lines change product: ~2 annotations), and the
+    truly-deleted number is the leftover TAIL paper (#15) → crossed → cancelled. Checker
+    burden tiny (annotate boundaries + cross tail). Mid-sequence holes structurally
+    impossible UNDER THE DISCIPLINE "attach in order, write what you see"; if the floor
+    grabs product-blocks of tags instead, shortages stay mid-sequence (still handled by
+    the label, tail elegance lost). This discipline is THE load-bearing floor-fact to
+    confirm when presenting.
+  - **FINAL PAPER DESIGN (user-corrected to the tally sheet, 2026-07-18): the TALLY SHEET's
+    product column prints BLANK too — same principle as the tags.** Design principle, final:
+    **"No paper ever pre-commits a product to a number. Numbers printed by the system;
+    products written by the people looking at the pallet."** Tally prints numbered lines
+    (# / PSI / blank product / blank actuals). Checker walks pallets in tag order, fills
+    each line from the tag's pen + actuals (her normal work), and **crosses whatever lines
+    remain unfilled** (the leftover tail) — crossing rule = "cross what you couldn't fill",
+    zero judgment, no boundary-spotting for anyone. Returned tally = line-by-line truth;
+    documentation encodes from it as today (product edits + delete crossed → auto-cancel).
+    Double-penning (tag by floor, tally by checker) = two independent recordings that must
+    agree — built-in verification, catches misreads on the spot. Estimate reverts to its
+    true role: a count for printing enough papers, never a claim that can be wrong.
+  - **FINAL SCOPE (corrected by user 2026-07-18): the algorithm RETURNS in its true form —
+    the RE-SEAT TOOL.** Reason: Pallet Breakdown lines belong to per-product MOVES — a line
+    can't simply flip product; making pallet 5 beef = remove from chicken move + add to
+    beef move, which naively is a MID-SEQUENCE DELETE that would cancel a number standing
+    live in the racks. The re-seat tool: takes tally truth (or per-product actual counts),
+    re-seats lines BETWEEN moves preserving PSI values exactly (atomic, flagged like
+    skip_pallet_series_sync so cancellation NEVER fires on re-seated numbers), deletes only
+    truly-unfilled TAIL lines → only those cancel. Documentation-side only (preview:
+    "PSI 5→Beef, PSI 10→Pork, 15 cancel — Confirm"); invisible to floor/checker. PSI
+    RENUMBERING remains forbidden everywhere, forever. Build inventory: push_unused_pallet
+    flip + auto-cancel + destroyed-tags ☑ + blank product columns (Tag Form, Tally Sheet)
+    + in-line CANCELLED + lookup/timeline + the re-seat tool. Start-PSI override stays
+    deleted (no collision problem in automated draws). **ROLE (user 2026-07-18):
+    DOCUMENTATION STAFF owns move-line deletion AND the destroyed-tags ☑ — no supervisor
+    step anywhere in the flow** (same person encodes the tally, deletes crossed lines,
+    confirms papers destroyed — one role, one sitting).
+  - **STATUS 2026-07-18: #1 PARKED (complete design above, incl. issues register).
+    SOLUTION #2 proposed (user):** void/cancelled core (no reuse, cancel+label, counter
+    forward) + **manual PSI & Product editing in Pallet Breakdown, FENCED to the document's
+    own allocation** — Odoo suggests the start, the RR owns block [start .. start+lines-1],
+    edits can only rearrange within the block (no collisions/theft possible — "manual
+    freedom with a bounded blast radius"). vs #1: NO blank papers, NO floor change, no bulk
+    re-seat tool (documentation hand-edits to match the returned tally; product edit still
+    = move re-parent under the hood); trade-off: mid-sequence cancels return (labeled holes
+    inside documents vs #1's tail-only). **#2 CONVERGED (user answers 2026-07-18):**
+    editable until VALIDATION (even post-print); deletion → COMPACTION algorithm re-assigns
+    remaining lines sequentially within the block, tail cancels; swaps allowed
+    (no-duplicate guard); block extension on extra pallets needs confirmation. Papers stay
+    fully printed as today. **THE TENSION (raised in advance this time): post-print
+    compaction = paper must follow system → re-print shifted tags + physical RE-TAG WALK
+    (one mid-block deletion re-numbers every line after it — 10 pallets re-tagged to close
+    one gap).** #1 and #2 are exact DUALS: #1 = pens at unload daily, papers never wrong;
+    #2 = papers fully printed, re-tag walks on corrections, divergence window until swap.
+    Mitigations for #2: re-print only shifted lines; system-generated re-tag WORKLIST with
+    pallet locations; corrections usually land while pallets still in temp aisles.
+    DECIDING FLOOR QUESTION for #2: will the team reliably do the re-tag walk every
+    correction? (If skipped when busy → permanent system/paper mismatch → worse than
+    either clean option.) The withdrawal-picks-by-paper risk lives in the swap window.
+    **★★ FINAL CONVERGENCE (user 2026-07-18): #1 + #2 MERGE.** User pulled #1's blank
+    product columns into #2 → tail-cascade returns → mid-sequence deletion impossible →
+    **compaction algorithm, re-tag walk, and re-print flow ALL DELETED from scope.**
+    Merged solution = #2's fence/block/counter/cancel + #1's blank papers/pens/attach-in-
+    order + small re-seat (product re-mapping between moves only — no PSI, no paper
+    changes; pens already wrote truth). Checker's job, final: "fill what you see, cross
+    what's left" (crossing the tail is the only physical possibility). Single remaining
+    price: handwritten product+dates and attach-in-order discipline (#1's price) — paid
+    once, buys zero re-tag walks forever. The "duals" collapsed; one solution remains.
+    **TEMPLATE FRAMING (user 2026-07-18, the final mental model): the estimate is just a
+    LINE COUNT ("we need 15") — the per-product division at encode is a placeholder so
+    papers can print; the returned Tally Sheet is where the document gets written for
+    real** (products set from the pens, tail crossed → cancel). Encoding corrections isn't
+    error-fixing, it's filling in a template that was always meant to be completed later.
+    Only the TOTAL matters at estimate time → floor guidance: "when unsure, round up"
+    (long = cheap labeled tails; short = block-extend with confirm). EXTENDED (user): ALL
+    columns blank at encode — Pallet #, Location, Product, Qty, UOM, KG all come from the
+    returned TS; papers print numbers only. **UX (user 2026-07-18): per-line "Merge with
+    Existing PSI" button** → wizard lists ONLY this document's PSIs (fence built into the
+    picker); selecting one adopts PSI + Pallet # + Location together (same-pallet rule holds
+    by construction — prevention, not rejection). Mirrors the client pallet-merge wizard
+    pattern (handoff §7) — one consistent merge UX across the system. Demos artifact:
+    psi-sol2-demos.html (scratchpad) — Demo 1 tail-delete, Demo 2 mixed pallet.
+  - **TALLY ENCODE SCREEN — ★ PARKED (user 2026-07-18, keep in notes; await go signal):
+    Magic Wizard 2.0** — OWL
+    transcription surface where "the screen IS the Tally Sheet"; single atomic apply into
+    stock.move.line (one choke point for fence/guards/cancel — kills the scattered
+    write/onchange/ondelete bug class). **CORRECTION (user): the estimate is DR-informed,
+    not invented — the Delivery Receipt is in hand at encoding with products + total KG;
+    only the PALLET-level breakdown is unknown until unload.** Design upgrades from this:
+    Phase 1 = "encode from the DR" (products/KG inherited, pallet counts estimated);
+    TS transcription = CONFIRM-FIRST (rows pre-filled from the DR draft, Enter confirms,
+    type only deviations — 35 Enters + 5 corrections beats 40 transcriptions); totals strip
+    reconciles against BOTH the checker's TS totals AND the DR's declared KG (real
+    receiving variance surfaces at encode time, not at billing).
+    Encoder requirements spec (from role-play, feeds
+    the design): (1) DR-based creation — no per-pallet guessing; (2) paper-mirror grid —
+    row N = TS line N, unsortable; (3) keyboard-first Excel-style entry, eyes on paper;
+    (4) one-key strike with plain-language consequence ("025 will be CANCELLED — no one
+    will hunt for it"); (5) live per-product totals reconciling against checker's totals;
+    (6) ALL validation errors at once with row numbers, before commit; (7) same pallet #
+    typed twice = mixed pallet automatically (type the truth, no ritual); (8) draft
+    persistence across interruptions. Key human insight for the pitch: today "doing it
+    right still gets me blamed" (correct deletion → talon-talon investigation lands on the
+    encoder) — the cancel label is emotional relief, not just audit tooling. Sequence:
+    AFTER the PSI core ships (apply method calls it).
+    **DUPLICATES CORRECTION (user 2026-07-18): the guard is CONSISTENCY, not uniqueness —
+    standard ruling holds inside the fence: same PSI ⇔ same Pallet # + same Location
+    (mixed pallet); one series = one physical pallet.** Consequences: (a) block sized by
+    LINE count but distinct PSIs ≤ lines (mixed pallets) — numbers freed by grouping during
+    encoding stay AVAILABLE TO THE DOCUMENT until validation (the document-scoped
+    allocation, concrete reason found), unused block numbers tail-cancel at validation;
+    (b) compaction moves PALLET-GROUPS not lines (all same-PSI lines shift together —
+    cascade rule, never split a series); (c) tag counts / re-print worklists count
+    distinct PSIs (one tag per physical pallet), not lines.
+    (1) CRITICAL: FastEncodeRR churn vs no-reuse — wizard push/restore breaks under naive
+    flip; need DOCUMENT-SCOPED allocation (numbers owned by the RR until print; internal
+    shuffles free; nothing cancels pre-print). (2) CRITICAL: cancel-trigger exemption
+    matrix — fire ONLY on incoming/non-return/unvalidated; WR lines, unvoid neutralization,
+    returns, Clean Picking SA must stay silent or live stock gets cancelled. (3) CRITICAL:
+    counter draw race — partner row-lock (FOR UPDATE) on every draw (SA#297 lesson; counter
+    becomes single identity source). (4) Guard manual PSI typing against cancelled ledger +
+    stocked quants; cancelled ledger must be a real queryable model (owner, number, source,
+    destroyed ☑). (5) Re-seat tool must adjust move demands (variance gate) + skip-flags so
+    ARs (series sync, SA#432 line counter) don't fire mid-shuffle. (6) Under-estimates
+    interleave product blocks (chicken 1-5+16) — accepted, state in proposal. (7) Reprints
+    exclude cancelled lines; add "print unprinted only" mode. (8) Timeline cutoff date —
+    pre-cutover gaps stay unexplained (health-monitor stamp_cutoff pattern). (9) Field-by-
+    field audit of Tag Form + Tally templates (dates/lot handwritten too). (10) Tagoloan:
+    one owner counter interleaves ranges across warehouses — decide, don't discover.
 
 ## 4. Counting doctrine (the ledger, PKR)
 
