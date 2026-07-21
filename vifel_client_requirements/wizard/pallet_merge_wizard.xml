@@ -14,6 +14,7 @@
                 <field name="candidate_total" invisible="1"/>
                 <field name="warn_different_product" invisible="1"/>
                 <field name="candidate_package_ids" invisible="1"/>
+                <field name="from_fast_encode" invisible="1"/>
 
                 <!-- the line being merged: the OTHER half of the fit
                      judgment, next to the candidate loads below -->
@@ -36,7 +37,7 @@
                      special pallet; Fixed clients merge onto their one
                      pinned pallet, so no chooser is shown -->
                 <field name="mode" widget="radio"
-                       invisible="not is_multiple_mode"/>
+                       invisible="not is_multiple_mode or from_fast_encode"/>
 
                 <!-- ============ MERGE ONTO A STOCKED PALLET ============ -->
                 <div invisible="mode != 'merge'">
@@ -83,7 +84,9 @@
                 </div>
 
                 <!-- ============ START A NEW SPECIAL PALLET ============ -->
-                <group invisible="mode != 'new'"
+                <!-- create-special is a Pallet Breakdown action only; inside
+                     the Magic Wizard the wizard offers merge-onto-stocked -->
+                <group invisible="mode != 'new' or from_fast_encode"
                        string="New special pallet — counts as a received pallet (+1)">
                     <field name="psi_type_id"
                            options="{'no_create': True, 'no_open': True}"/>

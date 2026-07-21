@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Merge / Un-merge from inside the Magic Wizard.
+
+         Injected by the new module so core's FastEncodeRR stays a pure merge
+         consumer. A mergeable, not-yet-merged row shows "Merge Pallet"; a
+         merged row shows "Un-merge". Both act on the row's REAL move line and
+         reload the list, so the merge rides the consumer path already
+         verified for the Pallet-Breakdown-then-Magic-Wizard round-trip. -->
+    <record id="view_fast_encode_rr_line_list_merge" model="ir.ui.view">
+        <field name="name">stock.move.line.fast_encode_rr.line.list.merge</field>
+        <field name="model">stock.move.line.fast_encode_rr.line</field>
+        <field name="inherit_id"
+               ref="multiple_relocation.view_fast_encode_rr_line_list"/>
+        <field name="arch" type="xml">
+            <field name="location_dest_id" position="after">
+                <field name="show_merge_button" column_invisible="1"/>
+                <button name="action_merge_from_fast_encode" type="object"
+                        string="Merge" class="btn-link" icon="fa-object-group"
+                        column_invisible="context.get('is_blast_freeze')"
+                        invisible="not show_merge_button or is_pallet_merge"/>
+                <button name="action_unmerge_from_fast_encode" type="object"
+                        string="Un-merge" class="btn-link text-warning"
+                        icon="fa-chain-broken"
+                        column_invisible="context.get('is_blast_freeze')"
+                        invisible="not show_merge_button or not is_pallet_merge"/>
+            </field>
+        </field>
+    </record>
+
+</odoo>

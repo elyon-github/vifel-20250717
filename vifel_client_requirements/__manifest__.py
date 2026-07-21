@@ -58,6 +58,7 @@ routing and the user interface — never the record of what already happened.
         'wizard/pallet_merge_wizard.xml',
         'views/res_partner_views.xml',
         'views/stock_move_line_views.xml',
+        'views/fast_encode_views.xml',
     ],
 
     'installable': True,
