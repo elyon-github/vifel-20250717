@@ -12,19 +12,18 @@ Client-Specific Requirement Enhancement
 
 Adds the per-client capabilities agreed with VIFEL:
 
-* **VIFEL Configuration** tab on the Contact form — a checkbox cascade that
-  turns pallet merging on for a client, in one of two exclusive modes:
+* **VIFEL Configuration** tab on the Contact form: a checkbox cascade that
+  turns pallet merging on for a client, in one of two exclusive modes.
+  *Fixed* offers one pinned pallet and PSI forever (Wonder Meats).
+  *Multiple* offers special PSI types, each with its own prefix, counter and
+  recyclable numbers (Consistent: MDGM, BOC, TDMG, SDMG).
 
-  * **Fixed** — one pinned pallet + PSI offered forever (Wonder Meats).
-  * **Multiple** — special PSI types, each with its own prefix, counter and
-    recyclable numbers (Consistent: MDGM, BOC, TDMG, SDMG).
+* **Merge Pallet**, a per-line action in the Pallet Breakdown and in the Magic
+  Wizard, lands an incoming line on a pallet already stocked on the floor. The
+  line adopts the target's Pallet Series ID and location, and the ledger does
+  not count a new pallet for it; Weight, Quantity and Packs still count in full.
 
-* **Merge Pallet** — a per-line action in the Pallet Breakdown that lands an
-  incoming line on a pallet already stocked on the floor. The line adopts the
-  target's Pallet Series ID and location, and the ledger does not count a new
-  pallet for it; Weight, Quantity and Packs still count in full.
-
-* **Client Lot No.** — the client's own lot number on transfer lines, stamped
+* **Client Lot No.**: the client's own lot number on transfer lines, stamped
   onto stock when the transfer validates.
 
 Deliberate design note

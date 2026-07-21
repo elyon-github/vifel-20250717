@@ -337,6 +337,25 @@ All on branch client-trial (tip `d6591bf`); details + test coverage in `handoff.
   (anchored at first appearance).
 - **Return wizard**: `_find_existing_return` excludes void returns unless `voided` context;
   PSI-remainder-first landing for void/manual partial returns (`_find_psi_remainder_quant`).
-- **PLANNED (awaiting go — full spec in handoff.md §7)**: per-client pallet merge (Fixed /
-  Multiple PSI types with own numbering + pools), `client_lot_no`, `is_pallet_merge`,
-  pallet.merge.wizard, prefix-aware pool routing in `push_unused_pallet`.
+## Update 2026-07-21 — Client-Specific Requirement Enhancement moved OUT
+
+The per-client pallet-merge feature now lives in its own module,
+**`vifel_client_requirements`** (see `vifel_client_requirements_AI_CONTEXT.md` and
+handoff.md §7). What stays HERE, permanently, and why:
+
+- **`is_pallet_merge` and `client_lot_no` fields** (`models/vifel_client_fields.py`) plus
+  the three PKR count exclusions. These are **ledger evidence**, not UI. If they lived in
+  the optional module, uninstalling it would drop the columns and every historically
+  merged line would silently recount as a received pallet on the next Re-sync — wrong
+  pallet counts, wrong invoices, for work done months earlier.
+- **The un-merge intercept** in `stock_move.py::write` (~:745 snapshot, ~:952 clear),
+  guarded by the existing `skip_pallet_series_sync` / `'result_package_id' not in vals`
+  early returns at :719-724.
+- **FastEncodeRR's consumer behaviour**: merged lines skip availability validation and
+  winner grouping, get a cargo-only write, and show their PSI/Pallet # readonly. Because
+  the fields are core, no extension hooks were needed.
+- Gated Lot No. / Merged columns in the trees; `show_client_lot_no` is read via `getattr`
+  so nothing renders when the optional module is absent.
+
+**Do not move these into the optional module.** `ai_context/cr2_shell_tests/suite_f_uninstall_safety.py`
+asserts the ownership split and fails loudly if it changes.
