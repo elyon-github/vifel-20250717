@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_pallet_merge_wizard_form" model="ir.ui.view">
+        <field name="name">pallet.merge.wizard.form</field>
+        <field name="model">pallet.merge.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Merge Pallet">
+                <field name="move_line_id" invisible="1"/>
+                <field name="picking_id" invisible="1"/>
+                <field name="partner_id" invisible="1"/>
+                <field name="is_multiple_mode" invisible="1"/>
+                <field name="candidates_capped" invisible="1"/>
+                <field name="candidate_total" invisible="1"/>
+                <field name="warn_different_product" invisible="1"/>
+                <field name="candidate_package_ids" invisible="1"/>
+
+                <!-- the line being merged: the OTHER half of the fit
+                     judgment, next to the candidate loads below -->
+                <group string="Line being merged" col="4">
+                    <field name="line_product_id" readonly="1" colspan="4"/>
+                    <field name="line_psi" readonly="1"/>
+                    <field name="line_weight" readonly="1"/>
+                    <field name="line_quantity" readonly="1"/>
+                </group>
+
+                <div class="alert alert-info" role="alert">
+                    The line joins a pallet already stocked on the floor: it
+                    adopts that pallet's <b>Pallet Series</b> and
+                    <b>location</b>, and is <b>not</b> counted as a received
+                    pallet. Whether the target still has room is your call —
+                    compare the loads below.
+                </div>
+
+                <!-- mode chooser: only Multiple clients can start a new
+                     special pallet; Fixed clients merge onto their one
+                     pinned pallet, so no chooser is shown -->
+                <field name="mode" widget="radio"
+                       invisible="not is_multiple_mode"/>
+
+                <!-- ============ MERGE ONTO A STOCKED PALLET ============ -->
+                <div invisible="mode != 'merge'">
+                    <div class="alert alert-warning" role="alert"
+                         invisible="not warn_different_product">
+                        The selected pallet holds a <b>different product</b>
+                        than this line — double-check before you merge.
+                    </div>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="not candidates_capped">
+                        This client has <field name="candidate_total"
+                        class="oe_inline"/> eligible pallets — only the first
+                        are listed. If the one you need is not here, pick it
+                        by name in <b>Other Pallet #</b> below.
+                    </div>
+
+                    <field name="candidate_line_ids" nolabel="1">
+                        <tree editable="bottom" create="false" delete="false"
+                              decoration-success="is_target"
+                              decoration-muted="not eligible">
+                            <field name="eligible" column_invisible="1"/>
+                            <field name="is_target" widget="boolean_toggle"
+                                   string="Merge Here"
+                                   readonly="not eligible"/>
+                            <field name="psi" string="Pallet Series"
+                                   readonly="1"/>
+                            <field name="product_summary" string="Product"
+                                   readonly="1"/>
+                            <field name="location_id" string="Location"
+                                   readonly="1"/>
+                            <field name="weight_kg" string="Weight (KG)"
+                                   readonly="1"/>
+                            <field name="quantity" string="Quantity"
+                                   readonly="1"/>
+                            <field name="ineligible_reason" string="Note"
+                                   readonly="1" decoration-warning="1"/>
+                        </tree>
+                    </field>
+
+                    <group invisible="not candidates_capped">
+                        <field name="manual_package_id"
+                               options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                </div>
+
+                <!-- ============ START A NEW SPECIAL PALLET ============ -->
+                <group invisible="mode != 'new'"
+                       string="New special pallet — counts as a received pallet (+1)">
+                    <field name="psi_type_id"
+                           options="{'no_create': True, 'no_open': True}"/>
+                    <field name="new_package_id"
+                           options="{'no_create': True, 'no_open': True}"/>
+                    <field name="new_location_id"
+                           options="{'no_create': True, 'no_open': True}"/>
+                </group>
+
+                <footer>
+                    <button name="action_confirm" string="Confirm"
+                            type="object" class="btn-primary"
+                            data-hotkey="q"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

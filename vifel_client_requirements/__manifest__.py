@@ -55,7 +55,9 @@ routing and the user interface — never the record of what already happened.
 
     'data': [
         'security/ir.model.access.csv',
+        'wizard/pallet_merge_wizard.xml',
         'views/res_partner_views.xml',
+        'views/stock_move_line_views.xml',
     ],
 
     'installable': True,
