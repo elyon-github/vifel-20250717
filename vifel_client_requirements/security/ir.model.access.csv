@@ -1,2 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_vifel_psi_type,vifel.psi.type,model_vifel_psi_type,stock.group_stock_user,1,1,1,1
+access_pallet_merge_wizard,pallet.merge.wizard,model_pallet_merge_wizard,stock.group_stock_user,1,1,1,1
+access_pallet_merge_candidate,pallet.merge.candidate,model_pallet_merge_candidate,stock.group_stock_user,1,1,1,1
