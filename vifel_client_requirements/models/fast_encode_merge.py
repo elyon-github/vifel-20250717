@@ -48,8 +48,11 @@ class FastEncodeLineMerge(models.TransientModel):
         """Open the merge wizard for this row's real line, in merge-only
         mode, tagged so confirm syncs this transient row and reloads."""
         ml = self._real_line()
-        wizard = self.env['pallet.merge.wizard'].create(
-            {'move_line_id': ml.id, 'from_fast_encode': True})
+        wizard = self.env['pallet.merge.wizard'].create({
+            'move_line_id': ml.id,
+            'from_fast_encode': True,
+            'fast_encode_line_id': self.id,
+        })
         return {
             'type': 'ir.actions.act_window',
             'name': _('Merge Pallet — %s') % (ml.product_id.display_name or ''),

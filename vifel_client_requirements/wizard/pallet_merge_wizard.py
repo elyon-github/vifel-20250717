@@ -105,12 +105,19 @@ class PalletMergeWizard(models.TransientModel):
         [('merge', 'Merge onto a pallet already stocked'),
          ('new', 'Start a NEW special pallet')],
         string='Action', default='merge', required=True)
-    # set when launched from inside the Magic Wizard: merge-onto-stocked
-    # only (create-special stays a Pallet Breakdown action), and confirm
-    # syncs the transient row + reloads the Magic Wizard list
+    # Set when launched from inside the Magic Wizard: merge-onto-stocked only
+    # (create-special stays a Pallet Breakdown action). Odoo replaces the
+    # current dialog when an action opens with target='new', so the Magic
+    # Wizard closes behind this one — EVERY exit path here must bring the user
+    # back to it, or the encoding session is lost. Stored on the record rather
+    # than read from context so Back/Confirm work regardless of how the button
+    # was invoked.
     from_fast_encode = fields.Boolean(
         default=lambda self: bool(
             self.env.context.get('fast_encode_line_id')))
+    fast_encode_line_id = fields.Integer(
+        string='Magic Wizard Line',
+        default=lambda self: self.env.context.get('fast_encode_line_id', 0))
 
     candidate_line_ids = fields.One2many(
         'pallet.merge.candidate', 'wizard_id', string='Available Pallets')
@@ -312,9 +319,24 @@ class PalletMergeWizard(models.TransientModel):
     # ------------------------------------------------------------------
     # confirm — dispatch on mode
     # ------------------------------------------------------------------
+    def action_back_to_fast_encode(self):
+        """Leave without merging, but land back in the Magic Wizard.
+
+        The plain Cancel button would close this dialog and leave nothing
+        behind — the encoder's whole Fast Encode session would vanish because
+        opening this dialog replaced it.
+        """
+        self.ensure_one()
+        fe_line = self.env['stock.move.line.fast_encode_rr.line'].browse(
+            self.fast_encode_line_id)
+        if not fe_line.exists():
+            return {'type': 'ir.actions.act_window_close'}
+        return fe_line._reopen_fast_encode_list()
+
     def action_confirm(self):
         self.ensure_one()
-        fe_line_id = self.env.context.get('fast_encode_line_id')
+        fe_line_id = self.fast_encode_line_id \
+            or self.env.context.get('fast_encode_line_id')
         if fe_line_id:
             # inside the Magic Wizard: only merge-onto-stocked is offered.
             # Apply to the REAL line now (Phase B logic, unchanged), then

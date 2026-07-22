@@ -100,8 +100,17 @@
                     <button name="action_confirm" string="Confirm"
                             type="object" class="btn-primary"
                             data-hotkey="q"/>
+                    <!-- Opening this dialog REPLACED the Magic Wizard behind it
+                         (Odoo swaps dialogs on a target='new' action), so in that
+                         mode plain Cancel would throw away the encoding session.
+                         Go back to the list instead. -->
+                    <button name="action_back_to_fast_encode"
+                            string="Back to Magic Wizard" type="object"
+                            class="btn-secondary" data-hotkey="x"
+                            invisible="not from_fast_encode"/>
                     <button string="Cancel" class="btn-secondary"
-                            special="cancel" data-hotkey="x"/>
+                            special="cancel" data-hotkey="x"
+                            invisible="from_fast_encode"/>
                 </footer>
             </form>
         </field>

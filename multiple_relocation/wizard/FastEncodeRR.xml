@@ -35,7 +35,13 @@
                 <field name="original_pallet_series_id" readonly="1" groups="base.group_erp_manager"/>
                 <field name="needs_new_pallet_series" readonly="1" groups="base.group_erp_manager"/>
                 <field name="original_location_dest_id" readonly="1" groups="base.group_erp_manager"/>
-                <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')" force_save="1" decoration-success="needs_new_pallet_series" readonly="is_pallet_merge" decoration-info="is_pallet_merge"/>
+                <!-- NO readonly= attribute here on purpose: the field is already
+                     readonly at the Python level (fields.Char(readonly="1")), and a
+                     view-level modifier OVERRIDES that default — adding
+                     readonly="is_pallet_merge" silently made PSI editable on every
+                     NON-merged row. PSI is identity and is system-managed; only the
+                     tint marks merged rows. -->
+                <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')" force_save="1" decoration-success="needs_new_pallet_series" decoration-info="is_pallet_merge"/>
                 <field name="warehouse_id" column_invisible="1" invisible="1"/>
                 <field name="result_package_id" string="RR Pallet #" groups="stock.group_tracking_lot"
                     domain="[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'),
