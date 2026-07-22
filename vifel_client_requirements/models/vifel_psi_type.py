@@ -24,14 +24,35 @@ class VifelPsiType(models.Model):
     partner_id = fields.Many2one(
         'res.partner', string='Client', required=True, ondelete='cascade',
         index=True)
-    name = fields.Char(string='Type Name', required=True)
+    name = fields.Char(
+        string='Description', required=True,
+        help='What this pallet is for, in plain words — e.g. "Damaged '
+             'Goods". This is what staff read; the prefix is what prints '
+             'on the series.')
     prefix = fields.Char(
         string='Prefix', required=True,
-        help='Series prefix, e.g. SDMG issues SDMG-000001.')
+        help='Short code that starts the series, e.g. SDMG.')
     next_number = fields.Integer(
         string='Next Number', default=1,
-        help='Number the counter will issue next when the recycling pool '
-             'is empty. Editable, e.g. to continue an existing paper series.')
+        help='Number the counter will issue next when no freed number is '
+             'waiting to be reused. Change it only to continue an existing '
+             'paper series.')
+    next_series_preview = fields.Char(
+        string='Next Series', compute='_compute_next_series_preview',
+        help='Exactly what the next pallet of this type will be called.')
+
+    @api.depends('prefix', 'next_number', 'number_pool')
+    def _compute_next_series_preview(self):
+        """Show the real next series instead of explaining the format.
+
+        Freed numbers are re-issued smallest-first, so the preview follows
+        the pool when one is waiting — what the user sees is what they get.
+        """
+        for ptype in self:
+            pool = sorted(ptype.number_pool or [])
+            number = pool[0] if pool else int(ptype.next_number or 1)
+            ptype.next_series_preview = ptype._format(number) \
+                if ptype.prefix else ''
     number_pool = fields.Json(
         string='Recyclable Numbers', default=[],
         help='Freed numbers of this type, re-issued smallest-first before '

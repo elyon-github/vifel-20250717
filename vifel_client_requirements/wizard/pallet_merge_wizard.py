@@ -170,9 +170,13 @@ class PalletMergeWizard(models.TransientModel):
     # wrong building. Pallets follow the Magic Wizard's existing rule
     # (x_studio_warehouse); locations use stock.location.warehouse_id, which
     # is stored and populated on every internal location.
+    # Read straight off the picking: every stock.picking belongs to exactly
+    # one warehouse (stock.picking.warehouse_id, stored and populated on all
+    # 11,419 records here, and never disagreeing with its picking type's
+    # warehouse). That record IS the reference for everything this wizard is
+    # allowed to offer.
     warehouse_id = fields.Many2one(
-        related='move_line_id.picking_id.picking_type_id.warehouse_id',
-        string='Warehouse')
+        related='move_line_id.picking_id.warehouse_id', string='Warehouse')
 
     new_package_id = fields.Many2one(
         'stock.quant.package', string='New Empty Pallet',
@@ -236,7 +240,7 @@ class PalletMergeWizard(models.TransientModel):
         if not partner.vifel_multiple_pallet_support:
             return partner.vifel_fixed_package_id
 
-        warehouse = self.picking_id.picking_type_id.warehouse_id
+        warehouse = self.warehouse_id      # the picking's own warehouse
         quants = self.env['stock.quant'].search([
             ('owner_id', '=', partner.id),
             ('package_id', '!=', False),

@@ -22,43 +22,57 @@
                       invisible="not set(category_id).intersection([1])
                                  and not vifel_can_merge_pallets
                                  and not vifel_show_lot_no">
+                    <!-- Step 1: does this client merge at all? Everything
+                         else stays hidden until it does, so a client that
+                         does not merge shows exactly one checkbox. -->
                     <group>
                         <group string="Pallet Merging">
                             <field name="vifel_can_merge_pallets"/>
-                            <field name="vifel_multiple_pallet_support"
-                                   invisible="not vifel_can_merge_pallets"/>
-                            <field name="vifel_include_regular_pallets"
-                                   invisible="not vifel_can_merge_pallets
-                                              or not vifel_multiple_pallet_support"/>
-                            <field name="vifel_fixed_package_id"
-                                   invisible="not vifel_can_merge_pallets
-                                              or vifel_multiple_pallet_support"
-                                   options="{'no_create': True}"/>
-                            <field name="vifel_fixed_psi"
-                                   invisible="not vifel_can_merge_pallets
-                                              or vifel_multiple_pallet_support"/>
                         </group>
                         <group string="Documents">
                             <field name="vifel_show_lot_no"/>
                         </group>
                     </group>
 
-                    <group string="PSI Types"
+                    <!-- Step 2: which of the two ways does it merge? -->
+                    <group string="How this client merges"
+                           invisible="not vifel_can_merge_pallets">
+                        <field name="vifel_multiple_pallet_support"/>
+                        <div class="oe_grey" colspan="2"
+                             invisible="vifel_multiple_pallet_support">
+                            Off — every merge is offered the same one pallet,
+                            named below.
+                        </div>
+                        <div class="oe_grey" colspan="2"
+                             invisible="not vifel_multiple_pallet_support">
+                            On — merges are offered the client's condition
+                            pallets, listed below.
+                        </div>
+
+                        <!-- Fixed: one pinned pallet, forever -->
+                        <field name="vifel_fixed_package_id"
+                               invisible="vifel_multiple_pallet_support"
+                               options="{'no_create': True}"/>
+                        <field name="vifel_fixed_psi"
+                               invisible="vifel_multiple_pallet_support"/>
+
+                        <!-- Multiple: widen the candidates -->
+                        <field name="vifel_include_regular_pallets"
+                               invisible="not vifel_multiple_pallet_support"/>
+                    </group>
+
+                    <!-- Step 3: the condition pallets themselves. The Next
+                         Series column shows the real next number, so the
+                         table explains its own format without a paragraph. -->
+                    <group string="Condition Pallets"
                            invisible="not vifel_can_merge_pallets
                                       or not vifel_multiple_pallet_support">
-                        <div class="text-muted" colspan="2">
-                            Each type is an independent series with its own
-                            prefix and numbering — SDMG issues
-                            <b>SDMG-000001</b>, <b>SDMG-000002</b>, and so on.
-                            <b>Next Number</b> is what the counter issues when
-                            no freed number is waiting to be reused; change it
-                            only to continue an existing paper series.
-                        </div>
                         <field name="vifel_psi_type_ids" nolabel="1" colspan="2">
                             <tree editable="bottom">
                                 <field name="name"/>
                                 <field name="prefix"/>
                                 <field name="next_number"/>
+                                <field name="next_series_preview" readonly="1"/>
                             </tree>
                         </field>
                     </group>
