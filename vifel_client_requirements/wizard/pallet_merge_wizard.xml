@@ -16,21 +16,11 @@
                 <field name="candidate_package_ids" invisible="1"/>
                 <field name="from_fast_encode" invisible="1"/>
 
-                <!-- the line being merged: the OTHER half of the fit
-                     judgment, next to the candidate loads below -->
-                <group string="Line being merged" col="4">
-                    <field name="line_product_id" readonly="1" colspan="4"/>
-                    <field name="line_psi" readonly="1"/>
-                    <field name="line_weight" readonly="1"/>
-                    <field name="line_quantity" readonly="1"/>
-                </group>
-
-                <div class="alert alert-info" role="alert">
-                    The line joins a pallet already stocked on the floor: it
-                    adopts that pallet's <b>Pallet Series</b> and
-                    <b>location</b>, and is <b>not</b> counted as a received
-                    pallet. Whether the target still has room is your call —
-                    compare the loads below.
+                <!-- What is being merged, in one line. Following core Odoo
+                     dialogs (e.g. Return Picking): no coloured banner, no
+                     field group — the decision itself gets the space. -->
+                <div class="mb-3" style="font-weight: 700;">
+                    <field name="line_summary" nolabel="1" readonly="1"/>
                 </div>
 
                 <!-- mode chooser: only Multiple clients can start a new
@@ -41,19 +31,6 @@
 
                 <!-- ============ MERGE ONTO A STOCKED PALLET ============ -->
                 <div invisible="mode != 'merge'">
-                    <div class="alert alert-warning" role="alert"
-                         invisible="not warn_different_product">
-                        The selected pallet holds a <b>different product</b>
-                        than this line — double-check before you merge.
-                    </div>
-                    <div class="alert alert-warning" role="alert"
-                         invisible="not candidates_capped">
-                        This client has <field name="candidate_total"
-                        class="oe_inline"/> eligible pallets — only the first
-                        are listed. If the one you need is not here, pick it
-                        by name in <b>Other Pallet #</b> below.
-                    </div>
-
                     <field name="candidate_line_ids" nolabel="1">
                         <tree editable="bottom" create="false" delete="false"
                               decoration-success="is_target"
@@ -72,11 +49,23 @@
                                    readonly="1"/>
                             <field name="quantity" string="Quantity"
                                    readonly="1"/>
-                            <field name="ineligible_reason" string="Note"
-                                   readonly="1" decoration-warning="1"/>
+                            <field name="ineligible_reason" string="Unavailable because"
+                                   readonly="1" optional="show"/>
                         </tree>
                     </field>
 
+                    <!-- Guidance follows core Odoo (Return Picking): plain grey
+                         text, never a coloured box, and only when it applies. -->
+                    <div class="oe_grey mt-2"
+                         invisible="not warn_different_product">
+                        That pallet holds a <b>different product</b> than this
+                        line — check before confirming.
+                    </div>
+                    <div class="oe_grey mt-2" invisible="not candidates_capped">
+                        Showing the first of <field name="candidate_total"
+                        class="oe_inline"/> eligible pallets. Not listed? Pick it
+                        by name below.
+                    </div>
                     <group invisible="not candidates_capped">
                         <field name="manual_package_id"
                                options="{'no_create': True, 'no_open': True}"/>
@@ -95,6 +84,14 @@
                     <field name="new_location_id"
                            options="{'no_create': True, 'no_open': True}"/>
                 </group>
+
+                <!-- The one consequence that is NOT obvious from the screen,
+                     kept to a single grey line rather than a banner. -->
+                <div class="oe_grey mt-3" invisible="mode != 'merge'">
+                    The line adopts the selected pallet's series and location.
+                    It is not counted as a new pallet — its weight and quantity
+                    still count in full.
+                </div>
 
                 <footer>
                     <button name="action_confirm" string="Confirm"

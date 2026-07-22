@@ -138,6 +138,27 @@ class PalletMergeWizard(models.TransientModel):
         'pallet.merge.candidate', compute='_compute_selection')
     warn_different_product = fields.Boolean(compute='_compute_selection')
 
+    # One line describing what is being merged. A computed string rather than
+    # a field group on purpose: four related fields in a group rendered as
+    # three rows of labels with help icons, and pushed the Weight value into a
+    # column so narrow it wrapped vertically ("0." / "00" / "0"). The encoder
+    # needs to read this at a glance, not fill it in.
+    line_summary = fields.Char(compute='_compute_line_summary')
+
+    @api.depends('move_line_id')
+    def _compute_line_summary(self):
+        for wizard in self:
+            line = wizard.move_line_id
+            bits = []
+            if line.x_studio_:
+                bits.append(_('Line %s') % line.x_studio_)
+            # product deliberately omitted — the dialog title already names it
+            bits.append(_('%.3f KG') % (line.quantity or 0.0))
+            bits.append(_('%g Quantity') % (line.x_studio_2nd_uom or 0.0))
+            if line.x_studio_pallet_series_id:
+                bits.append(_('now on %s') % line.x_studio_pallet_series_id)
+            wizard.line_summary = '   ·   '.join(bits)
+
     # create-new-special path (Multiple mode only)
     psi_type_id = fields.Many2one(
         'vifel.psi.type', string='PSI Type',
