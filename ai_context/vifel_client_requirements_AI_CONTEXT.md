@@ -12,7 +12,9 @@ Three per-client capabilities agreed with VIFEL:
 - **Pallet merging** — an incoming Pallet Breakdown line can land on a pallet **already
   stocked on the floor**. The line adopts that pallet's Pallet Series (PSI) and location,
   and the ledger counts **+0 pallets** for it while its Weight / Quantity / Packs still
-  count in full. Two client modes: **Fixed** (one pinned pallet forever — Wonder Meats,
+  count in full — **but only while the target already holds stock**. The FIRST stock on
+  the empty pinned Fixed pallet births the pallet: a plain, unflagged +1 line (user
+  ruling 2026-07-23), so the pallet cycles +1 born / −1 emptied / +0 merged-while-stocked. Two client modes: **Fixed** (one pinned pallet forever — Wonder Meats,
   `R 5666` / `WMF-00230`) and **Multiple** (special PSI types per condition — Consistent:
   MDGM, BOC, TDMG, SDMG, each with its own prefix, counter and recyclable numbers).
 - **Client Lot No.** — the client's own lot number on transfer lines, stamped onto stock

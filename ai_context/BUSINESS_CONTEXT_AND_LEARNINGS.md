@@ -313,7 +313,13 @@ make totals look right (the VERDURE −350 lesson: totals passed, every row was 
 - **Merge business rules:** same owner only; never BF; never returns; "is the pallet full?"
   is the **Documentation Staff's judgment** (window shows Weight/Quantity/location; no
   system capacity); merge transactions are excluded from the pallet transaction count but
-  their amounts fully count.
+  their amounts fully count. **+0 applies ONLY while the target already holds stock**
+  (user ruling 2026-07-23): the FIRST stock on the empty pinned Fixed pallet BIRTHS the
+  pallet — a plain, unflagged +1 line — because the WR that later exhausts it counts −1,
+  and flagging the birth +0 would walk the ledger negative on every empty→fill cycle.
+  The flag is decided by the pallet's stock state at merge time, so the pinned pallet
+  cycles +1 (born) / −1 (emptied) / +0 (merged while stocked), keeping the
+  born-once/emptied-once identity intact.
 - Client profile config is Vifel-side/Elyon-side ("your team never touches settings") —
   encoders only ever see one Merge button.
 

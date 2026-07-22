@@ -36,11 +36,23 @@ try:
     owner.write({'vifel_can_merge_pallets': True,
                  'vifel_multiple_pallet_support': False})
     env.flush_all()
-    empty_pkg = env['stock.quant.package'].search([
-        ('location_id', '=', False),
-        ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=1)
-    owner.write({'vifel_fixed_package_id': empty_pkg.id,
+    # A STOCKED single-PSI pallet of the client: since the 2026-07-23
+    # ruling, an empty pinned pallet is the unflagged first-stock path -
+    # the flagged behaviours under test here need a pallet holding stock.
+    env.cr.execute("""
+        SELECT sq.package_id FROM stock_quant sq
+        JOIN stock_location sl ON sl.id=sq.location_id
+        WHERE sq.owner_id=%s AND sq.quantity>0 AND sq.package_id IS NOT NULL
+          AND sq.x_studio_pallet_series_id IS NOT NULL AND sl.usage='internal'
+        GROUP BY sq.package_id
+        HAVING COUNT(DISTINCT sq.x_studio_pallet_series_id)=1
+        LIMIT 1""", (owner.id,))
+    pin = env['stock.quant.package'].browse(env.cr.fetchone()[0])
+    pin_psi = pin.quant_ids.filtered(
+        lambda q: q.quantity > 0
+        and q.location_id.usage == 'internal').mapped(
+        'x_studio_pallet_series_id')[0]
+    owner.write({'vifel_fixed_package_id': pin.id,
                  'vifel_fixed_psi': 'ZZZ-000001'})
     env.flush_all()
 
@@ -68,8 +80,8 @@ try:
     wiz.action_confirm()
     env.flush_all()
     check('S1 merged and the display field followed the adopted series',
-          line.x_studio_pallet_series_display == 'ZZZ-000001',
-          line.x_studio_pallet_series_display)
+          line.x_studio_pallet_series_display == pin_psi,
+          (line.x_studio_pallet_series_display, pin_psi))
 
     line.action_unmerge_pallet_line()
     env.flush_all()

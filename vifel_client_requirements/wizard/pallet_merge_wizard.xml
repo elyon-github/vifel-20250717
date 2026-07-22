@@ -15,6 +15,7 @@
                 <field name="warn_different_product" invisible="1"/>
                 <field name="candidate_package_ids" invisible="1"/>
                 <field name="from_fast_encode" invisible="1"/>
+                <field name="selected_first_stock" invisible="1"/>
                 <!-- referenced by the new pallet / new location domains -->
                 <field name="warehouse_id" invisible="1"/>
 
@@ -93,11 +94,21 @@
                 </group>
 
                 <!-- The one consequence that is NOT obvious from the screen,
-                     kept to a single grey line rather than a banner. -->
-                <div class="oe_grey mt-3" invisible="mode != 'merge'">
+                     kept to a single grey line rather than a banner. The text
+                     switches with the selection: +0 only applies while the
+                     pallet already holds stock — the FIRST stock on the empty
+                     pinned pallet births it and counts +1. -->
+                <div class="oe_grey mt-3"
+                     invisible="mode != 'merge' or selected_first_stock">
                     The line adopts the selected pallet's series and location.
                     It is not counted as a new pallet — its weight and quantity
                     still count in full.
+                </div>
+                <div class="oe_grey mt-3"
+                     invisible="mode != 'merge' or not selected_first_stock">
+                    This pallet is empty — this line puts the first stock on it
+                    and <b>is counted as a received pallet</b>. Later lines
+                    merging onto it, once it holds stock, will not be.
                 </div>
 
                 <footer>

@@ -64,13 +64,20 @@ class PalletMergeCandidate(models.TransientModel):
     # A pallet started earlier on THIS receipt, not yet on the floor. It has
     # no quant to read, so its figures come from the sibling lines instead.
     on_this_receipt = fields.Boolean(string='On This Receipt')
+    # The empty pinned Fixed pallet: choosing it BIRTHS the pallet (+1,
+    # unflagged) rather than merging onto stock (+0).
+    first_stock = fields.Boolean(string='Empty — First Stock')
     source_label = fields.Char(string='Where', compute='_compute_source_label')
 
-    @api.depends('on_this_receipt')
+    @api.depends('on_this_receipt', 'first_stock')
     def _compute_source_label(self):
         for cand in self:
-            cand.source_label = _('On this receipt') if cand.on_this_receipt \
-                else _('In storage')
+            if cand.first_stock:
+                cand.source_label = _('Empty — starts the pallet')
+            elif cand.on_this_receipt:
+                cand.source_label = _('On this receipt')
+            else:
+                cand.source_label = _('In storage')
 
     @api.onchange('is_target')
     def _onchange_is_target(self):
@@ -149,6 +156,7 @@ class PalletMergeWizard(models.TransientModel):
     selected_candidate_id = fields.Many2one(
         'pallet.merge.candidate', compute='_compute_selection')
     warn_different_product = fields.Boolean(compute='_compute_selection')
+    selected_first_stock = fields.Boolean(compute='_compute_selection')
 
     # One line describing what is being merged. A computed string rather than
     # a field group on purpose: four related fields in a group rendered as
@@ -219,6 +227,8 @@ class PalletMergeWizard(models.TransientModel):
             wizard.selected_candidate_id = selected
             wizard.warn_different_product = bool(
                 selected and not selected.matches_line_product)
+            wizard.selected_first_stock = bool(
+                selected and selected.first_stock)
 
     # ------------------------------------------------------------------
     # candidate materialisation (once, at create)
@@ -318,7 +328,7 @@ class PalletMergeWizard(models.TransientModel):
         for package in packages:
             a = agg.get(package.id)
             psis = sorted(a['psis']) if a else []
-            eligible, reason = True, False
+            eligible, reason, first_stock = True, False, False
             if len(psis) > 1:
                 eligible = False
                 reason = _('Mixed pallet — carries %d Pallet Series (%s). '
@@ -330,6 +340,7 @@ class PalletMergeWizard(models.TransientModel):
             elif package == partner.vifel_fixed_package_id \
                     and (partner.vifel_fixed_psi or '').strip():
                 psi_label = '%s (empty)' % partner.vifel_fixed_psi.strip()
+                first_stock = True
             else:
                 eligible = False
                 reason = _('Empty pallet — no stock, so there is no Pallet '
@@ -350,6 +361,7 @@ class PalletMergeWizard(models.TransientModel):
                 'eligible': eligible,
                 'ineligible_reason': reason,
                 'is_target': False,
+                'first_stock': first_stock,
             }
             # eligible + special-type pallets sort to the top, then by PSI
             scored.append(((0 if eligible else 1,
@@ -514,6 +526,13 @@ class PalletMergeWizard(models.TransientModel):
                 'Pallet %s now carries %d different Pallet Series (%s) — it '
                 'must be consolidated to one before it can be a merge target.'
             ) % (target.name, len(psis), ', '.join(psis)))
+        # +0 applies ONLY while the target already holds stock (user ruling
+        # 2026-07-23). The FIRST stock on the empty pinned pallet BIRTHS the
+        # pallet — a plain, unflagged +1 line — because the ledger counts a
+        # pallet once when born and once when emptied: flag the birth +0 and
+        # the WR that later exhausts the pallet (−1) walks the balance
+        # negative on every empty→fill cycle.
+        first_stock = not psis
         if psis:
             adopted = psis[0]
             target_location = quants[:1].location_id
@@ -533,13 +552,17 @@ class PalletMergeWizard(models.TransientModel):
         vals = {
             'result_package_id': target.id,
             'x_studio_pallet_series_id': adopted,
-            'is_pallet_merge': True,
-            # remember what is being displaced so un-merge restores exactly
-            # this, including "there was nothing here yet"
-            'vifel_premerge_captured': True,
-            'vifel_premerge_series': old_series or False,
-            'vifel_premerge_location_id': old_location_id or False,
+            'is_pallet_merge': not first_stock,
         }
+        if not first_stock:
+            # remember what is being displaced so un-merge restores exactly
+            # this, including "there was nothing here yet". A first-stock
+            # line is plain (no Un-merge button), so nothing to capture.
+            vals.update({
+                'vifel_premerge_captured': True,
+                'vifel_premerge_series': old_series or False,
+                'vifel_premerge_location_id': old_location_id or False,
+            })
         if target_location:
             vals['location_dest_id'] = target_location.id
         # skip_pallet_series_sync: keep the repallet-sync machinery out of an
@@ -568,6 +591,25 @@ class PalletMergeWizard(models.TransientModel):
             line._free_pallet_if_unused(picking.id, old_package_id)
         if old_location_id and old_location_id != line.location_dest_id.id:
             line._free_location_if_unused(picking.id, old_location_id)
+
+        if first_stock:
+            # A pallet being STARTED gets the standard receiving reservation,
+            # exactly like the create-special path — it is this receipt's
+            # pallet now, not shared storage.
+            if not target.x_studio_is_reserved:
+                target.write({'x_studio_is_reserved': True,
+                              'x_studio_receiving_report_id': picking.id})
+            picking.message_post(body=Markup(_(
+                'Line #%s (%s): first stock on pallet <b>%s</b> — Pallet '
+                'Series <b>%s</b>. Counted as a received pallet (+1); lines '
+                'merging onto it once it holds stock will not be.')) % (
+                    line.x_studio_ or '', line.product_id.display_name,
+                    target.name, adopted))
+            return self._done_notification(_(
+                'Line #%(num)s starts pallet %(pallet)s (%(psi)s) — counted '
+                'as a received pallet.') % {
+                    'num': line.x_studio_ or '', 'pallet': target.name,
+                    'psi': adopted})
 
         # Markup(...) % args — the template is trusted, the values are escaped.
         # A plain str body is escaped whole by Odoo 17 and the tags would show

@@ -237,9 +237,12 @@ try:
           len(wizf.candidate_line_ids))
     wizf.action_confirm()
     env.flush_all()
-    check('B20 Fixed merge adopts the profile PSI on the empty pinned pallet',
+    check('B20 FIRST stock on the empty pinned pallet adopts the profile '
+          'PSI and is NOT flagged - it births the pallet, +1 '
+          '(user ruling 2026-07-23)',
           line5.x_studio_pallet_series_id == 'WMF-000230'
-          and line5.is_pallet_merge, line5.x_studio_pallet_series_id)
+          and not line5.is_pallet_merge,
+          (line5.x_studio_pallet_series_id, line5.is_pallet_merge))
 
     # ---- guard: create-special refused for a non-multiple client ------
     wiz4 = Wizard.create({'move_line_id': line.id, 'mode': 'new'})

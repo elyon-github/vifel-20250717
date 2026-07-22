@@ -179,6 +179,11 @@ CR2-test was **re-cut from client-trial `00b6f2b`** (v1 preserved at tag
 Commits: `6e36a47` (A: module extraction) → `a9a6cbf` (B: merge core) →
 `a6eb578` (C: UI) → `dbdff50` (D: Magic Wizard initiation) → E (tests + docs).
 
+**Counting refinement (user ruling 2026-07-23):** merge is +0 ONLY when the target pallet
+already holds stock. FIRST stock on the empty pinned Fixed pallet is a plain, unflagged
++1 line — otherwise the WR that later empties the pallet (−1 on exhaustion) walks the
+ledger negative each empty→fill cycle. Flag decided by stock state at merge time.
+
 ### 7.1 Feature summary (all decisions final)
 - **Client Profile** — new "VIFEL Configuration" notebook tab on partner form (extend
   existing inherit `multiple_relocation/views/views.xml:372`). Checkbox cascade, all OFF

@@ -71,51 +71,94 @@ try:
     check('A3 an empty pallet is accepted',
           owner.vifel_fixed_package_id == empty_pkg)
 
-    # ---- B. un-merge a line that had NO series and NO location -------
-    # Fixed mode, so the pinned (empty) pallet is the target.
+    # ---- B. FIRST STOCK on the empty pinned pallet (+1, unflagged) ---
+    # User ruling 2026-07-23: +0 applies ONLY while the target already
+    # holds stock. The first line to stock the pinned pallet BIRTHS it -
+    # a plain +1 line - otherwise the WR that later empties it (-1) walks
+    # the ledger negative on every empty->fill cycle.
     line = env['stock.move.line'].search([
         ('picking_id.picking_type_id.code', '=', 'incoming'),
         ('picking_id.state', 'not in', ('done', 'cancel')),
         ('picking_id.return_id', '=', False),
         ('picking_id.partner_id', '=', owner.id),
         ('product_id', '!=', False)], limit=1)
-    start_loc = line.location_dest_id
     line.with_context(skip_pallet_series_sync=True).write({
         'x_studio_pallet_series_id': False,
         'result_package_id': False})
     env.flush_all()
     check('B0 line starts with NO series (the reported scenario)',
           not line.x_studio_pallet_series_id)
-    print('   line #%s starts at location %s'
-          % (line.x_studio_, start_loc.complete_name))
 
     wiz = W.create({'move_line_id': line.id})
     tgt = wiz.candidate_line_ids.filtered('eligible')[:1]
-    check('B1 the pinned pallet is offered', bool(tgt), len(wiz.candidate_line_ids))
+    check('B1 the pinned (empty) pallet is offered', bool(tgt),
+          len(wiz.candidate_line_ids))
+    check('B1b ... and marked as first stock', tgt.first_stock)
     tgt.is_target = True
     wiz.action_confirm()
     env.flush_all()
-    check('B2 merged and adopted the profile PSI',
-          line.is_pallet_merge and line.x_studio_pallet_series_id == 'ZZZ-000001',
-          line.x_studio_pallet_series_id)
-    check('B3 the pre-merge state was recorded',
-          line.vifel_premerge_captured
-          and not line.vifel_premerge_series
-          and line.vifel_premerge_location_id == start_loc,
-          (line.vifel_premerge_captured, line.vifel_premerge_series,
-           line.vifel_premerge_location_id.complete_name))
+    check('B2 first stock adopts the profile PSI but is NOT flagged (+1)',
+          line.x_studio_pallet_series_id == 'ZZZ-000001'
+          and not line.is_pallet_merge,
+          (line.x_studio_pallet_series_id, line.is_pallet_merge))
+    rr_ref = empty_pkg.x_studio_receiving_report_id
+    check('B3 the started pallet is reserved for this receipt',
+          empty_pkg.x_studio_is_reserved
+          and getattr(rr_ref, 'id', rr_ref) == line.picking_id.id,
+          (empty_pkg.x_studio_is_reserved, rr_ref))
+    check('B4 nothing captured - a plain line has no Un-merge',
+          not line.vifel_premerge_captured)
+
+    # ---- B-flagged: merge onto a STOCKED pinned pallet, exact restore -
+    env.cr.execute("""
+        SELECT sq.package_id FROM stock_quant sq
+        JOIN stock_location sl ON sl.id=sq.location_id
+        WHERE sq.owner_id=%s AND sq.quantity>0 AND sq.package_id IS NOT NULL
+          AND sq.x_studio_pallet_series_id IS NOT NULL AND sl.usage='internal'
+        GROUP BY sq.package_id
+        HAVING COUNT(DISTINCT sq.x_studio_pallet_series_id)=1
+        LIMIT 1""", (owner.id,))
+    prow = env.cr.fetchone()
+    check('B5 found a single-PSI stocked pallet of the client', bool(prow))
+    pin = env['stock.quant.package'].browse(prow[0])
+    pin_psi = pin.quant_ids.filtered(
+        lambda q: q.quantity > 0
+        and q.location_id.usage == 'internal').mapped(
+        'x_studio_pallet_series_id')[0]
+    owner.write({'vifel_fixed_package_id': pin.id,
+                 'vifel_fixed_psi': 'ZZZ-000001'})
+    env.flush_all()
+
+    line.with_context(skip_pallet_series_sync=True).write({
+        'x_studio_pallet_series_id': False, 'result_package_id': False})
+    env.flush_all()
+    start_loc = line.location_dest_id
+    print('   line #%s starts at location %s'
+          % (line.x_studio_, start_loc.complete_name))
+    wiz2 = W.create({'move_line_id': line.id})
+    t2 = wiz2.candidate_line_ids.filtered('eligible')[:1]
+    t2.is_target = True
+    wiz2.action_confirm()
+    env.flush_all()
+    check('B6 merge onto the STOCKED pinned pallet IS flagged (+0)',
+          line.is_pallet_merge
+          and line.x_studio_pallet_series_id == pin_psi,
+          (line.is_pallet_merge, line.x_studio_pallet_series_id, pin_psi))
+    check('B7 the pre-merge state was recorded',
+          line.vifel_premerge_captured and not line.vifel_premerge_series,
+          (line.vifel_premerge_captured, line.vifel_premerge_series))
 
     line.action_unmerge_pallet_line()
     env.flush_all()
-    check('B4 un-merge cleared the flag', not line.is_pallet_merge)
-    check('B5 the adopted PSI is ERASED (was left behind before)',
+    check('B8 un-merge cleared the flag', not line.is_pallet_merge)
+    check('B9 the adopted PSI is ERASED (was left behind before)',
           not line.x_studio_pallet_series_id,
           line.x_studio_pallet_series_id)
-    check('B6 the location is the one it started at, not a fallback (%s)'
+    check('B10 the location is the one it started at, not a fallback (%s)'
           % line.location_dest_id.complete_name,
           line.location_dest_id == start_loc,
           (start_loc.complete_name, line.location_dest_id.complete_name))
-    check('B7 the pre-merge record is cleared after use',
+    check('B11 the pre-merge record is cleared after use',
           not line.vifel_premerge_captured)
 
     # ---- C. same scenario in MULTIPLE mode ---------------------------
