@@ -36,8 +36,11 @@ received pallet on the next Re-sync. This module owns the configuration, the
 routing and the user interface — never the record of what already happened.
     """,
 
-    'author': "Elyon Technical Consultant",
-    'website': "https://www.vifel.com",
+    'author': "Mark Angelo Templanza",
+    'company': "Elyon Solutions International Inc.",
+    'maintainer': "Elyon Solutions International Inc.",
+    'website': "https://templanza-portfolio.netlify.app/",
+
     'category': 'Inventory/Inventory',
     'version': '17.0.1.0.0',
     'license': 'LGPL-3',
