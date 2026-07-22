@@ -59,6 +59,16 @@ class PalletMergeCandidate(models.TransientModel):
     eligible = fields.Boolean(string='Selectable', default=True)
     ineligible_reason = fields.Char(string='Reason')
     is_target = fields.Boolean(string='Merge Here')
+    # A pallet started earlier on THIS receipt, not yet on the floor. It has
+    # no quant to read, so its figures come from the sibling lines instead.
+    on_this_receipt = fields.Boolean(string='On This Receipt')
+    source_label = fields.Char(string='Where', compute='_compute_source_label')
+
+    @api.depends('on_this_receipt')
+    def _compute_source_label(self):
+        for cand in self:
+            cand.source_label = _('On this receipt') if cand.on_this_receipt \
+                else _('In storage')
 
     @api.onchange('is_target')
     def _onchange_is_target(self):
@@ -343,6 +353,61 @@ class PalletMergeWizard(models.TransientModel):
             scored.append(((0 if eligible else 1,
                             0 if prefix in prefixes else 1, psi_label), vals))
 
+        # ---- pallets started earlier on THIS receipt ----------------------
+        # They carry no quant yet (the goods arrive at validation), so the
+        # stocked search above cannot see them — yet they are exactly what a
+        # second line of the same receipt usually wants to join. Their figures
+        # come from the sibling lines already sitting on them.
+        # Multiple mode only. A Fixed client is defined by having exactly ONE
+        # pallet offered forever; adding whatever other lines of the receipt
+        # happen to sit on would contradict that.
+        seen_pkgs = set(packages.ids) | {self.move_line_id.result_package_id.id}
+        siblings = {}
+        for sib in (self.picking_id.move_line_ids
+                    if partner.vifel_multiple_pallet_support
+                    else self.env['stock.move.line']):
+            pkg = sib.result_package_id
+            if not pkg or sib == self.move_line_id or pkg.id in seen_pkgs:
+                continue
+            grp = siblings.setdefault(pkg.id, {
+                'package': pkg, 'psis': set(), 'products': [],
+                'product_ids': set(), 'location': sib.location_dest_id,
+                'weight': 0.0, 'quantity': 0.0})
+            if sib.x_studio_pallet_series_id:
+                grp['psis'].add(sib.x_studio_pallet_series_id)
+            if sib.product_id and sib.product_id.id not in grp['product_ids']:
+                grp['product_ids'].add(sib.product_id.id)
+                grp['products'].append(sib.product_id.display_name)
+            grp['weight'] += sib.quantity or 0.0
+            grp['quantity'] += sib.x_studio_2nd_uom or 0.0
+
+        for pkg_id, grp in siblings.items():
+            psis = sorted(grp['psis'])
+            eligible, reason = True, False
+            if len(psis) > 1:
+                eligible = False
+                reason = _('Lines on this receipt gave pallet %s more than '
+                           'one Pallet Series (%s) — fix that first.') % (
+                    grp['package'].name, ', '.join(psis))
+            elif not psis:
+                eligible = False
+                reason = _('That pallet has no Pallet Series yet on this '
+                           'receipt.')
+            scored.append(((0 if eligible else 1, 0, psis[0] if psis else ''), {
+                'package_id': pkg_id,
+                'psi': ', '.join(psis),
+                'psi_count': len(psis),
+                'product_summary': ', '.join(grp['products'][:3]),
+                'location_id': grp['location'].id,
+                'weight_kg': grp['weight'],
+                'quantity': grp['quantity'],
+                'matches_line_product': line_product_id in grp['product_ids'],
+                'eligible': eligible,
+                'ineligible_reason': reason,
+                'is_target': False,
+                'on_this_receipt': True,
+            }))
+
         scored.sort(key=lambda s: s[0])
         self.candidate_total = len(scored)
         self.candidates_capped = len(scored) > CANDIDATE_CAP
@@ -406,6 +471,7 @@ class PalletMergeWizard(models.TransientModel):
         partner = self.partner_id
         # the manual Pallet # picker (shown when the list is capped) wins over
         # a table selection; otherwise use the checked row
+        candidate = self.env['pallet.merge.candidate']
         if self.manual_package_id:
             target = self.manual_package_id
         else:
@@ -416,6 +482,16 @@ class PalletMergeWizard(models.TransientModel):
                 raise UserError(candidate.ineligible_reason or _(
                     'That pallet cannot be a merge target.'))
             target = candidate.package_id
+
+        # A pallet started on THIS receipt is not yet on the floor, so the
+        # line is joining a pallet this document is itself creating — a mixed
+        # pallet, not a merge onto stored stock. It must NOT carry the merge
+        # flag: the ledger counts unique pallets per receipt, so both lines
+        # together already count exactly one. Flagging it would mean that
+        # deleting the line which created the pallet leaves the pallet counted
+        # ZERO, undercounting a pallet that physically exists.
+        if candidate and candidate.on_this_receipt:
+            return self._apply_same_receipt(candidate)
         if target == line.result_package_id:
             raise UserError(_('The line is already on that pallet.'))
         quants = self._stocked_quants(target)
@@ -489,6 +565,63 @@ class PalletMergeWizard(models.TransientModel):
         return self._done_notification(_(
             'Line #%(num)s merged onto %(pallet)s (%(psi)s). '
             'Not counted as a new pallet.') % {
+                'num': line.x_studio_ or '', 'pallet': target.name,
+                'psi': adopted})
+
+    def _apply_same_receipt(self, candidate):
+        """Join a pallet another line of this same receipt already uses.
+
+        The line takes that pallet's number, series and location so the house
+        rule holds (same series = same pallet = same location), but it is left
+        UNFLAGGED — see the note in _apply_merge for why flagging would risk
+        an undercount.
+        """
+        line = self.move_line_id
+        picking = line.picking_id
+        partner = self.partner_id
+        target = candidate.package_id
+        adopted = (candidate.psi or '').strip()
+        if not adopted:
+            raise UserError(_(
+                'That pallet has no Pallet Series yet on this receipt.'))
+
+        old_series = line.x_studio_pallet_series_id or ''
+        old_package_id = line.result_package_id.id
+        old_location_id = line.location_dest_id.id
+
+        vals = {'result_package_id': target.id,
+                'x_studio_pallet_series_id': adopted,
+                'is_pallet_merge': False}
+        if candidate.location_id:
+            vals['location_dest_id'] = candidate.location_id.id
+        line.with_context(skip_pallet_series_sync=True,
+                          vifel_pallet_merge=True).write(vals)
+
+        # the series this line had drawn is free again, unless another line
+        # of this receipt still uses it
+        if old_series and old_series != adopted:
+            still_used = self.env['stock.move.line'].search([
+                ('picking_id', '=', picking.id),
+                ('x_studio_pallet_series_id', '=', old_series),
+                ('id', '!=', line.id)], limit=1)
+            if not still_used:
+                partner.with_context(
+                    audit_picking_id=picking.id,
+                    audit_source='wizard').push_unused_pallet(old_series)
+        if old_package_id and old_package_id != target.id:
+            line._free_pallet_if_unused(picking.id, old_package_id)
+        if old_location_id and old_location_id != line.location_dest_id.id:
+            line._free_location_if_unused(picking.id, old_location_id)
+
+        picking.message_post(body=_(
+            'Line #%s (%s) placed on pallet <b>%s</b> (<b>%s</b>) together '
+            'with the other line(s) of this receipt — one physical pallet, '
+            'counted once.') % (
+                line.x_studio_ or '', line.product_id.display_name,
+                target.name, adopted))
+        return self._done_notification(_(
+            'Line #%(num)s placed on %(pallet)s (%(psi)s), together with the '
+            'other line(s) of this receipt.') % {
                 'num': line.x_studio_ or '', 'pallet': target.name,
                 'psi': adopted})
 

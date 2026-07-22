@@ -715,6 +715,15 @@ class stock_move_line_Override(models.Model):
         # void equivalent must stay identical to the voided document
         self._void_mirror_guard_write(vals)
 
+        # A merged line is pinned to the pallet it joined: same series, same
+        # pallet, same location as the stock already standing there. Editing
+        # any of the three on its own would leave the document pointing where
+        # that pallet is not — and once the adopted series reaches a quant,
+        # the system and the floor disagree. Changing the PALLET is handled
+        # below as an un-merge; the other two are refused outright so the only
+        # way out is the explicit Un-merge button.
+        self._vifel_guard_merged_line_edit(vals)
+
         # Skip when called from action_confirm (wizard already handles everything)
         if self.env.context.get('skip_pallet_series_sync'):
             return super().write(vals)
@@ -954,6 +963,46 @@ class stock_move_line_Override(models.Model):
                 {'is_pallet_merge': False})
 
         return res
+
+    def _vifel_guard_merged_line_edit(self, vals):
+        """Refuse a silent edit of a merged line's location or series.
+
+        Exempt when the merge wizard itself is writing (vifel_pallet_merge),
+        when the flag is being cleared in the same write (an un-merge), and
+        for validation/void machinery that carries skip_pallet_series_sync.
+        """
+        ctx = self.env.context
+        if ctx.get('vifel_pallet_merge') or ctx.get('skip_pallet_series_sync'):
+            return
+        if vals.get('is_pallet_merge') is False:
+            return                      # un-merging: the pin is being removed
+        watched = {
+            'location_dest_id': _('Location'),
+            'x_studio_pallet_series_id': _('Pallet Series ID'),
+        }
+        touched = [label for key, label in watched.items() if key in vals]
+        if not touched:
+            return
+        for line in self:
+            if not line.is_pallet_merge:
+                continue
+            # Mid-un-merge: the pallet has already been cleared and the
+            # restore machinery below is putting the original series back
+            # (it re-enters this write through base_automation's wrapper).
+            # A merged line with no pallet has nothing left to stay
+            # consistent with, so there is nothing to protect here.
+            if not line.result_package_id:
+                continue
+            raise UserError(_(
+                "Line #%(num)s is merged onto pallet %(pallet)s "
+                "(%(psi)s), so its %(fields)s cannot be changed here — the "
+                "line has to stay where that pallet is.\n\n"
+                "Press Un-merge on the line first if it should go somewhere "
+                "else."
+            ) % {'num': line.x_studio_ or '',
+                 'pallet': line.result_package_id.name or '?',
+                 'psi': line.x_studio_pallet_series_id or '?',
+                 'fields': ' / '.join(touched)})
 
     def _free_pallet_if_unused(self, picking_id, pallet_id, exclude_ids=None):
         """Free (unreserve) a pallet if no lines in the RR still use it."""

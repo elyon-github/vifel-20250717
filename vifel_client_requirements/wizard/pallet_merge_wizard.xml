@@ -41,7 +41,12 @@
                             <field name="is_target" widget="boolean_toggle"
                                    string="Merge Here"
                                    readonly="not eligible"/>
+                            <field name="on_this_receipt" column_invisible="1"/>
                             <field name="psi" string="Pallet Series"
+                                   readonly="1"/>
+                            <!-- distinguishes a pallet already on the floor
+                                 from one this receipt is still creating -->
+                            <field name="source_label" string="Where"
                                    readonly="1"/>
                             <field name="product_summary" string="Product"
                                    readonly="1"/>

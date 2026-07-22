@@ -166,7 +166,8 @@ try:
     owner.write({'vifel_multiple_pallet_support': True})
     env.flush_all()
     wiz2 = Wizard.create({'move_line_id': line.id})
-    tgt = wiz2.candidate_line_ids.filtered('eligible')[:1]
+    tgt = wiz2.candidate_line_ids.filtered(
+        lambda c: c.eligible and not c.on_this_receipt)[:1]
     tgt.is_target = True
     wiz2.action_confirm()
     env.flush_all()

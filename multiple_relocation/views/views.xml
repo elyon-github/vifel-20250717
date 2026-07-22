@@ -232,7 +232,9 @@
                     ('x_studio_receiving_report_id', '=', False),
                     ('x_studio_receiving_report_id', 'in', context.get('default_picking_id') and [context.get('default_picking_id')] or [])
             ]</attribute>
-            <attribute name="readonly">state == 'done'</attribute>
+            <!-- also locked on a merged line: it must stay where the pallet it
+                 joined is standing. Un-merge first to move it. -->
+            <attribute name="readonly">state == 'done' or is_pallet_merge</attribute>
         </xpath>
 
 

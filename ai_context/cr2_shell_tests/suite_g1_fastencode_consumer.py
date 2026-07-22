@@ -40,11 +40,12 @@ try:
     # pick an eligible target whose location is a leaf/aisle (so the Magic
     # Wizard's open-validation passes)
     target = wiz.candidate_line_ids.filtered(
-        lambda c: c.eligible and c.location_id
+        lambda c: c.eligible and not c.on_this_receipt and c.location_id
         and (not c.location_id.child_ids
              or c.location_id.x_studio_is_an_aisle))[:1]
     if not target:
-        target = wiz.candidate_line_ids.filtered('eligible')[:1]
+        target = wiz.candidate_line_ids.filtered(
+            lambda c: c.eligible and not c.on_this_receipt)[:1]
     target.is_target = True
     wiz.action_confirm()
     env.flush_all()

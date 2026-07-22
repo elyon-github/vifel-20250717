@@ -80,7 +80,9 @@ try:
           % len(mixed))
 
     # ---- a candidate's numbers match its quants -----------------------
-    sample = wiz.candidate_line_ids.filtered('eligible')[:1]
+    # a STOCKED candidate: same-receipt ones are unflagged by design
+    sample = wiz.candidate_line_ids.filtered(
+        lambda c: c.eligible and not c.on_this_receipt)[:1]
     q = sample.package_id.quant_ids.filtered(
         lambda x: x.quantity > 0 and x.location_id.usage == 'internal')
     check('B4 candidate weight matches its stocked quants',

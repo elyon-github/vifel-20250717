@@ -92,7 +92,8 @@ try:
           and 'invisible="not from_fast_encode"' in warch)
 
     # confirm path still returns to the list too
-    tgt = wiz.candidate_line_ids.filtered('eligible')[:1]
+    tgt = wiz.candidate_line_ids.filtered(
+        lambda c: c.eligible and not c.on_this_receipt)[:1]
     tgt.is_target = True
     conf = wiz.action_confirm()
     env.flush_all()

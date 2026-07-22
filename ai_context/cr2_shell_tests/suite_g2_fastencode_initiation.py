@@ -56,10 +56,11 @@ try:
 
     # pick an eligible target with a clean (leaf/aisle) location
     target = mwiz.candidate_line_ids.filtered(
-        lambda c: c.eligible and c.location_id
+        lambda c: c.eligible and not c.on_this_receipt and c.location_id
         and (not c.location_id.child_ids
              or c.location_id.x_studio_is_an_aisle))[:1] \
-        or mwiz.candidate_line_ids.filtered('eligible')[:1]
+        or mwiz.candidate_line_ids.filtered(
+            lambda c: c.eligible and not c.on_this_receipt)[:1]
     target.is_target = True
     adopted = target.psi
     tgt_pkg = target.package_id
