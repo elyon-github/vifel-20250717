@@ -28,6 +28,8 @@ Merge business rules honoured (BUSINESS_CONTEXT_AND_LEARNINGS.md §3-5):
 one physical pallet = one PSI; merged line = +0 pallets but full amounts;
 same owner only; never BF; never a return.
 """
+from markupsafe import Markup
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -567,10 +569,13 @@ class PalletMergeWizard(models.TransientModel):
         if old_location_id and old_location_id != line.location_dest_id.id:
             line._free_location_if_unused(picking.id, old_location_id)
 
-        picking.message_post(body=_(
+        # Markup(...) % args — the template is trusted, the values are escaped.
+        # A plain str body is escaped whole by Odoo 17 and the tags would show
+        # up as literal text in the chatter.
+        picking.message_post(body=Markup(_(
             'Line #%s (%s) merged onto pallet <b>%s</b> — adopted Pallet '
             'Series <b>%s</b>%s. The pallet count is not incremented for '
-            'this line.') % (
+            'this line.')) % (
                 line.x_studio_ or '', line.product_id.display_name,
                 target.name, adopted,
                 _(' at %s') % target_location.complete_name
@@ -626,10 +631,10 @@ class PalletMergeWizard(models.TransientModel):
         if old_location_id and old_location_id != line.location_dest_id.id:
             line._free_location_if_unused(picking.id, old_location_id)
 
-        picking.message_post(body=_(
+        picking.message_post(body=Markup(_(
             'Line #%s (%s) placed on pallet <b>%s</b> (<b>%s</b>) together '
             'with the other line(s) of this receipt — one physical pallet, '
-            'counted once.') % (
+            'counted once.')) % (
                 line.x_studio_ or '', line.product_id.display_name,
                 target.name, adopted))
         return self._done_notification(_(
@@ -712,9 +717,9 @@ class PalletMergeWizard(models.TransientModel):
         if old_location_id and old_location_id != self.new_location_id.id:
             line._free_location_if_unused(picking.id, old_location_id)
 
-        picking.message_post(body=_(
+        picking.message_post(body=Markup(_(
             'Line #%s (%s): new special pallet <b>%s</b> started with Pallet '
-            'Series <b>%s</b> at %s.') % (
+            'Series <b>%s</b> at %s.')) % (
                 line.x_studio_ or '', line.product_id.display_name,
                 self.new_package_id.name, series,
                 self.new_location_id.complete_name))

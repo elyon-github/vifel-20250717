@@ -412,6 +412,29 @@ class FastEncodeRRWizardLine(models.TransientModel):
     warehouse_id = fields.Many2one(
         'stock.warehouse', string="Warehouse",
         compute='_compute_warehouse_id')
+    # Pallets another line of this transfer has MERGED onto. They must not be
+    # offered in the RR Pallet # dropdown: a merge target is reached through
+    # the Merge button, which sets the flag, the series and the location
+    # together. Typing the same pallet here instead would put a second,
+    # unflagged line on it — counting it as a received pallet and leaving the
+    # two lines free to disagree about the series.
+    vifel_merge_locked_package_ids = fields.Many2many(
+        'stock.quant.package', string='Merge-locked Pallets',
+        compute='_compute_vifel_merge_locked_package_ids')
+
+    @api.depends('transfer_id')
+    def _compute_vifel_merge_locked_package_ids(self):
+        MoveLine = self.env['stock.move.line']
+        has_flag = 'is_pallet_merge' in MoveLine._fields
+        for record in self:
+            packages = self.env['stock.quant.package']
+            if has_flag and record.transfer_id:
+                packages = MoveLine.search([
+                    ('picking_id', '=', record.transfer_id),
+                    ('is_pallet_merge', '=', True),
+                ]).mapped('result_package_id')
+            record.vifel_merge_locked_package_ids = packages
+
     stock_move_line = fields.Integer(string="Move Line ID")
     x_studio_ = fields.Integer(string="#", readonly=True, group_operator=False)
     

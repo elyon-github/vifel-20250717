@@ -79,6 +79,23 @@ class StockMoveLineMergeEntry(models.Model):
         self.with_context(skip_pallet_series_sync=True,
                           vifel_pallet_merge=True).write(vals)
 
+        # x_studio_pallet_series_display is a STORED Studio computed field
+        # whose compute only assigns when the source has a value:
+        #
+        #     if record.x_studio_pallet_series_id:
+        #         record['x_studio_pallet_series_display'] = ...
+        #
+        # so clearing the series leaves the display holding the old one. The
+        # real fix is an else-branch in that Studio compute — see
+        # ai_context/studio_psi_display_clear_FIX.py — but the field is
+        # cleared here too, in its own write after the recompute has run, so
+        # un-merge is correct even before that paste reaches a database.
+        if 'x_studio_pallet_series_display' in self._fields \
+                and vals.get('x_studio_pallet_series_id', True) is False:
+            self.with_context(skip_pallet_series_sync=True,
+                              vifel_pallet_merge=True).write(
+                {'x_studio_pallet_series_display': False})
+
     def action_unmerge_pallet_line(self):
         """Reverse a merge: the line leaves the stocked target and becomes a
         plain line needing its own pallet again.

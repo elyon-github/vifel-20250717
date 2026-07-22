@@ -43,10 +43,12 @@
                      tint marks merged rows. -->
                 <field name="pallet_series_id" column_invisible="context.get('is_blast_freeze')" force_save="1" decoration-success="needs_new_pallet_series" decoration-info="is_pallet_merge"/>
                 <field name="warehouse_id" column_invisible="1" invisible="1"/>
+                <field name="vifel_merge_locked_package_ids" column_invisible="1"/>
                 <field name="result_package_id" string="RR Pallet #" groups="stock.group_tracking_lot"
                     domain="[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'),
                              ('x_studio_active', '=', True),
                              ('x_studio_warehouse', '=', warehouse_id),
+                             ('id', 'not in', vifel_merge_locked_package_ids),
                              '|', ('x_studio_receiving_report_id', '=', False),
                              ('x_studio_receiving_report_id', '=', transfer_id)]"
                     options="{'no_create': True}" column_invisible="context.get('is_blast_freeze')" force_save="1"  decoration-danger="has_duplicate_pallet" readonly="is_pallet_merge"/>
