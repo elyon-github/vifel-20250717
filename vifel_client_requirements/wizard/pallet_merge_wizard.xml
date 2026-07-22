@@ -15,6 +15,8 @@
                 <field name="warn_different_product" invisible="1"/>
                 <field name="candidate_package_ids" invisible="1"/>
                 <field name="from_fast_encode" invisible="1"/>
+                <!-- referenced by the new pallet / new location domains -->
+                <field name="warehouse_id" invisible="1"/>
 
                 <!-- What is being merged, in one line. Following core Odoo
                      dialogs (e.g. Return Picking): no coloured banner, no

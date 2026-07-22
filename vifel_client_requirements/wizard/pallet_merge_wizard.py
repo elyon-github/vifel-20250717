@@ -163,16 +163,29 @@ class PalletMergeWizard(models.TransientModel):
     psi_type_id = fields.Many2one(
         'vifel.psi.type', string='PSI Type',
         domain="[('partner_id', '=', partner_id)]")
+    # The RR's own warehouse. Everything offered by this wizard is scoped to
+    # it: merge candidates already were (see _candidate_packages), and the
+    # create-new-special pallet and location must be too — with two
+    # warehouses live, an unscoped picker will happily seat a pallet in the
+    # wrong building. Pallets follow the Magic Wizard's existing rule
+    # (x_studio_warehouse); locations use stock.location.warehouse_id, which
+    # is stored and populated on every internal location.
+    warehouse_id = fields.Many2one(
+        related='move_line_id.picking_id.picking_type_id.warehouse_id',
+        string='Warehouse')
+
     new_package_id = fields.Many2one(
         'stock.quant.package', string='New Empty Pallet',
         domain="[('location_id', '=', False), "
                "('package_type_id.name', '=', 'Pallet'), "
                "('x_studio_active', '=', True), "
+               "('x_studio_warehouse', '=', warehouse_id), "
                "'|', ('x_studio_receiving_report_id', '=', False), "
                "('x_studio_receiving_report_id', '=', picking_id)]")
     new_location_id = fields.Many2one(
         'stock.location', string='New Location',
         domain="[('usage', '=', 'internal'), "
+               "('warehouse_id', '=', warehouse_id), "
                "('x_studio_is_a_blast_freezer', '!=', True), "
                "'|', ('x_studio_is_an_aisle', '=', True), "
                "'&', ('child_ids', '=', False), "
@@ -488,6 +501,26 @@ class PalletMergeWizard(models.TransientModel):
                 and self.new_location_id):
             raise UserError(_(
                 'Pick the PSI type, an empty pallet and a location first.'))
+
+        # The domains above scope the pickers, but a domain is UI-only —
+        # re-check server-side so a stale form or an RPC call cannot seat a
+        # pallet in a different warehouse from the one receiving it.
+        warehouse = self.warehouse_id
+        if warehouse:
+            loc_wh = self.new_location_id.warehouse_id
+            if loc_wh and loc_wh != warehouse:
+                raise UserError(_(
+                    'Location %(loc)s belongs to %(other)s, but this receipt '
+                    'is for %(here)s. Pick a location in %(here)s.') % {
+                        'loc': self.new_location_id.complete_name,
+                        'other': loc_wh.name, 'here': warehouse.name})
+            pkg_wh = self.new_package_id.x_studio_warehouse
+            if pkg_wh and pkg_wh != warehouse:
+                raise UserError(_(
+                    'Pallet %(pkg)s belongs to %(other)s, but this receipt is '
+                    'for %(here)s. Pick a pallet in %(here)s.') % {
+                        'pkg': self.new_package_id.name,
+                        'other': pkg_wh.name, 'here': warehouse.name})
 
         series = self.psi_type_id.draw_number()
         old_series = line.x_studio_pallet_series_id or ''
