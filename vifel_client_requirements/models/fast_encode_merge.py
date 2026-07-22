@@ -74,7 +74,7 @@ class FastEncodeLineMerge(models.TransientModel):
         self._vifel_sync_from_move_line(ml)
         return self._reopen_fast_encode_list()
 
-    def _vifel_sync_from_move_line(self, move_line):
+    def _vifel_sync_from_move_line(self, move_line, reset_original=False):
         """Copy the real line's pallet identity onto this transient row.
 
         Written in TWO steps on purpose. This model's own write override
@@ -91,14 +91,21 @@ class FastEncodeLineMerge(models.TransientModel):
         mirrors it.
         """
         self.ensure_one()
+        series = move_line.x_studio_pallet_series_id or ''
         self.write({'result_package_id': move_line.result_package_id.id})
-        self.write({
+        vals = {
             'is_pallet_merge': move_line.is_pallet_merge,
-            'pallet_series_id': move_line.x_studio_pallet_series_id or '',
+            'pallet_series_id': series,
             'location_dest_id': move_line.location_dest_id.id,
-            'pre_wizard_pallet_series_id':
-                move_line.x_studio_pallet_series_id or '',
-        })
+            'pre_wizard_pallet_series_id': series,
+        }
+        if reset_original:
+            # Starting a new special pallet DRAWS a series and hands the one
+            # the line arrived with back to the pool. Leaving the old value in
+            # original_pallet_series_id would let the wizard's restore path
+            # put a number back that another line may already have taken.
+            vals['original_pallet_series_id'] = series
+        self.write(vals)
 
     def _reopen_fast_encode_list(self):
         """Rebuild the Magic Wizard list action for this row's wizard, so the

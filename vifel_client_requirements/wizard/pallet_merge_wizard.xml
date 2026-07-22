@@ -27,9 +27,11 @@
 
                 <!-- mode chooser: only Multiple clients can start a new
                      special pallet; Fixed clients merge onto their one
-                     pinned pallet, so no chooser is shown -->
+                     pinned pallet, so no chooser is shown. Offered from BOTH
+                     surfaces - the dialog behaves identically whether it was
+                     opened from the Pallet Breakdown or the Magic Wizard. -->
                 <field name="mode" widget="radio"
-                       invisible="not is_multiple_mode or from_fast_encode"/>
+                       invisible="not is_multiple_mode"/>
 
                 <!-- ============ MERGE ONTO A STOCKED PALLET ============ -->
                 <div invisible="mode != 'merge'">
@@ -80,9 +82,7 @@
                 </div>
 
                 <!-- ============ START A NEW SPECIAL PALLET ============ -->
-                <!-- create-special is a Pallet Breakdown action only; inside
-                     the Magic Wizard the wizard offers merge-onto-stocked -->
-                <group invisible="mode != 'new' or from_fast_encode"
+                <group invisible="mode != 'new'"
                        string="New special pallet — counts as a received pallet (+1)">
                     <field name="psi_type_id"
                            options="{'no_create': True, 'no_open': True}"/>

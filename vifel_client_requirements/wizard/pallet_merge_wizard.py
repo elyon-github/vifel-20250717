@@ -441,25 +441,33 @@ class PalletMergeWizard(models.TransientModel):
         fe_line_id = self.fast_encode_line_id \
             or self.env.context.get('fast_encode_line_id')
         if fe_line_id:
-            # inside the Magic Wizard: only merge-onto-stocked is offered.
-            # Apply to the REAL line now (Phase B logic, unchanged), then
-            # sync the transient row so the Magic Wizard's already-verified
-            # deferred confirm keeps the merge, and reload the list.
+            # Inside the Magic Wizard the dialog offers the SAME two actions
+            # as it does from the Pallet Breakdown. Either way it is applied
+            # to the REAL line first (Phase B logic, unchanged), then the
+            # transient row is synced so the Magic Wizard's deferred confirm
+            # keeps it, and the list is reopened.
+            if self.mode == 'new':
+                self._apply_create_special()
+                # A drawn series becomes this line's OWN identity: the series
+                # it arrived with has just gone back to the pool, so the
+                # wizard's restore machinery must not resurrect it.
+                return self._sync_fast_encode_and_reopen(
+                    fe_line_id, reset_original=True)
             self._apply_merge()
             return self._sync_fast_encode_and_reopen(fe_line_id)
         if self.mode == 'new':
             return self._apply_create_special()
         return self._apply_merge()
 
-    def _sync_fast_encode_and_reopen(self, fe_line_id):
-        """Push the just-applied merge onto its Magic Wizard transient row
-        and reopen the list, so the two representations never diverge."""
+    def _sync_fast_encode_and_reopen(self, fe_line_id, reset_original=False):
+        """Push what was just applied onto its Magic Wizard transient row and
+        reopen the list, so the two representations never diverge."""
         line = self.move_line_id
         fe_line = self.env['stock.move.line.fast_encode_rr.line'].browse(
             fe_line_id)
         if not fe_line.exists():
             return {'type': 'ir.actions.act_window_close'}
-        fe_line._vifel_sync_from_move_line(line)
+        fe_line._vifel_sync_from_move_line(line, reset_original=reset_original)
         return fe_line._reopen_fast_encode_list()
 
     # ------------------------------------------------------------------
