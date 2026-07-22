@@ -14,7 +14,7 @@ Checkbox cascade on the Contact form, everything OFF by default:
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
-from .vifel_psi_type import SEED_PREFIXES
+from .vifel_psi_type import SEED_TYPES
 
 
 class ResPartnerVifelConfig(models.Model):
@@ -76,12 +76,24 @@ class ResPartnerVifelConfig(models.Model):
         return res
 
     def _vifel_seed_psi_types(self):
-        """Create the standard special types this client does not have yet
-        (idempotent — re-flipping the switch never duplicates rows)."""
+        """Create the standard pallet types this client does not have yet
+        (idempotent — re-flipping the switch never duplicates rows).
+
+        Also backfills the description on rows that still carry the bare code
+        as their name, which is how they were seeded before the descriptions
+        were known. A row whose description has been edited to anything else
+        is left alone — the configurer's wording always wins.
+        """
         PsiType = self.env['vifel.psi.type']
         for partner in self:
-            existing = set(partner.vifel_psi_type_ids.mapped('prefix'))
-            PsiType.create([
-                {'partner_id': partner.id, 'name': prefix, 'prefix': prefix}
-                for prefix in SEED_PREFIXES if prefix not in existing
-            ])
+            by_prefix = {t.prefix: t for t in partner.vifel_psi_type_ids}
+            to_create = []
+            for prefix, description in SEED_TYPES:
+                existing = by_prefix.get(prefix)
+                if not existing:
+                    to_create.append({'partner_id': partner.id,
+                                      'name': description, 'prefix': prefix})
+                elif existing.name == prefix:
+                    existing.name = description
+            if to_create:
+                PsiType.create(to_create)

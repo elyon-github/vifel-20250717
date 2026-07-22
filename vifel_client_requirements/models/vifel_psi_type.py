@@ -11,9 +11,21 @@ foreign number in it would mint a duplicate series.
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
-# Standard special types, created for any client the moment Multiple
-# Pallet Support is switched on (idempotent; rows are editable after).
-SEED_PREFIXES = ('MDGM', 'BOC', 'TDMG', 'SDMG')
+# Standard pallet types, created for any client the moment Multiple Pallet
+# Support is switched on (idempotent; rows are editable after).
+#
+# Three are damage grades, in increasing severity. BOC is NOT a damage grade
+# at all — it is the client's own static pallet — which is why the group is
+# called "Pallet Types" rather than "condition pallets".
+SEED_TYPES = (
+    ('MDGM', 'Mildly Damaged'),
+    ('SDMG', 'Semi Damaged'),
+    ('TDMG', 'Totally Damaged'),
+    ('BOC', 'Client Static PSI'),
+)
+
+# kept for callers that only need the codes
+SEED_PREFIXES = tuple(prefix for prefix, _desc in SEED_TYPES)
 
 
 class VifelPsiType(models.Model):

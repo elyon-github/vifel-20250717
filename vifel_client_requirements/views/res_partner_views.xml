@@ -45,7 +45,7 @@
                         </div>
                         <div class="oe_grey" colspan="2"
                              invisible="not vifel_multiple_pallet_support">
-                            On — merges are offered the client's condition
+                            On — merges are offered the client's special
                             pallets, listed below.
                         </div>
 
@@ -61,10 +61,13 @@
                                invisible="not vifel_multiple_pallet_support"/>
                     </group>
 
-                    <!-- Step 3: the condition pallets themselves. The Next
-                         Series column shows the real next number, so the
-                         table explains its own format without a paragraph. -->
-                    <group string="Condition Pallets"
+                    <!-- Step 3: the pallet types themselves. Deliberately NOT
+                         called "condition pallets": three of the four seeded
+                         types are damage grades, but BOC is the client's own
+                         static pallet, which is not a condition at all.
+                         The Next Series column shows the real next number, so
+                         the table explains its format without a paragraph. -->
+                    <group string="Pallet Types"
                            invisible="not vifel_can_merge_pallets
                                       or not vifel_multiple_pallet_support">
                         <field name="vifel_psi_type_ids" nolabel="1" colspan="2">
