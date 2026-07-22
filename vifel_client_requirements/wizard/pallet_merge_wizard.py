@@ -532,6 +532,11 @@ class PalletMergeWizard(models.TransientModel):
             'result_package_id': target.id,
             'x_studio_pallet_series_id': adopted,
             'is_pallet_merge': True,
+            # remember what is being displaced so un-merge restores exactly
+            # this, including "there was nothing here yet"
+            'vifel_premerge_captured': True,
+            'vifel_premerge_series': old_series or False,
+            'vifel_premerge_location_id': old_location_id or False,
         }
         if target_location:
             vals['location_dest_id'] = target_location.id

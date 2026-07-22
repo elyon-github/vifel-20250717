@@ -48,6 +48,37 @@ class StockMoveLineMergeEntry(models.Model):
             'target': 'new',
         }
 
+    def _vifel_restore_premerge_state(self, captured, pre_series, pre_location):
+        """Put the line back exactly as the merge found it.
+
+        Only corrects what the generic restore cannot know:
+
+        * a line that had NO series before merging keeps the adopted one,
+          because that restore is gated on original_pallet_series_id and a
+          line with no original never enters it — so the series is cleared
+          here;
+        * a line that had no x_studio_initial_location is sent to a hardcoded
+          fallback location — so the real pre-merge location is written back
+          here.
+
+        A line that did have its own series is left to the existing, tested
+        machinery (which also settles the recycling pool); this only fills the
+        gaps rather than overriding it.
+        """
+        self.ensure_one()
+        if not captured:
+            return
+        vals = {}
+        if not pre_series and self.x_studio_pallet_series_id:
+            vals['x_studio_pallet_series_id'] = False
+        if pre_location and self.location_dest_id != pre_location:
+            vals['location_dest_id'] = pre_location.id
+        vals.update({'vifel_premerge_captured': False,
+                     'vifel_premerge_series': False,
+                     'vifel_premerge_location_id': False})
+        self.with_context(skip_pallet_series_sync=True,
+                          vifel_pallet_merge=True).write(vals)
+
     def action_unmerge_pallet_line(self):
         """Reverse a merge: the line leaves the stocked target and becomes a
         plain line needing its own pallet again.
@@ -63,7 +94,11 @@ class StockMoveLineMergeEntry(models.Model):
         if not self.is_pallet_merge:
             raise UserError(_('This line is not a merged pallet.'))
         target_name = self.result_package_id.name
+        captured = self.vifel_premerge_captured
+        pre_series = self.vifel_premerge_series
+        pre_location = self.vifel_premerge_location_id
         self.write({'result_package_id': False})
+        self._vifel_restore_premerge_state(captured, pre_series, pre_location)
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',

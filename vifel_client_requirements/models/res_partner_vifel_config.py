@@ -59,6 +59,30 @@ class ResPartnerVifelConfig(models.Model):
                     'together (or both left empty) — one without the other '
                     'cannot anchor a merge.'))
 
+    @api.constrains('vifel_fixed_package_id')
+    def _check_vifel_fixed_package_owner(self):
+        """The pinned pallet must be free, or already hold this client's own
+        stock. Pinning a pallet occupied by someone else would offer every
+        merge a target full of another client's goods — the domain on the
+        field says so, but a domain is UI-only."""
+        for partner in self:
+            package = partner.vifel_fixed_package_id
+            if not package:
+                continue
+            foreign = package.quant_ids.filtered(
+                lambda q: q.quantity > 0 and q.owner_id
+                and q.owner_id != partner)
+            if foreign and not package.quant_ids.filtered(
+                    lambda q: q.quantity > 0 and q.owner_id == partner):
+                raise ValidationError(_(
+                    'Pallet %(pallet)s is holding stock owned by %(other)s, '
+                    'so it cannot be pinned as %(client)s\'s merge pallet. '
+                    'Pick a pallet that is empty or already holds '
+                    '%(client)s\'s stock.') % {
+                        'pallet': package.name,
+                        'other': ', '.join(foreign.mapped('owner_id.name')[:3]),
+                        'client': partner.display_name})
+
     # ------------------------------------------------------------------
     # seeding — in create/write, NOT onchange, so it also covers imports
     # and server-side writes

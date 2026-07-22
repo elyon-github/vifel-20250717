@@ -32,6 +32,20 @@ class StockMoveLineVifelClientFields(models.Model):
         string='Lot No.', copy=False,
         help="The client's own lot number for this pallet line.")
 
+    # What the merge displaced, so un-merge can put back exactly that instead
+    # of guessing. The generic restore keys off original_pallet_series_id and
+    # x_studio_initial_location, and a line that had NEITHER yet — merged
+    # before any series or location was assigned — fell through it: the
+    # adopted series stayed on the line and the location was reset to a
+    # hardcoded fallback. Captured is a separate flag because "was empty" and
+    # "never recorded" have to be told apart.
+    vifel_premerge_captured = fields.Boolean(
+        string='Pre-merge State Recorded', copy=False)
+    vifel_premerge_series = fields.Char(
+        string='Pre-merge Pallet Series', copy=False)
+    vifel_premerge_location_id = fields.Many2one(
+        'stock.location', string='Pre-merge Location', copy=False)
+
 
 class StockQuantVifelClientFields(models.Model):
     _inherit = 'stock.quant'

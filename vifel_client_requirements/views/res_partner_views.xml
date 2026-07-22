@@ -50,8 +50,14 @@
                         </div>
 
                         <!-- Fixed: one pinned pallet, forever -->
+                        <!-- Only a pallet that is free, or already holds THIS
+                             client's stock. Pinning a pallet occupied by
+                             someone else would offer every merge a target
+                             holding another client's goods. -->
                         <field name="vifel_fixed_package_id"
                                invisible="vifel_multiple_pallet_support"
+                               domain="['|', ('quant_ids', '=', False),
+                                        ('quant_ids.owner_id', '=', id)]"
                                options="{'no_create': True}"/>
                         <field name="vifel_fixed_psi"
                                invisible="vifel_multiple_pallet_support"/>
