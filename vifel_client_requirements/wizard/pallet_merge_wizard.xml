@@ -159,13 +159,18 @@
                         <field name="selected_target_quant_ids" nolabel="1"
                                colspan="2" readonly="1">
                             <tree create="false" delete="false" edit="false">
+                                <field name="x_studio_record_reference"
+                                       string="Receiving Record (RR)"
+                                       options="{'no_open': True}"/>
+                                <field name="product_id" string="Product"/>
                                 <field name="x_studio_pallet_series_id"
                                        string="Pallet Series"/>
-                                <field name="product_id" string="Product"/>
-                                <field name="lot_id" string="Lot"/>
                                 <field name="location_id" string="Location"/>
                                 <field name="x_studio_2nd_uom"
                                        string="Quantity" sum="Quantity"/>
+                                <field name="x_studio_quantity_uom"
+                                       string="Quantity UOM"
+                                       options="{'no_open': True}"/>
                                 <field name="quantity" string="Weight (KG)"
                                        sum="Weight (KG)"/>
                             </tree>
