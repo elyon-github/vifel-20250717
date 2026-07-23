@@ -26,14 +26,19 @@ Adds the per-client capabilities agreed with VIFEL:
 * **Client Lot No.**: the client's own lot number on transfer lines, stamped
   onto stock when the transfer validates.
 
-Deliberate design note
-----------------------
-The ``is_pallet_merge`` and ``client_lot_no`` FIELDS live in
-``multiple_relocation``, not here. They are ledger evidence: uninstalling this
-module must never drop the columns that tell the pallet count why a merged
-line was not counted, or every merged line would silently recount as a
-received pallet on the next Re-sync. This module owns the configuration, the
-routing and the user interface — never the record of what already happened.
+Design note
+-----------
+Everything this feature owns lives in this module. ``multiple_relocation`` and
+``pallet_kilos_record_model`` keep only five generic extension hooks, because
+the behaviour they gate sits inside methods of ~300 and ~990 lines that an
+add-on cannot re-implement without duplicating them and drifting from core.
+
+The fields lived in ``multiple_relocation`` until 2026-07-23, so that
+uninstalling could not drop them and inflate historical pallet counts. The
+module is installed once and never uninstalled, so that risk cannot occur and
+the fields now sit with the rest of the feature. If that ever changes, move
+them back to core first: dropping ``is_pallet_merge`` silently inflates pallet
+counts, and a wrong pallet count is a wrong invoice.
     """,
 
     'author': "Mark Angelo Templanza",
@@ -53,6 +58,9 @@ routing and the user interface — never the record of what already happened.
     'depends': [
         'multiple_relocation',
         'pallet_series_audit',
+        # transitive through multiple_relocation, but declared explicitly:
+        # this module overrides its counting hooks.
+        'pallet_kilos_record_model',
     ],
 
     'data': [
@@ -61,6 +69,7 @@ routing and the user interface — never the record of what already happened.
         'views/res_partner_views.xml',
         'views/stock_move_line_views.xml',
         'views/fast_encode_views.xml',
+        'views/stock_quant_views.xml',
     ],
 
     'installable': True,

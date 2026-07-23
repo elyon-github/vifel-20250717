@@ -223,32 +223,37 @@ ledger negative each empty→fill cycle. Flag decided by stock state at merge ti
 - **PKR counting** — merged lines: pallets +0; Weight/Quantity/Heads still count
   (sums at `pallet_kilos_record_model/models/models.py:145-152` untouched).
 
-### 7.2 As-built architecture — data in core, everything else optional
+### 7.2 As-built architecture — plug and play (revised 2026-07-23)
 
-The split is **data vs interaction**, chosen for billing safety, not tidiness.
+**Everything the feature owns lives in `vifel_client_requirements`.** Core keeps only
+five generic extension hooks. Installing the module adds the feature; core carries no
+trace of it. Guarded by `suite_f_plug_and_play.py` (25 checks).
 
-**Stays in `multiple_relocation` (core, permanent):**
-- `is_pallet_merge` + `client_lot_no` fields (`models/vifel_client_fields.py`) and the
-  three PKR count exclusions. **They are ledger evidence.** If they lived in the optional
-  module, uninstalling would drop the columns and every historically merged line would
-  silently recount as a received pallet on the next Re-sync — inflating pallet counts,
-  and so invoices, for work done months earlier. Data outlives the UI that produced it.
-- The `write()` un-merge intercept (`stock_move.py` ~:745, ~:952) — already correctly
-  guarded by the `skip_pallet_series_sync` / `'result_package_id' not in vals` early
-  returns at :719-724.
-- FastEncodeRR's consumer behaviour: guard relaxation, flagged-line locking, cargo-only
-  writes, Lot No. column. Because the fields are core, **no extension hooks were needed**.
-- Gated tree columns (`views.xml`), `show_client_lot_no` read via `getattr` so the column
-  never renders when the optional module is absent.
+Core footprint, in full — 2 files, ~60 lines, mostly docstrings:
 
-**`vifel_client_requirements` (new, depends `multiple_relocation` + `pallet_series_audit`):**
-`vifel_psi_type.py` (field is `number_pool`, NOT `pool` — `pool` shadows the registry
-property and breaks setup with a misleading `KeyError: 'partner_id'`),
-`res_partner_vifel_config.py` (cascade + seeding in create/write), `res_partner_psi_routing.py`
-(prefix routing + stocked-guard + audit), `client_lot_no_gating.py` (compute + quant
-stamping), `stock_move_line_merge.py` (button availability, wizard opener, un-merge),
-`fast_encode_merge.py` (Magic Wizard initiation), `wizard/pallet_merge_wizard.py|.xml`,
-`views/` (VIFEL Configuration tab, Pallet Breakdown buttons, Magic Wizard buttons), ACLs.
+| Module | Hook | Neutral default | Why it cannot live in the add-on |
+|---|---|---|---|
+| `multiple_relocation` `wizard/FastEncodeRR.py` | `_vifel_line_is_merge_locked(line)` | `False` | inside two loops (`action_confirm`, `_validate_result_package_availability`) |
+| | `_vifel_apply_merge_locked_line(line, ml)` | `False` | inside `action_confirm`'s main write loop (**299 lines**) |
+| | `_vifel_line_write_vals(line)` | `{}` | extra values on the normal write path |
+| `pallet_kilos_record_model` `models/models.py` | `_vifel_line_originates_pallet(ml)` | `True` | inside `_populate_operations_data` (**153 lines**) |
+| | `_vifel_merge_free_domain()` | `[]` | inside `action_resync_pallet_counts` (**990 lines**) |
+
+An add-on cannot reach into the middle of a loop, and duplicating a 299- or 990-line
+method to change three lines would drift from core silently — the thing that actually
+breaks a system later. Core asks a neutral question; the module answers it.
+
+**What moved out on 2026-07-23** (was ~230 lines across 8 files in 2 modules): the five
+fields (`is_pallet_merge`, `client_lot_no`, `vifel_premerge_*`), the `write()` guard and
+un-merge intercept, the Magic Wizard's merge columns and seeding, the Pallet Breakdown and
+quant-tree columns, and both context keys. The wizard seeding now backfills in the
+transient line's own `create()` rather than duplicating an 86-line method; the two context
+keys are injected by overriding the actions and mutating the returned dict.
+
+**Reversal note.** The fields lived in core so that uninstalling could not drop them and
+inflate historical pallet counts. The user ruled the module is installed once and **never
+uninstalled**, so that risk cannot occur. *If that ruling is ever reversed, move the
+fields back to core FIRST* — dropping `is_pallet_merge` silently inflates pallet counts.
 
 ### 7.3 Findings that cost real time — do not relearn
 
@@ -275,7 +280,7 @@ stamping), `stock_move_line_merge.py` (button availability, wizard opener, un-me
 6. `pallet.series.audit.log_event` **silently skips** validated/cancelled/return pickings —
    audit assertions are vacuous unless the test picking is still open.
 
-### 7.4 Verification — 105/105 on `vifel_07_12_2026_2`
+### 7.4 Verification — 207/207 on `vifel_07_12_2026_2`
 
 Suites live in `ai_context/cr2_shell_tests/suite_*.py`, all rollback-only; pipe each into
 `odoo-bin shell`. Re-run them before Internal Testing and after any merge into client-trial.
@@ -287,7 +292,7 @@ Suites live in `ai_context/cr2_shell_tests/suite_*.py`, all rollback-only; pipe 
 | `suite_c_pkr_counting` | **+0 pallets / full amounts**, no-op domain, Re-sync idempotence, copy=False | 11 |
 | `suite_d_guards_edges` | BF/return/outgoing/validated never offer merge, owner isolation, Lot No. stamping, picklist | 16 |
 | `suite_e_ui_structure` | form + buttons registered, single-select, ineligible refused | 5 |
-| `suite_f_uninstall_safety` | **R1** — field ownership, no hard coupling, PKR bare-install guard | 15 |
+| `suite_f_plug_and_play` | **core carries no trace of the feature**; hooks are neutral and overridden | 25 |
 | `suite_g1_fastencode_consumer` | a merge survives the Magic Wizard's deferred confirm | 11 |
 | `suite_g2_fastencode_initiation` | merge/un-merge started inside the Magic Wizard | 13 |
 

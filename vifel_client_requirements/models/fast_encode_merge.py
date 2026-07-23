@@ -130,3 +130,112 @@ class FastEncodeLineMerge(models.TransientModel):
                     picking, 'show_client_lot_no', False),
             },
         }
+
+
+class FastEncodeLineMergeFields(models.TransientModel):
+    """The merge-related columns of a Magic Wizard row.
+
+    These lived in ``multiple_relocation`` until 2026-07-23. They are ordinary
+    ``_inherit`` additions, so they belong with the feature.
+    """
+    _inherit = 'stock.move.line.fast_encode_rr.line'
+
+    client_lot_no = fields.Char(string='Lot No.')
+    is_pallet_merge = fields.Boolean(string='Merged Pallet', readonly=True)
+
+    # Pallets another line of this transfer has MERGED onto. They must not be
+    # offered in the RR Pallet # dropdown: a merge target is reached through
+    # the Merge button, which sets the flag, the series and the location
+    # together. Typing the same pallet here instead would put a second,
+    # unflagged line on it — counting it as a received pallet and leaving the
+    # two lines free to disagree about the series.
+    vifel_merge_locked_package_ids = fields.Many2many(
+        'stock.quant.package', string='Merge-locked Pallets',
+        compute='_compute_vifel_merge_locked_package_ids')
+
+    @api.depends('transfer_id')
+    def _compute_vifel_merge_locked_package_ids(self):
+        MoveLine = self.env['stock.move.line']
+        for record in self:
+            packages = self.env['stock.quant.package']
+            if record.transfer_id:
+                packages = MoveLine.search([
+                    ('picking_id', '=', record.transfer_id),
+                    ('is_pallet_merge', '=', True),
+                ]).mapped('result_package_id')
+            record.vifel_merge_locked_package_ids = packages
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Seed the merge columns from the real move line.
+
+        Core builds these rows inside ``action_open_fast_encode_wizard`` (86
+        lines). Rather than duplicate that method to add two keys, the values
+        are backfilled here from the ``stock_move_line`` the row already
+        points at — same result, no duplication.
+        """
+        MoveLine = self.env['stock.move.line']
+        for vals in vals_list:
+            move_line = MoveLine.browse(vals.get('stock_move_line') or 0)
+            if not move_line.exists():
+                continue
+            vals.setdefault('client_lot_no', move_line.client_lot_no or '')
+            vals.setdefault('is_pallet_merge', move_line.is_pallet_merge)
+        return super().create(vals_list)
+
+
+class FastEncodeWizardMergeHooks(models.TransientModel):
+    """Answers the three extension hooks core's Magic Wizard exposes."""
+    _inherit = 'stock.move.line.fast_encode_rr'
+
+    def _vifel_line_is_merge_locked(self, line):
+        """A merged row keeps its adopted pallet, series and location: it is
+        skipped by pallet-availability validation (it points at an occupied
+        pallet on purpose) and never competes in the winner grouping."""
+        if line.is_pallet_merge:
+            return True
+        return super()._vifel_line_is_merge_locked(line)
+
+    def _vifel_apply_merge_locked_line(self, line, move_line):
+        """Cargo-only write for a merged row.
+
+        Its pallet / series / location belong to the stock already standing
+        there, and the stocked target must never be stamped as reserved.
+        """
+        if not line.is_pallet_merge:
+            return super()._vifel_apply_merge_locked_line(line, move_line)
+        move_line.with_context(skip_pallet_series_sync=True).write({
+            'bf_pallet_char': line.bf_pallet_char,
+            'x_studio_2nd_uom': line.quantity,
+            'x_studio_total_units': line.min_uom_unit,
+            'quantity': line.kilogram,
+            'x_studio_container_number': line.container_number or '',
+            'client_lot_no': line.client_lot_no or False,
+            'x_studio_production_date': line.production_date,
+            'x_studio_expiration_date': line.expiration_date,
+            'x_studio_quantity_uom':
+                line.quantity_uom.id if line.quantity_uom else False,
+            'x_studio_min_quantity_uom':
+                line.packs_uom.id if line.packs_uom else False,
+        })
+        return True
+
+    def _vifel_line_write_vals(self, line):
+        """Carry the client Lot No. through on the normal path."""
+        vals = super()._vifel_line_write_vals(line)
+        vals['client_lot_no'] = line.client_lot_no or False
+        return vals
+
+
+class StockMoveLineFastEncodeContext(models.Model):
+    _inherit = 'stock.move.line'
+
+    def action_open_fast_encode_wizard(self):
+        """Tell the Magic Wizard whether this client shows a Lot No. column."""
+        res = super().action_open_fast_encode_wizard()
+        if isinstance(res, dict) and isinstance(res.get('context'), dict) \
+                and self:
+            res['context'] = dict(
+                res['context'],
+                show_client_lot_no=bool(self[0].picking_id.show_client_lot_no))
+        return res

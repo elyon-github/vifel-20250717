@@ -337,25 +337,28 @@ All on branch client-trial (tip `d6591bf`); details + test coverage in `handoff.
   (anchored at first appearance).
 - **Return wizard**: `_find_existing_return` excludes void returns unless `voided` context;
   PSI-remainder-first landing for void/manual partial returns (`_find_psi_remainder_quant`).
-## Update 2026-07-21 — Client-Specific Requirement Enhancement moved OUT
+## Update 2026-07-23 — Client-Specific Requirement Enhancement is fully OUT
 
-The per-client pallet-merge feature now lives in its own module,
-**`vifel_client_requirements`** (see `vifel_client_requirements_AI_CONTEXT.md` and
-handoff.md §7). What stays HERE, permanently, and why:
+The per-client pallet-merge feature lives entirely in **`vifel_client_requirements`**
+(see `vifel_client_requirements_AI_CONTEXT.md`). This module carries **no fields, no
+views and no logic** for it — only three generic extension hooks in
+`wizard/FastEncodeRR.py`:
 
-- **`is_pallet_merge` and `client_lot_no` fields** (`models/vifel_client_fields.py`) plus
-  the three PKR count exclusions. These are **ledger evidence**, not UI. If they lived in
-  the optional module, uninstalling it would drop the columns and every historically
-  merged line would silently recount as a received pallet on the next Re-sync — wrong
-  pallet counts, wrong invoices, for work done months earlier.
-- **The un-merge intercept** in `stock_move.py::write` (~:745 snapshot, ~:952 clear),
-  guarded by the existing `skip_pallet_series_sync` / `'result_package_id' not in vals`
-  early returns at :719-724.
-- **FastEncodeRR's consumer behaviour**: merged lines skip availability validation and
-  winner grouping, get a cargo-only write, and show their PSI/Pallet # readonly. Because
-  the fields are core, no extension hooks were needed.
-- Gated Lot No. / Merged columns in the trees; `show_client_lot_no` is read via `getattr`
-  so nothing renders when the optional module is absent.
+| Hook | Returns here | Why it cannot live in the add-on |
+|---|---|---|
+| `_vifel_line_is_merge_locked(line)` | `False` | called inside two loops of `action_confirm` and of `_validate_result_package_availability` |
+| `_vifel_apply_merge_locked_line(line, ml)` | `False` | called inside `action_confirm`'s main write loop (~300-line method) |
+| `_vifel_line_write_vals(line)` | `{}` | extra values on the normal write path |
 
-**Do not move these into the optional module.** `ai_context/cr2_shell_tests/suite_f_uninstall_safety.py`
-asserts the ownership split and fails loudly if it changes.
+An add-on cannot reach into the middle of a loop, and duplicating `action_confirm` to
+change three lines would drift from this file silently. The hooks are permanent and
+stable: they name a concept, not a feature, and nothing here should ever need to change
+them again.
+
+`pallet_kilos_record_model` carries the same arrangement with two hooks
+(`_vifel_line_originates_pallet`, `_vifel_merge_free_domain`).
+
+**Do not add feature-specific code back into this module.**
+`ai_context/cr2_shell_tests/suite_f_plug_and_play.py` asserts that core source contains
+zero references to `is_pallet_merge`, `client_lot_no`, `vifel_premerge` or
+`pallet.merge.wizard`, and fails loudly if any reappears.

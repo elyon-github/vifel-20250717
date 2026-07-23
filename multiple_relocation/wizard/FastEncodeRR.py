@@ -13,6 +13,32 @@ class FastEncodeRRWizard(models.TransientModel):
         'stock.move.line.fast_encode_rr.line', 'wizard_id', string="Pallet Lines", readonly=False
     )
     
+    # ------------------------------------------------------------------
+    # Extension hooks (vifel_client_requirements)
+    #
+    # These three no-ops are the ONLY footprint the pallet-merge feature
+    # keeps in this module. They exist because the behaviour they gate sits
+    # inside action_confirm (~300 lines) and _validate_result_package_
+    # availability, which an add-on cannot re-implement without duplicating
+    # them and drifting from this file. Defaults here are "nothing special";
+    # vifel_client_requirements overrides them for merged lines.
+    # ------------------------------------------------------------------
+    def _vifel_line_is_merge_locked(self, line):
+        """True when the line's pallet / series / location are owned by
+        another document and must not be re-derived here: it skips pallet
+        availability validation and the winner grouping."""
+        return False
+
+    def _vifel_apply_merge_locked_line(self, line, move_line):
+        """Write a merge-locked line and return True when it was fully
+        handled, so the standard pallet / series / location processing is
+        skipped for it."""
+        return False
+
+    def _vifel_line_write_vals(self, line):
+        """Extra values to write for a normal line."""
+        return {}
+
     def _validate_result_package_availability(self):
         """Refuse to confirm if any selected Pallet # is either:
           - already reserved by ANOTHER picking via x_studio_receiving_report_id, or
@@ -30,8 +56,7 @@ class FastEncodeRRWizard(models.TransientModel):
         errors = []
         seen = set()
         for line in self.line_ids:
-            # Merged lines point at an occupied, stocked pallet ON PURPOSE
-            if line.is_pallet_merge:
+            if self._vifel_line_is_merge_locked(line):
                 continue
             pkg = line.result_package_id
             if not pkg or pkg.id in seen:
@@ -128,9 +153,7 @@ class FastEncodeRRWizard(models.TransientModel):
             if line.result_package_id:
                 pallet_id = line.result_package_id.id
                 current_pallets.add(pallet_id)
-                if line.is_pallet_merge:
-                    # merged lines keep their adopted series — they never
-                    # compete in the winner grouping
+                if self._vifel_line_is_merge_locked(line):
                     continue
                 pallet_lines.setdefault(pallet_id, []).append(line)
             
@@ -265,23 +288,8 @@ class FastEncodeRRWizard(models.TransientModel):
         for line in self.line_ids:
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
-                
-                if line.is_pallet_merge:
-                    # Merged lines are locked to their adopted pallet / PSI /
-                    # location — only cargo details may change here, and the
-                    # stocked target must never be stamped as reserved.
-                    move_line.with_context(skip_pallet_series_sync=True).write({
-                        'bf_pallet_char': line.bf_pallet_char,
-                        'x_studio_2nd_uom': line.quantity,
-                        'x_studio_total_units': line.min_uom_unit,
-                        'quantity': line.kilogram,
-                        'x_studio_container_number': line.container_number or '',
-                        'client_lot_no': line.client_lot_no or False,
-                        'x_studio_production_date': line.production_date,
-                        'x_studio_expiration_date': line.expiration_date,
-                        'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
-                        'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
-                    })
+
+                if self._vifel_apply_merge_locked_line(line, move_line):
                     continue
 
                 # Determine which pallet_series_id and location_dest_id to use
@@ -302,13 +310,14 @@ class FastEncodeRRWizard(models.TransientModel):
                     'quantity': line.kilogram,
                     'x_studio_pallet_series_id': pallet_series_to_use,
                     'x_studio_container_number': line.container_number or '',
-                    'client_lot_no': line.client_lot_no or False,
                     'x_studio_production_date': line.production_date,
                     'x_studio_expiration_date': line.expiration_date,
                     'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
                     'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
                 }
                 
+                write_vals.update(self._vifel_line_write_vals(line))
+
                 # Only write location_dest_id if we have a valid value
                 if location_dest_to_use:
                     write_vals['location_dest_id'] = location_dest_to_use
@@ -412,29 +421,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
     warehouse_id = fields.Many2one(
         'stock.warehouse', string="Warehouse",
         compute='_compute_warehouse_id')
-    # Pallets another line of this transfer has MERGED onto. They must not be
-    # offered in the RR Pallet # dropdown: a merge target is reached through
-    # the Merge button, which sets the flag, the series and the location
-    # together. Typing the same pallet here instead would put a second,
-    # unflagged line on it — counting it as a received pallet and leaving the
-    # two lines free to disagree about the series.
-    vifel_merge_locked_package_ids = fields.Many2many(
-        'stock.quant.package', string='Merge-locked Pallets',
-        compute='_compute_vifel_merge_locked_package_ids')
-
-    @api.depends('transfer_id')
-    def _compute_vifel_merge_locked_package_ids(self):
-        MoveLine = self.env['stock.move.line']
-        has_flag = 'is_pallet_merge' in MoveLine._fields
-        for record in self:
-            packages = self.env['stock.quant.package']
-            if has_flag and record.transfer_id:
-                packages = MoveLine.search([
-                    ('picking_id', '=', record.transfer_id),
-                    ('is_pallet_merge', '=', True),
-                ]).mapped('result_package_id')
-            record.vifel_merge_locked_package_ids = packages
-
     stock_move_line = fields.Integer(string="Move Line ID")
     x_studio_ = fields.Integer(string="#", readonly=True, group_operator=False)
     
@@ -450,8 +436,6 @@ class FastEncodeRRWizardLine(models.TransientModel):
         'stock.location', string='Destination Location',
         domain=[('usage', '=', 'internal'), ('child_ids', '=', False)])
     container_number = fields.Char(string='Container #')
-    client_lot_no = fields.Char(string='Lot No.')
-    is_pallet_merge = fields.Boolean(string='Merged Pallet', readonly=True)
     production_date = fields.Date(string='Production Date')
     expiration_date = fields.Date(string='Expiration Date')
     quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM')

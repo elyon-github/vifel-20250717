@@ -26,6 +26,18 @@ class StockPickingClientLotNo(models.Model):
             picking.show_client_lot_no = bool(
                 picking.partner_id.vifel_show_lot_no)
 
+    def action_detailed_operations(self):
+        """Tell the Pallet Breakdown whether to render the Lot No. column.
+
+        Core builds this action; the flag is injected into the returned
+        context here so core needs no knowledge of the profile switch.
+        """
+        res = super().action_detailed_operations()
+        if isinstance(res, dict) and isinstance(res.get('context'), dict):
+            res['context'] = dict(res['context'],
+                                  show_client_lot_no=self.show_client_lot_no)
+        return res
+
     def button_validate(self):
         res = super().button_validate()
         self._vifel_stamp_client_lot_no()

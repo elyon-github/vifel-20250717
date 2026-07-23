@@ -1,7 +1,7 @@
 # `vifel_client_requirements` — AI Context Document
 
 _Created 2026-07-21 (branch `CR2-test`). The Client-Specific Requirement Enhancement,
-built as its own installable/removable module. Read with
+built as its own self-contained module. Read with
 `BUSINESS_CONTEXT_AND_LEARNINGS.md` (§3 identity doctrine, §4 counting, §5 per-client
 cases) and `handoff.md` §7 (as-built state, findings, deploy steps)._
 
@@ -21,21 +21,37 @@ Three per-client capabilities agreed with VIFEL:
   at validation.
 - **VIFEL Configuration** — the profile cascade driving all of the above, per client.
 
-## 2. The load-bearing design decision
+## 2. The load-bearing design decision — plug and play
 
-**The module owns configuration, routing and UI. It never owns the record of what
-already happened.**
+**Everything this feature owns lives in this module.** Core keeps only five generic
+extension hooks. Installing the module adds the feature; core carries no trace of it.
 
-`is_pallet_merge` and `client_lot_no` are declared in **`multiple_relocation`**
-(`models/vifel_client_fields.py`), not here. They are ledger evidence: `is_pallet_merge`
-is *why* a line's pallet count is zero, and the PKR ledger reads it on every rebuild. If
-the field lived here, uninstalling would drop the column and every historically merged
-line would silently recount as a received pallet on the next Re-sync — inflating pallet
-counts, and therefore invoices, for work done months earlier. A wrong pallet count is
-literally a wrong invoice (`BUSINESS_CONTEXT_AND_LEARNINGS.md` §1).
+Verified continuously by `suite_f_plug_and_play.py`: core source contains **zero**
+references to `is_pallet_merge`, `client_lot_no`, `vifel_premerge` or
+`pallet.merge.wizard`; core neither imports nor XML-refs this module, nor depends on it.
 
-`suite_f_uninstall_safety.py` fails loudly if anyone ever "tidies" those fields into this
-module.
+The five hooks exist because the behaviour they gate sits *inside*
+`FastEncodeRR.action_confirm` (~300 lines) and `PKR.action_resync_pallet_counts`
+(~990 lines). An add-on cannot reach into the middle of a loop, and duplicating either
+method to change three lines would guarantee silent drift from core — which is the thing
+that actually breaks a system later. Core asks a neutral question; this module answers it.
+
+| Hook (core) | Neutral default | This module returns |
+|---|---|---|
+| `_vifel_line_is_merge_locked(line)` | `False` | `True` for a merged row |
+| `_vifel_apply_merge_locked_line(line, ml)` | `False` | cargo-only write, `True` |
+| `_vifel_line_write_vals(line)` | `{}` | the client Lot No. |
+| `_vifel_line_originates_pallet(ml)` | `True` | `False` for a merged line |
+| `_vifel_merge_free_domain()` | `[]` | `[('is_pallet_merge','!=',True)]` |
+
+**History worth keeping.** Until 2026-07-23 the fields lived in `multiple_relocation`, so
+that uninstalling could not drop them and make every historically merged line recount as
+a received pallet. The user has ruled the module is installed once and **never
+uninstalled**, so that risk cannot occur — and holding the feature's own fields hostage in
+someone else's module bought nothing but merge-conflict surface. **If that ruling is ever
+reversed, move the fields back to core FIRST**: dropping `is_pallet_merge` silently
+inflates pallet counts, and a wrong pallet count is a wrong invoice
+(`BUSINESS_CONTEXT_AND_LEARNINGS.md` §1).
 
 ## 3. Where things live
 
@@ -46,7 +62,9 @@ module.
 | `models/res_partner_psi_routing.py` | prefix-aware `push_unused_pallet` / `get_pallet_series_by_id`, stocked-guard, audit |
 | `models/client_lot_no_gating.py` | `show_client_lot_no` compute + quant stamping at validation |
 | `models/stock_move_line_merge.py` | button availability, wizard opener, `action_unmerge_pallet_line` |
-| `models/fast_encode_merge.py` | merge / un-merge started inside the Magic Wizard |
+| `models/fast_encode_merge.py` | Magic Wizard: merge/un-merge, the merge columns, and the three core hooks |
+| `models/pkr_merge_counting.py` | the two PKR counting hooks (+0 pallets, full amounts) |
+| `models/vifel_client_fields.py` | `is_pallet_merge`, `client_lot_no`, the `vifel_premerge_*` trio |
 | `wizard/pallet_merge_wizard.py` `.xml` | `pallet.merge.wizard` + `pallet.merge.candidate` and their form |
 | `views/` | VIFEL Configuration tab, Pallet Breakdown buttons, Magic Wizard buttons |
 
@@ -74,7 +92,7 @@ module.
 
 ## 5. Testing
 
-`ai_context/cr2_shell_tests/suite_*.py` — 8 suites, **105 checks**, all rollback-only:
+`ai_context/cr2_shell_tests/suite_*.py` — 16 suites, **207 checks**, all rollback-only:
 
 ```
 python odoo-bin shell -c odoo.conf -d <db> --no-http --max-cron-threads=0 \
@@ -83,12 +101,10 @@ python odoo-bin shell -c odoo.conf -d <db> --no-http --max-cron-threads=0 \
 
 `suite_c` guards the billing doctrine (+0 pallets, full amounts) and proves the merge-free
 domain is a **no-op on unflagged data** — the property that makes the counting change safe
-on a live ledger. `suite_f` guards the uninstall architecture. Re-run everything before
+on a live ledger. `suite_f` guards the plug-and-play architecture. Re-run everything before
 Internal Testing and after any merge into `client-trial`.
 
 ## 6. Not built (deliberate)
 
-- **Create-new-special-pallet inside the Magic Wizard** — that path stays a Pallet
-  Breakdown action; the Magic Wizard offers merge-onto-stocked only.
 - **No new Studio server actions or automations.** PSI→quant stamping is an existing DB
   automation and the adopted PSI flows through it automatically.

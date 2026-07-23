@@ -4,4 +4,3 @@ from . import models
 from . import stock_quant
 from . import stock_move
 from . import stock_picking
-from . import vifel_client_fields

@@ -1,20 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Merge / Un-merge entry on the Pallet Breakdown line.
+    <!-- Pallet Breakdown: merge columns and the Merge / Un-merge entry.
 
-         The is_pallet_merge column is added by multiple_relocation (core);
-         this inheritance, loaded after it, adds the availability flag and
-         the two mutually-exclusive buttons. A mergeable, not-yet-merged line
-         shows "Merge Pallet"; a merged line shows "Un-merge" — so the button
-         always reflects, and can reverse, the line's current state. -->
+         All of this used to be spread across multiple_relocation's own views;
+         it lives here so core carries no trace of the feature. This view
+         inherits the SAME base view core does, and loads after it, so the
+         anchors below (vifel_dest_location_name, location_dest_id) are the
+         ones core has already placed. -->
     <record id="view_move_line_detailed_op_merge_button" model="ir.ui.view">
         <field name="name">stock.move.line.detailed.op.merge.button</field>
         <field name="model">stock.move.line</field>
         <field name="inherit_id"
                ref="stock.view_stock_move_line_detailed_operation_tree"/>
         <field name="arch" type="xml">
-            <field name="is_pallet_merge" position="after">
+
+            <field name="vifel_dest_location_name" position="after">
+                <!-- Client Lot No. — only for clients whose profile shows it.
+                     The context flag is supplied by action_detailed_operations
+                     in this module; without it the column stays hidden. -->
+                <field name="client_lot_no" string="Lot No." optional="show"
+                       column_invisible="not context.get('show_client_lot_no')"
+                       readonly="state == 'done'"/>
+                <!-- Merged-pallet marker: this line joined an already stocked
+                     pallet and is NOT counted as a received pallet. -->
+                <field name="is_pallet_merge" string="Merged" optional="show"
+                       readonly="1"
+                       column_invisible="picking_code == 'outgoing'"/>
                 <field name="vifel_show_merge_button" column_invisible="1"/>
                 <button name="action_open_pallet_merge_wizard" type="object"
                         string="Merge Pallet" class="btn-link"
@@ -25,6 +37,14 @@
                         icon="fa-chain-broken"
                         invisible="not vifel_show_merge_button or not is_pallet_merge"/>
             </field>
+
+            <!-- A merged line must stay where the pallet it joined is
+                 standing. Un-merge first to move it. -->
+            <xpath expr="//tree//field[@name='location_dest_id'][2]"
+                   position="attributes">
+                <attribute name="readonly">state == 'done' or is_pallet_merge</attribute>
+            </xpath>
+
         </field>
     </record>
 

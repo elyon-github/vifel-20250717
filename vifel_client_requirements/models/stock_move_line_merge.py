@@ -32,6 +32,79 @@ class StockMoveLineMergeEntry(models.Model):
                 and not picking.x_studio_is_a_blast_freezer
                 and picking.partner_id.vifel_can_merge_pallets)
 
+    def write(self, vals):
+        """Guard merged lines, and detect an un-merge.
+
+        Both used to live inside ``multiple_relocation``'s own write override.
+        They wrap it from here instead, so core carries none of this feature:
+        the guard runs before core's write, and the flag is cleared after it,
+        once core's restore machinery has put the line's own series back.
+        """
+        self._vifel_guard_merged_line_edit(vals)
+
+        # UN-MERGE: a merged line whose pallet is changed away outside the
+        # merge wizard becomes a plain line again. Conditions mirror core's
+        # own early returns, so this fires exactly where core would have.
+        ctx = self.env.context
+        unmerged = self.browse()
+        if ('result_package_id' in vals
+                and not ctx.get('skip_pallet_series_sync')
+                and not ctx.get('vifel_pallet_merge')):
+            unmerged = self.filtered(
+                lambda r: r.is_pallet_merge and r.picking_id
+                and r.picking_id.picking_type_code == 'incoming'
+                and r.product_id and not r.picking_id.return_id)
+
+        res = super().write(vals)
+
+        if unmerged:
+            # bypass this override: only the flag changes, and core's write
+            # returns early for a vals without result_package_id anyway. The
+            # adopted PSI is NOT recycled — push_unused_pallet's stocked-guard
+            # refuses a series that is live on the floor.
+            super(StockMoveLineMergeEntry, unmerged).write(
+                {'is_pallet_merge': False})
+        return res
+
+    def _vifel_guard_merged_line_edit(self, vals):
+        """Refuse a silent edit of a merged line's location or series.
+
+        Exempt when the merge wizard itself is writing (vifel_pallet_merge),
+        when the flag is being cleared in the same write (an un-merge), and
+        for validation/void machinery that carries skip_pallet_series_sync.
+        """
+        ctx = self.env.context
+        if ctx.get('vifel_pallet_merge') or ctx.get('skip_pallet_series_sync'):
+            return
+        if vals.get('is_pallet_merge') is False:
+            return                      # un-merging: the pin is being removed
+        watched = {
+            'location_dest_id': _('Location'),
+            'x_studio_pallet_series_id': _('Pallet Series ID'),
+        }
+        touched = [label for key, label in watched.items() if key in vals]
+        if not touched:
+            return
+        for line in self:
+            if not line.is_pallet_merge:
+                continue
+            # Mid-un-merge: the pallet has already been cleared and the
+            # restore machinery is putting the original series back (it
+            # re-enters write through base_automation's wrapper). A merged
+            # line with no pallet has nothing left to stay consistent with.
+            if not line.result_package_id:
+                continue
+            raise UserError(_(
+                "Line #%(num)s is merged onto pallet %(pallet)s "
+                "(%(psi)s), so its %(fields)s cannot be changed here — the "
+                "line has to stay where that pallet is.\n\n"
+                "Press Un-merge on the line first if it should go somewhere "
+                "else."
+            ) % {'num': line.x_studio_ or '',
+                 'pallet': line.result_package_id.name or '?',
+                 'psi': line.x_studio_pallet_series_id or '?',
+                 'fields': ' / '.join(touched)})
+
     def action_open_pallet_merge_wizard(self):
         self.ensure_one()
         wizard = self.env['pallet.merge.wizard'].create(

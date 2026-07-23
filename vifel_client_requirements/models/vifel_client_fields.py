@@ -1,21 +1,26 @@
 # -*- coding: utf-8 -*-
 """Ledger-evidence fields for the Client-Specific Requirement Enhancement.
 
-These two fields belong to the ``vifel_client_requirements`` feature, but they
-deliberately live HERE, in the core module, and must not be moved.
+``is_pallet_merge`` is why the pallet count for a line is zero — the PKR ledger
+reads it on every rebuild. ``client_lot_no`` is the client's own lot number,
+stamped onto stock at validation. The ``vifel_premerge_*`` trio records what a
+merge displaced so un-merge can restore exactly that.
 
-``is_pallet_merge`` is why the pallet count for a line is zero. The PKR ledger
-reads it every time it rebuilds. If the field lived in the optional module,
-uninstalling would drop the column and every historically merged line would
-silently recount as a received pallet on the next Re-sync — inflating pallet
-counts, and therefore invoices, for work done months earlier. ``client_lot_no``
-is likewise a record of what was received, stamped onto stock at validation.
+THESE FIELDS LIVED IN ``multiple_relocation`` UNTIL 2026-07-23, on the argument
+that uninstalling this module would drop the columns and make every
+historically merged line recount as a received pallet on the next Re-sync.
+The user has since ruled that the module is installed once and **never
+uninstalled**, so that risk cannot occur, and keeping the feature's own fields
+in someone else's module bought nothing but merge-conflict surface. They now
+live with the rest of the feature.
 
-The rule: the optional module owns the configuration, the routing and the user
-interface. It never owns the record of what already happened.
+If that ruling is ever reversed and uninstalling becomes possible, move these
+back to core FIRST — dropping ``is_pallet_merge`` silently inflates pallet
+counts, and a wrong pallet count is a wrong invoice.
 
-copy=False on both — void mirrors and returns start clean, never inheriting a
-merge flag or a lot number from the document they mirror.
+copy=False on all — void mirrors and returns start clean, never inheriting a
+merge flag, a lot number or a stale pre-merge snapshot from the document they
+mirror.
 """
 from odoo import fields, models
 
