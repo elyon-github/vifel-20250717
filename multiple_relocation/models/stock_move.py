@@ -311,6 +311,45 @@ class stock_move_line_Override(models.Model):
     _inherit = 'stock.move.line'
     _order = 'product_id asc'
 
+    @api.model
+    def read_group(self, domain, fields, groupby, offset=0, limit=None,
+                   orderby=False, lazy=True):
+        """Ignore order terms that are neither a groupby field nor an aggregate.
+
+        The Pallet Breakdown / Detailed Operations trees set
+        default_order="x_studio_, ..." so lines display in encoding order.
+        When the user groups, the web client forwards that SAME order string to
+        read_group, and Odoo 17 rejects any term that is not part of the
+        groupby or an explicit aggregate:
+
+            ValueError: Aggregate method is mandatory for 'x_studio_'
+
+        Once rows are collapsed into groups, sorting by an un-grouped line
+        field has no meaning anyway, so those terms are dropped instead of
+        letting the whole call fail. Ungrouped list ordering is untouched
+        (it never goes through read_group).
+        """
+        if orderby and isinstance(orderby, str):
+            gb = groupby if isinstance(groupby, (list, tuple)) else [groupby]
+            gb = [g for g in gb if g]
+            # lazy=True groups by the FIRST field only, so the later groupby
+            # entries are not valid order terms either.
+            if lazy:
+                gb = gb[:1]
+            allowed = {str(g).split(':')[0].strip() for g in gb}
+            kept = []
+            for term in orderby.split(','):
+                term = term.strip()
+                if not term:
+                    continue
+                head = term.split(' ')[0]
+                # "field:agg" is an aggregate spec -> always valid
+                if ':' in head or head.split(':')[0] in allowed:
+                    kept.append(term)
+            orderby = ', '.join(kept) or False
+        return super().read_group(domain, fields, groupby, offset=offset,
+                                  limit=limit, orderby=orderby, lazy=lazy)
+
     warehouseman = fields.Many2one(
         'res.partner',
         string="Warehouseman",
