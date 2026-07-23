@@ -1,0 +1,24 @@
+# VERBATIM BACKUP of production SA#483 "Remove Linked Transactions" (model stock.picking)
+# Pulled from vifel_07_21_2026 on 2026-07-21. Restore this if REV2 misbehaves.
+# ---------------------------------------------------------------------------
+
+# Available variables:
+#  - env: environment on which the action is triggered
+#  - model: model of the record on which the action is triggered; is a void recordset
+#  - record: record on which the action is triggered; may be void
+#  - records: recordset of all records on which the action is triggered in multi-mode; may be void
+#  - time, datetime, dateutil, timezone: useful Python libraries
+#  - float_compare: utility function to compare floats based on specific precision
+#  - log: log(message, level='info'): logging function to record debug information in ir.logging table
+#  - _logger: _logger.info(message): logger to emit messages in server logs
+#  - UserError: exception class for raising user-facing warning messages
+#  - Command: x2many commands namespace
+# To return an action, assign: action = {...}
+
+
+for record in records:
+    record['backorder_id'] = False
+    record['return_id'] = False
+    record['x_studio_last_operation_source_document'] = False
+    record['next_operation_source_document'] = False
+    record['void_source_picking_id'] = False

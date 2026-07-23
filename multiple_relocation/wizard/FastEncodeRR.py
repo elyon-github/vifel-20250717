@@ -508,10 +508,22 @@ class FastEncodeRRWizardLine(models.TransientModel):
         # Using line.pallet_series_id would be wrong after a multi-edit grouped all
         # lines to the same series — it would falsely claim the winner's original.
         pallet_groups = {}  # pallet_id -> list of original_pallet_series_id
+        # In an ONCHANGE self is a NewId (<NewId origin=143685>) while
+        # wizard_id.line_ids holds the REAL ids, so a plain `self.id` set never
+        # matches and the line fails to exclude ITSELF. It then sees its own old
+        # pallet group, decides its own original series is "claimed", and
+        # previews a brand-new number off the pool/counter — the PSI visibly
+        # flickers to e.g. 7S-000049 and snaps back to 7S-000044 on save.
+        # Match on the origin id as well so self-exclusion works in both
+        # onchange (NewId) and write (real id) contexts.
         exclude_ids = {self.id}
-        
+        origin = getattr(self, '_origin', None)
+        if origin and origin.id:
+            exclude_ids.add(origin.id)
+
         for line in self.wizard_id.line_ids:
-            if line.id in exclude_ids:
+            line_origin = getattr(line, '_origin', None)
+            if line.id in exclude_ids or (line_origin and line_origin.id in exclude_ids):
                 continue
             if line.result_package_id:
                 pid = line.result_package_id.id

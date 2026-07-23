@@ -1513,6 +1513,17 @@ class transfer_locations(models.Model):
             'is_void_wr': False,
             'void_source_picking_id': False,
             'return_reason': False,
+            # operation-chain pointer stamped at creation
+            # (_create_void_wr_from_rr sets it to the parent's id). Left set, the
+            # neutralized child still points at the unvoided parent, AND the
+            # parent keeps showing "Next Operation Source Document" — that field
+            # is a NON-STORED reverse compute searching for a picking whose
+            # x_studio_last_operation_source_document = the parent's id, so it
+            # empties by itself once this is cleared. Only cleared HERE, where the
+            # child is deliberately reduced to a plain draft: the field is also
+            # the legitimate chain on real RR->WR operations (e.g. the done
+            # M/BF/WR/* documents), which must keep it.
+            'x_studio_last_operation_source_document': False,
             # descriptive leftovers copied from the voided parent — a plain
             # draft leftover must not carry them (union of both directions:
             # RR children have Source, WR children have Destination)

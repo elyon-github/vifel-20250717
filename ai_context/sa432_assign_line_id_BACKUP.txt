@@ -1,0 +1,23 @@
+# VERBATIM BACKUP of production SA#432 (BA#42 "On Create Stock Move Lines Assign ID")
+# Model: stock.move.line   Trigger: On Create
+# Pulled from DB vifel_07_06_2026 on 2026-07-21. Restore this if the revised version misbehaves.
+# --------------------------------------------------------------------------------------------
+
+# Server Action Code for stock.move.line automation (Trigger: On Create)
+# This code runs when a stock.move.line is created
+
+for record in records:
+    # Only assign x_studio_ if it's not already set (0, False, or None)
+    if not record.x_studio_:
+        # Find the highest existing x_studio_ value for ALL move lines in THIS picking
+        max_line = env['stock.move.line'].search(
+            [('picking_id', '=', record.picking_id.id), ('x_studio_', '!=', False)],
+            order='x_studio_ desc',
+            limit=1
+        )
+
+        # Assign the next number
+        if max_line:
+            record['x_studio_'] = max_line.x_studio_ + 1
+        else:
+            record['x_studio_'] = 1
