@@ -565,8 +565,16 @@ class PalletMergeWizard(models.TransientModel):
         skip, so one stray row never blocks the rest (user ruling)."""
         eligible = self.env['stock.move.line']
         skipped = []
+        # The candidate target is owner-scoped to THIS receipt's partner. A
+        # line from another receipt could belong to another client, so merging
+        # it here would put one owner's goods onto another owner's pallet.
+        # Multi-select in either surface only ever spans one receipt; this
+        # guards against a crafted selection reaching the server anyway.
+        home = self.picking_id
         for line in lines:
-            if not line.vifel_show_merge_button:
+            if line.picking_id != home:
+                skipped.append((line, _('belongs to another receipt')))
+            elif not line.vifel_show_merge_button:
                 skipped.append((line, _('not a mergeable line')))
             elif line.is_pallet_merge:
                 skipped.append((line, _('already merged')))

@@ -16,14 +16,17 @@
         <field name="arch" type="xml">
 
             <!-- Selection-bar button: tick several lines, merge them all onto
-                 one pallet in a single pass. Header buttons render in the
-                 control-panel action bar when rows are selected. -->
-            <xpath expr="//tree" position="inside">
-                <header>
-                    <button name="action_open_pallet_merge_wizard_multi"
-                            type="object" string="Merge Selected"
-                            class="btn-primary" icon="fa-object-group"/>
-                </header>
+                 one pallet in a single pass.
+                 APPEND to the EXISTING header (the Pallet Breakdown already
+                 has one, carrying Verify Transfer / Assign Pallet Series /
+                 Spawn Magic Wizard / … from multiple_relocation). Creating a
+                 SECOND <header> makes the list render only one and silently
+                 drops the other's buttons — never do that. -->
+            <xpath expr="//tree/header" position="inside">
+                <button name="action_open_pallet_merge_wizard_multi"
+                        type="object" string="Merge Selected"
+                        class="btn-primary" icon="fa-object-group"
+                        invisible="context.get('picking_code') != 'incoming' or context.get('state') == 'done'"/>
             </xpath>
 
             <field name="vifel_dest_location_name" position="after">
