@@ -36,8 +36,14 @@ try:
     check('S4 replaced by a single summary line', 'line_summary' in arch)
     check('S5 the candidate table is still the focus',
           'candidate_line_ids' in arch)
-    check('S6 ineligible reason column renamed to plain language',
-          'Unavailable because' in arch)
+    # The reason column was REMOVED entirely (user, UAT round 6): an
+    # unavailable row is already greyed and unselectable, and the reason is
+    # delivered by the onchange warning when someone tries to pick it. The
+    # field must still be LOADED, or that warning has nothing to say.
+    check('S6 the reason column is gone from the table',
+          'Unavailable because' not in arch)
+    check('S6b ... but still loaded so the onchange can explain the refusal',
+          'name="ineligible_reason" column_invisible="1"' in arch)
 
     # the summary renders as one line with the numbers that matter
     owner = env['res.partner'].browse(428)

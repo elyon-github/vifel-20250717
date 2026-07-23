@@ -101,10 +101,13 @@ try:
           line.x_studio_pallet_series_id == 'ZZZ-000001'
           and not line.is_pallet_merge,
           (line.x_studio_pallet_series_id, line.is_pallet_merge))
+    # Since UAT round 6 a pinned pallet is reserved the moment it is pinned,
+    # stock or no stock, and deliberately carries NO receiving report: it is
+    # dedicated to a client across many receipts, not reserved FOR one
+    # document. So first stock finds it already reserved and leaves it alone.
     rr_ref = empty_pkg.x_studio_receiving_report_id
-    check('B3 the started pallet is reserved for this receipt',
-          empty_pkg.x_studio_is_reserved
-          and getattr(rr_ref, 'id', rr_ref) == line.picking_id.id,
+    check('B3 the pinned pallet is reserved but NOT tied to this receipt',
+          empty_pkg.x_studio_is_reserved and not rr_ref,
           (empty_pkg.x_studio_is_reserved, rr_ref))
     check('B4 nothing captured - a plain line has no Un-merge',
           not line.vifel_premerge_captured)

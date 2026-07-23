@@ -69,6 +69,27 @@ class PalletMergeCandidate(models.TransientModel):
     first_stock = fields.Boolean(string='Empty — First Stock')
     source_label = fields.Char(string='Where', compute='_compute_source_label')
 
+    def action_view_pallet_contents(self):
+        """Open what is actually standing on this pallet.
+
+        The Product column is a summary string (first three names) because a
+        pallet can hold many; this is the way to see all of them, with their
+        real weights, lots and locations.
+        """
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('On pallet %s') % (self.package_id.name or ''),
+            'res_model': 'stock.quant',
+            'view_mode': 'tree',
+            'views': [(self.env.ref(
+                'multiple_relocation.view_stock_quant_tree_custom').id, 'tree')],
+            'domain': [('package_id', '=', self.package_id.id),
+                       ('quantity', '!=', 0)],
+            'target': 'new',
+            'context': {'create': False, 'edit': False},
+        }
+
     @api.depends('on_this_receipt', 'first_stock')
     def _compute_source_label(self):
         for cand in self:
@@ -198,12 +219,25 @@ class PalletMergeWizard(models.TransientModel):
     warehouse_id = fields.Many2one(
         related='move_line_id.picking_id.warehouse_id', string='Warehouse')
 
+    # Pallets pinned as some client's Fixed Merge Pallet: dedicated, never
+    # offered as a free empty pallet even while they hold no stock.
+    vifel_pinned_package_ids = fields.Many2many(
+        'stock.quant.package', 'vifel_merge_wizard_pinned_pkg_rel',
+        compute='_compute_vifel_pinned_package_ids')
+
+    @api.depends('move_line_id')
+    def _compute_vifel_pinned_package_ids(self):
+        pinned = self.env['res.partner']._vifel_fixed_merge_packages()
+        for wizard in self:
+            wizard.vifel_pinned_package_ids = pinned
+
     new_package_id = fields.Many2one(
         'stock.quant.package', string='New Empty Pallet',
         domain="[('location_id', '=', False), "
                "('package_type_id.name', '=', 'Pallet'), "
                "('x_studio_active', '=', True), "
                "('x_studio_warehouse', '=', warehouse_id), "
+               "('id', 'not in', vifel_pinned_package_ids), "
                "'|', ('x_studio_receiving_report_id', '=', False), "
                "('x_studio_receiving_report_id', '=', picking_id)]")
     new_location_id = fields.Many2one(

@@ -83,6 +83,46 @@ class ResPartnerVifelConfig(models.Model):
                         'other': ', '.join(foreign.mapped('owner_id.name')[:3]),
                         'client': partner.display_name})
 
+    @api.model
+    def _vifel_fixed_merge_packages(self):
+        """Every pallet pinned as some client's Fixed Merge Pallet.
+
+        These are dedicated: the pallet belongs to that client permanently and
+        is reached only through the Merge button, which sets flag, series and
+        location together. It must therefore never be offered anywhere an
+        EMPTY pallet is picked — not even to its own client, and not even
+        while it holds no stock.
+        """
+        return self.sudo().search(
+            [('vifel_fixed_package_id', '!=', False)]
+        ).mapped('vifel_fixed_package_id')
+
+    def _vifel_mark_fixed_package_reserved(self, packages=None):
+        """Hold the pinned pallet reserved, stock or no stock.
+
+        Without this the pallet reads as a free empty pallet the moment it is
+        emptied, and the next receipt could seat unrelated goods on it. There
+        is deliberately NO receiving report attached: it is not reserved FOR a
+        document, it is dedicated to a client.
+        """
+        packages = packages if packages is not None else \
+            self.mapped('vifel_fixed_package_id')
+        todo = packages.filtered(lambda p: not p.x_studio_is_reserved)
+        if todo:
+            todo.write({'x_studio_is_reserved': True})
+
+    def _vifel_release_fixed_package(self, packages):
+        """Let a pallet go when it stops being anyone's pinned pallet."""
+        still_pinned = self._vifel_fixed_merge_packages()
+        orphaned = packages - still_pinned
+        # only release what is genuinely idle: a pallet holding stock, or one
+        # reserved for a live receipt, is not ours to free
+        free = orphaned.filtered(
+            lambda p: not p.x_studio_receiving_report_id
+            and not p.quant_ids.filtered(lambda q: q.quantity > 0))
+        if free:
+            free.write({'x_studio_is_reserved': False})
+
     # ------------------------------------------------------------------
     # seeding — in create/write, NOT onchange, so it also covers imports
     # and server-side writes
@@ -91,12 +131,20 @@ class ResPartnerVifelConfig(models.Model):
     def create(self, vals_list):
         partners = super().create(vals_list)
         partners.filtered('vifel_multiple_pallet_support')._vifel_seed_psi_types()
+        partners._vifel_mark_fixed_package_reserved()
         return partners
 
     def write(self, vals):
+        # snapshot the outgoing pin so a replaced pallet can be released
+        previous = self.mapped('vifel_fixed_package_id') \
+            if 'vifel_fixed_package_id' in vals \
+            else self.env['stock.quant.package']
         res = super().write(vals)
         if vals.get('vifel_multiple_pallet_support'):
             self._vifel_seed_psi_types()
+        if 'vifel_fixed_package_id' in vals:
+            self._vifel_mark_fixed_package_reserved()
+            self._vifel_release_fixed_package(previous)
         return res
 
     def _vifel_seed_psi_types(self):

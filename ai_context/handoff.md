@@ -312,4 +312,15 @@ rather than "zero change", which would be a false failure.
    `pallet_kilos_record_model`. The new module is uninstalled in prod today, so its own
    version string is free; **do NOT touch the 4 pinned manifest versions** (§5).
 5. Optional: add the Lot No. column to the Studio "Inventory Overview" action DB-side.
-6. No new SA/AR — PSI→quant stamping remains a DB automation and flows automatically.
+6. **PASTE `ai_context/sa348_verifier_exempt_merged_lines.py` into Server Action #348
+   "X_Verifier Check on Receipt"** — three lines. WITHOUT IT MERGING IS BROKEN from the
+   second merge onto a pallet onwards: SA#348's duplicate-PSI-in-stock guard refuses the
+   receipt ("Pallet Series Already Exists in Stock"), because a merged line adopts a
+   series that is deliberately already in stock. The block already exempts return lines
+   for the same reason; merged lines need the identical exemption. The FIRST merge onto
+   an empty pinned pallet passes (no stock yet), which is why this only appears later.
+7. Optional but recommended: paste `ai_context/studio_psi_display_clear_FIX.py` into the
+   Studio compute for `x_studio_pallet_series_display` — it only assigns when the source
+   has a value, so clearing a PSI anywhere leaves a stale one displayed (not merge-specific).
+8. No new SA/AR beyond the two pastes above — PSI→quant stamping remains a DB automation
+   and flows automatically.

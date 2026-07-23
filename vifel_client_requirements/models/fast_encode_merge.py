@@ -156,10 +156,14 @@ class FastEncodeLineMergeFields(models.TransientModel):
     @api.depends('transfer_id')
     def _compute_vifel_merge_locked_package_ids(self):
         MoveLine = self.env['stock.move.line']
+        # Pallets pinned as some client's Fixed Merge Pallet are dedicated and
+        # never offered as a free empty pallet — not even to their own client,
+        # and not even while empty. They are reached only via Merge.
+        pinned = self.env['res.partner']._vifel_fixed_merge_packages()
         for record in self:
-            packages = self.env['stock.quant.package']
+            packages = pinned
             if record.transfer_id:
-                packages = MoveLine.search([
+                packages |= MoveLine.search([
                     ('picking_id', '=', record.transfer_id),
                     ('is_pallet_merge', '=', True),
                 ]).mapped('result_package_id')

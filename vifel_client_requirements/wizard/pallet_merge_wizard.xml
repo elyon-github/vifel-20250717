@@ -16,6 +16,7 @@
                 <field name="candidate_package_ids" invisible="1"/>
                 <field name="from_fast_encode" invisible="1"/>
                 <field name="selected_first_stock" invisible="1"/>
+                <field name="vifel_pinned_package_ids" invisible="1"/>
                 <!-- referenced by the new pallet / new location domains -->
                 <field name="warehouse_id" invisible="1"/>
 
@@ -59,8 +60,18 @@
                                    readonly="1"/>
                             <field name="quantity" string="Quantity"
                                    readonly="1"/>
-                            <field name="ineligible_reason" string="Unavailable because"
-                                   readonly="1" optional="show"/>
+                            <!-- kept out of sight but IN the view: the
+                                 single-select onchange reads it to explain
+                                 why an unavailable row cannot be picked, and
+                                 onchange only receives fields the view loads -->
+                            <field name="ineligible_reason" column_invisible="1"/>
+                            <!-- Product above is a summary of the first few
+                                 names; this opens everything actually on the
+                                 pallet, with real weights and lots. -->
+                            <button name="action_view_pallet_contents"
+                                    type="object" string="View"
+                                    icon="fa-search" class="btn-link"
+                                    title="See everything on this pallet"/>
                         </tree>
                     </field>
 
