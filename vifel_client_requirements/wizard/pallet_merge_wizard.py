@@ -179,26 +179,16 @@ class PalletMergeWizard(models.TransientModel):
     warn_different_product = fields.Boolean(compute='_compute_selection')
     selected_first_stock = fields.Boolean(compute='_compute_selection')
 
-    # One line describing what is being merged. A computed string rather than
-    # a field group on purpose: four related fields in a group rendered as
-    # three rows of labels with help icons, and pushed the Weight value into a
-    # column so narrow it wrapped vertically ("0." / "00" / "0"). The encoder
-    # needs to read this at a glance, not fill it in.
-    line_summary = fields.Char(compute='_compute_line_summary')
+    # Shown as a labelled strip at the top of the dialog. Individual fields
+    # rather than one joined string: a run-on line ("Line 1 · 0.000 KG · 0
+    # Quantity · now on 16-042026") is hard to scan and buries the numbers
+    # the fit judgment needs. Rendered as its own flex cell each, so nothing
+    # can wrap mid-value the way the original four-field group did.
+    # x_studio_ is an Integer (the line "#"), not a Char — see the field
+    # convention note in multiple_relocation_AI_CONTEXT.md §5.
+    line_number = fields.Integer(
+        related='move_line_id.x_studio_', string='Line')
 
-    @api.depends('move_line_id')
-    def _compute_line_summary(self):
-        for wizard in self:
-            line = wizard.move_line_id
-            bits = []
-            if line.x_studio_:
-                bits.append(_('Line %s') % line.x_studio_)
-            # product deliberately omitted — the dialog title already names it
-            bits.append(_('%.3f KG') % (line.quantity or 0.0))
-            bits.append(_('%g Quantity') % (line.x_studio_2nd_uom or 0.0))
-            if line.x_studio_pallet_series_id:
-                bits.append(_('now on %s') % line.x_studio_pallet_series_id)
-            wizard.line_summary = '   ·   '.join(bits)
 
     # create-new-special path (Multiple mode only)
     psi_type_id = fields.Many2one(

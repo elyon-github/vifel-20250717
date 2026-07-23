@@ -20,11 +20,40 @@
                 <!-- referenced by the new pallet / new location domains -->
                 <field name="warehouse_id" invisible="1"/>
 
-                <!-- What is being merged, in one line. Following core Odoo
-                     dialogs (e.g. Return Picking): no coloured banner, no
-                     field group — the decision itself gets the space. -->
-                <div class="mb-3" style="font-weight: 700;">
-                    <field name="line_summary" nolabel="1" readonly="1"/>
+                <!-- What is being merged. A labelled strip, not a run-on
+                     sentence and not a field group: each value is its own
+                     flex cell, so nothing wraps mid-number the way the
+                     original four-field group did, and the figures the fit
+                     judgment needs read at a glance.
+                     font-weight is inline on purpose — this theme remaps
+                     Bootstrap's $font-weight-bold to 500, so `fw-bold` is a
+                     no-op here. -->
+                <div class="d-flex flex-wrap align-items-baseline mb-3 pb-2
+                            border-bottom" style="gap: 2.5rem;">
+                    <div>
+                        <div class="text-muted small">Line</div>
+                        <div style="font-weight: 700; font-size: 1.1rem;">
+                            <field name="line_number" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">Weight (KG)</div>
+                        <div style="font-weight: 700; font-size: 1.1rem;">
+                            <field name="line_weight" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">Quantity</div>
+                        <div style="font-weight: 700; font-size: 1.1rem;">
+                            <field name="line_quantity" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div invisible="not line_psi">
+                        <div class="text-muted small">Currently on</div>
+                        <div style="font-weight: 700; font-size: 1.1rem;">
+                            <field name="line_psi" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- mode chooser: only Multiple clients can start a new

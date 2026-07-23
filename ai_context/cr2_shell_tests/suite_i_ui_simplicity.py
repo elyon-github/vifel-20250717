@@ -33,7 +33,10 @@ try:
           'oe_grey' in arch)
     check('S3 the 4-field header group is gone (it wrapped the KG value)',
           'Line being merged' not in arch)
-    check('S4 replaced by a single summary line', 'line_summary' in arch)
+    # The single joined summary string that replaced it was itself replaced
+    # (UAT round 7) by a labelled strip - see suite P for its checks.
+    check('S4 replaced by a labelled header strip, not a field grid',
+          'line_number' in arch and 'd-flex flex-wrap' in arch)
     check('S5 the candidate table is still the focus',
           'candidate_line_ids' in arch)
     # The reason column was REMOVED entirely (user, UAT round 6): an
@@ -45,27 +48,8 @@ try:
     check('S6b ... but still loaded so the onchange can explain the refusal',
           'name="ineligible_reason" column_invisible="1"' in arch)
 
-    # the summary renders as one line with the numbers that matter
-    owner = env['res.partner'].browse(428)
-    owner.write({'vifel_can_merge_pallets': True,
-                 'vifel_multiple_pallet_support': True,
-                 'vifel_include_regular_pallets': True})
-    env.flush_all()
-    ml = env['stock.move.line'].search([
-        ('picking_id.picking_type_id.code', '=', 'incoming'),
-        ('picking_id.state', 'not in', ('done', 'cancel')),
-        ('picking_id.partner_id', '=', owner.id),
-        ('product_id', '!=', False)], limit=1)
-    wiz = W.create({'move_line_id': ml.id})
-    print('   summary renders as: %r' % wiz.line_summary)
-    check('S7 summary is a single line (no wrapping possible)',
-          '\n' not in (wiz.line_summary or ''))
-    check('S8 summary carries KG and Quantity',
-          'KG' in wiz.line_summary and 'Quantity' in wiz.line_summary,
-          wiz.line_summary)
-    check('S9 summary does not repeat the product (already in the title)',
-          (ml.product_id.display_name or 'zz') not in wiz.line_summary,
-          wiz.line_summary)
+    # S7-S9 (the joined-summary checks) retired with the field itself; the
+    # header strip is covered by suite_p_partial_withdrawal_and_header.
 
 except Exception:
     print('UNEXPECTED ERROR:')
