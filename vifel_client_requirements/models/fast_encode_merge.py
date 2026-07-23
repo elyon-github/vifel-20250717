@@ -45,23 +45,51 @@ class FastEncodeLineMerge(models.TransientModel):
         return ml
 
     def action_merge_from_fast_encode(self):
-        """Open the merge wizard for this row's real line, in merge-only
-        mode, tagged so confirm syncs this transient row and reloads."""
-        ml = self._real_line()
+        """Open the merge wizard for this row's real line, tagged so confirm
+        syncs this transient row and reloads."""
+        self.ensure_one()
+        return self._vifel_open_merge_from_fast_encode(
+            self, _('Merge Pallet — %s') % (
+                self._real_line().product_id.display_name or ''))
+
+    def action_merge_selected_from_fast_encode(self):
+        """Selection-bar 'Merge Selected' inside the Magic Wizard."""
+        rows = self or self.browse(self.env.context.get('active_ids', []))
+        mergeable = rows.filtered(
+            lambda r: r.show_merge_button and not r.is_pallet_merge)
+        if not mergeable:
+            raise UserError(_(
+                'None of the selected rows can be merged — they must be '
+                'unmerged lines of a merge-enabled client.'))
+        return self._vifel_open_merge_from_fast_encode(
+            mergeable, _('Merge %d Selected Lines') % len(mergeable))
+
+    def _vifel_open_merge_from_fast_encode(self, rows, name):
+        real = self.env['stock.move.line']
+        for row in rows:
+            ml = self.env['stock.move.line'].browse(row.stock_move_line)
+            if ml.exists():
+                real |= ml
+        if not real:
+            raise UserError(_(
+                'These lines are no longer available — reopen the Magic '
+                'Wizard.'))
         wizard = self.env['pallet.merge.wizard'].create({
-            'move_line_id': ml.id,
+            'move_line_id': real[:1].id,
+            'move_line_ids': [(6, 0, real.ids)],
             'from_fast_encode': True,
-            'fast_encode_line_id': self.id,
+            'fast_encode_line_id': rows[:1].id,
+            'fast_encode_line_ids': [(6, 0, rows.ids)],
         })
         return {
             'type': 'ir.actions.act_window',
-            'name': _('Merge Pallet — %s') % (ml.product_id.display_name or ''),
+            'name': name,
             'res_model': 'pallet.merge.wizard',
             'res_id': wizard.id,
             'view_mode': 'form',
             'views': [(False, 'form')],
             'target': 'new',
-            'context': {'fast_encode_line_id': self.id,
+            'context': {'fast_encode_line_id': rows[:1].id,
                         'default_from_fast_encode': True},
         }
 

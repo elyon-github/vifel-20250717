@@ -65,8 +65,11 @@ try:
     W=env['pallet.merge.wizard']
     arch=W.get_view(env.ref('vifel_client_requirements.view_pallet_merge_wizard_form').id,'form')['arch']
     check('W6 the run-on summary line is gone', 'line_summary' not in arch)
-    check('W7 replaced by a labelled strip',
-          'line_number' in arch and 'Weight (KG)' in arch and 'Currently on' in arch)
+    check('W7 replaced by a labelled strip (Line #, Product, Currently PSI '
+          'On, Quantity, Quantity UOM, Weight)',
+          'line_number' in arch and 'line_product_id' in arch
+          and 'Currently PSI On' in arch and 'line_quantity_uom' in arch
+          and 'Weight (KG)' in arch)
     check('W8 values are their own flex cells (cannot wrap mid-number)',
           'd-flex flex-wrap' in arch)
     check('W9 bold is inline, not fw-bold (this theme remaps it to 500)',

@@ -12,46 +12,97 @@
                 <field name="is_multiple_mode" invisible="1"/>
                 <field name="candidates_capped" invisible="1"/>
                 <field name="candidate_total" invisible="1"/>
-                <field name="warn_different_product" invisible="1"/>
                 <field name="candidate_package_ids" invisible="1"/>
                 <field name="from_fast_encode" invisible="1"/>
                 <field name="selected_first_stock" invisible="1"/>
                 <field name="vifel_pinned_package_ids" invisible="1"/>
                 <!-- referenced by the new pallet / new location domains -->
                 <field name="warehouse_id" invisible="1"/>
+                <field name="is_multi" invisible="1"/>
 
-                <!-- What is being merged. A labelled strip, not a run-on
-                     sentence and not a field group: each value is its own
-                     flex cell, so nothing wraps mid-number the way the
-                     original four-field group did, and the figures the fit
-                     judgment needs read at a glance.
-                     font-weight is inline on purpose — this theme remaps
-                     Bootstrap's $font-weight-bold to 500, so `fw-bold` is a
-                     no-op here. -->
-                <div class="d-flex flex-wrap align-items-baseline mb-3 pb-2
-                            border-bottom" style="gap: 2.5rem;">
+                <!-- Multi-select: a compact summary card instead of the
+                     single-line detail. -->
+                <div class="d-flex flex-wrap mb-3 p-3 rounded border bg-light"
+                     style="gap: 2rem 2.75rem;" invisible="not is_multi">
                     <div>
-                        <div class="text-muted small">Line</div>
-                        <div style="font-weight: 700; font-size: 1.1rem;">
+                        <div class="text-muted small">
+                            <i class="fa fa-list me-1"/>Lines selected</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="multi_count" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-th-large me-1"/>Total Quantity</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="multi_quantity" readonly="1"
+                                   nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-balance-scale me-1"/>Total Weight (KG)</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="multi_weight" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div class="w-100 text-muted small">
+                        All selected lines will merge onto the one pallet you
+                        pick below.
+                    </div>
+                </div>
+
+                <!-- What is being merged. A card of labelled cells, each with
+                     an icon: the figures the fit judgment needs read at a
+                     glance, and each value is its own flex cell so nothing
+                     wraps mid-number the way the original field group did.
+                     Order matches the candidate table below (Quantity before
+                     Weight). font-weight is inline on purpose — this theme
+                     remaps Bootstrap's $font-weight-bold to 500. -->
+                <div class="d-flex flex-wrap mb-3 p-3 rounded border bg-light"
+                     style="gap: 2rem 2.75rem;" invisible="is_multi">
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-hashtag me-1"/>Line #</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
                             <field name="line_number" readonly="1" nolabel="1"/>
                         </div>
                     </div>
-                    <div>
-                        <div class="text-muted small">Weight (KG)</div>
-                        <div style="font-weight: 700; font-size: 1.1rem;">
-                            <field name="line_weight" readonly="1" nolabel="1"/>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="text-muted small">Quantity</div>
-                        <div style="font-weight: 700; font-size: 1.1rem;">
-                            <field name="line_quantity" readonly="1" nolabel="1"/>
+                    <div style="min-width: 14rem;">
+                        <div class="text-muted small">
+                            <i class="fa fa-cube me-1"/>Product</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_product_id" readonly="1"
+                                   nolabel="1" options="{'no_open': True}"/>
                         </div>
                     </div>
                     <div invisible="not line_psi">
-                        <div class="text-muted small">Currently on</div>
-                        <div style="font-weight: 700; font-size: 1.1rem;">
+                        <div class="text-muted small">
+                            <i class="fa fa-barcode me-1"/>Currently PSI On</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
                             <field name="line_psi" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-th-large me-1"/>Quantity</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_quantity" readonly="1"
+                                   nolabel="1"/>
+                        </div>
+                    </div>
+                    <div invisible="not line_quantity_uom">
+                        <div class="text-muted small">Quantity UOM</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_quantity_uom" readonly="1"
+                                   nolabel="1" options="{'no_open': True}"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-balance-scale me-1"/>Weight (KG)</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_weight" readonly="1" nolabel="1"/>
                         </div>
                     </div>
                 </div>
@@ -85,32 +136,42 @@
                                    readonly="1"/>
                             <field name="location_id" string="Location"
                                    readonly="1"/>
-                            <field name="weight_kg" string="Weight (KG)"
-                                   readonly="1"/>
+                            <!-- Quantity before Weight, matching the header
+                                 card above -->
                             <field name="quantity" string="Quantity"
+                                   readonly="1"/>
+                            <field name="weight_kg" string="Weight (KG)"
                                    readonly="1"/>
                             <!-- kept out of sight but IN the view: the
                                  single-select onchange reads it to explain
                                  why an unavailable row cannot be picked, and
                                  onchange only receives fields the view loads -->
                             <field name="ineligible_reason" column_invisible="1"/>
-                            <!-- Product above is a summary of the first few
-                                 names; this opens everything actually on the
-                                 pallet, with real weights and lots. -->
-                            <button name="action_view_pallet_contents"
-                                    type="object" string="View"
-                                    icon="fa-search" class="btn-link"
-                                    title="See everything on this pallet"/>
                         </tree>
                     </field>
 
-                    <!-- Guidance follows core Odoo (Return Picking): plain grey
-                         text, never a coloured box, and only when it applies. -->
-                    <div class="oe_grey mt-2"
-                         invisible="not warn_different_product">
-                        That pallet holds a <b>different product</b> than this
-                        line — check before confirming.
-                    </div>
+                    <!-- Everything on the selected pallet, INLINE so nothing
+                         closes. The Product column above is a summary of the
+                         first few names; this is the full picture, with real
+                         weights, lots and locations. -->
+                    <group string="On the selected pallet"
+                           invisible="not selected_target_quant_ids">
+                        <field name="selected_target_quant_ids" nolabel="1"
+                               colspan="2" readonly="1">
+                            <tree create="false" delete="false" edit="false">
+                                <field name="x_studio_pallet_series_id"
+                                       string="Pallet Series"/>
+                                <field name="product_id" string="Product"/>
+                                <field name="lot_id" string="Lot"/>
+                                <field name="location_id" string="Location"/>
+                                <field name="x_studio_2nd_uom"
+                                       string="Quantity" sum="Quantity"/>
+                                <field name="quantity" string="Weight (KG)"
+                                       sum="Weight (KG)"/>
+                            </tree>
+                        </field>
+                    </group>
+
                     <div class="oe_grey mt-2" invisible="not candidates_capped">
                         Showing the first of <field name="candidate_total"
                         class="oe_inline"/> eligible pallets. Not listed? Pick it

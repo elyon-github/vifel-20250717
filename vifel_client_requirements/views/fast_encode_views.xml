@@ -13,6 +13,15 @@
                ref="multiple_relocation.view_fast_encode_rr_line_list"/>
         <field name="arch" type="xml">
 
+            <!-- Selection-bar 'Merge Selected' inside the Magic Wizard. -->
+            <xpath expr="//tree" position="inside">
+                <header>
+                    <button name="action_merge_selected_from_fast_encode"
+                            type="object" string="Merge Selected"
+                            class="btn-primary" icon="fa-object-group"/>
+                </header>
+            </xpath>
+
             <field name="wizard_id" position="after">
                 <field name="is_pallet_merge" column_invisible="1"/>
                 <field name="vifel_merge_locked_package_ids" column_invisible="1"/>

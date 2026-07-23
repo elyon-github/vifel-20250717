@@ -15,6 +15,17 @@
                ref="stock.view_stock_move_line_detailed_operation_tree"/>
         <field name="arch" type="xml">
 
+            <!-- Selection-bar button: tick several lines, merge them all onto
+                 one pallet in a single pass. Header buttons render in the
+                 control-panel action bar when rows are selected. -->
+            <xpath expr="//tree" position="inside">
+                <header>
+                    <button name="action_open_pallet_merge_wizard_multi"
+                            type="object" string="Merge Selected"
+                            class="btn-primary" icon="fa-object-group"/>
+                </header>
+            </xpath>
+
             <field name="vifel_dest_location_name" position="after">
                 <!-- Client Lot No. — only for clients whose profile shows it.
                      The context flag is supplied by action_detailed_operations

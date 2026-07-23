@@ -173,7 +173,8 @@ try:
             ('picking_id', '=', line.picking_id.id),
             ('product_id', '!=', False),
             ('is_pallet_merge', '=', False)], limit=1)
-        wizc.move_line_id = line3.id
+        wizc.write({'move_line_id': line3.id,
+                    'move_line_ids': [(6, 0, line3.ids)]})
         r = wizc.action_confirm()
         env.flush_all()
         check('B17 manual picker merges a pallet beyond the cap',

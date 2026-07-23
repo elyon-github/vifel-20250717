@@ -69,27 +69,6 @@ class PalletMergeCandidate(models.TransientModel):
     first_stock = fields.Boolean(string='Empty — First Stock')
     source_label = fields.Char(string='Where', compute='_compute_source_label')
 
-    def action_view_pallet_contents(self):
-        """Open what is actually standing on this pallet.
-
-        The Product column is a summary string (first three names) because a
-        pallet can hold many; this is the way to see all of them, with their
-        real weights, lots and locations.
-        """
-        self.ensure_one()
-        return {
-            'type': 'ir.actions.act_window',
-            'name': _('On pallet %s') % (self.package_id.name or ''),
-            'res_model': 'stock.quant',
-            'view_mode': 'tree',
-            'views': [(self.env.ref(
-                'multiple_relocation.view_stock_quant_tree_custom').id, 'tree')],
-            'domain': [('package_id', '=', self.package_id.id),
-                       ('quantity', '!=', 0)],
-            'target': 'new',
-            'context': {'create': False, 'edit': False},
-        }
-
     @api.depends('on_this_receipt', 'first_stock')
     def _compute_source_label(self):
         for cand in self:
@@ -124,6 +103,27 @@ class PalletMergeWizard(models.TransientModel):
     move_line_id = fields.Many2one(
         'stock.move.line', required=True, ondelete='cascade',
         string='Pallet Line')
+    # All lines being merged in this pass (1 for a per-line open, several for
+    # a multi-select open). move_line_id stays the "primary" that drives the
+    # single-line header and the candidate scope; every eligible line in this
+    # set lands on the one chosen target.
+    move_line_ids = fields.Many2many(
+        'stock.move.line', 'vifel_merge_wizard_line_rel',
+        string='Pallet Lines')
+    is_multi = fields.Boolean(compute='_compute_multi')
+    multi_count = fields.Integer(compute='_compute_multi')
+    multi_weight = fields.Float(compute='_compute_multi', digits=(12, 3))
+    multi_quantity = fields.Float(compute='_compute_multi')
+
+    @api.depends('move_line_ids')
+    def _compute_multi(self):
+        for wizard in self:
+            lines = wizard.move_line_ids
+            wizard.is_multi = len(lines) > 1
+            wizard.multi_count = len(lines)
+            wizard.multi_weight = sum(lines.mapped('quantity'))
+            wizard.multi_quantity = sum(lines.mapped('x_studio_2nd_uom'))
+
     picking_id = fields.Many2one(related='move_line_id.picking_id')
     partner_id = fields.Many2one(
         related='move_line_id.picking_id.partner_id', string='Client')
@@ -140,6 +140,23 @@ class PalletMergeWizard(models.TransientModel):
         related='move_line_id.quantity', string='Line Weight (KG)')
     line_quantity = fields.Float(
         related='move_line_id.x_studio_2nd_uom', string='Line Quantity')
+    line_quantity_uom = fields.Many2one(
+        related='move_line_id.x_studio_quantity_uom', string='Quantity UOM')
+
+    # What is standing on the currently-selected target, shown INLINE so the
+    # dialog never closes (a target='new' window would replace this wizard).
+    selected_target_quant_ids = fields.Many2many(
+        'stock.quant', 'vifel_merge_wizard_target_quant_rel',
+        compute='_compute_selected_target_quants',
+        string='On the selected pallet')
+
+    @api.depends('candidate_line_ids.is_target')
+    def _compute_selected_target_quants(self):
+        for wizard in self:
+            target = wizard.candidate_line_ids.filtered(
+                'is_target')[:1].package_id
+            wizard.selected_target_quant_ids = target.quant_ids.filtered(
+                lambda q: q.quantity != 0) if target else False
 
     mode = fields.Selection(
         [('merge', 'Merge onto a pallet already stocked'),
@@ -158,6 +175,10 @@ class PalletMergeWizard(models.TransientModel):
     fast_encode_line_id = fields.Integer(
         string='Magic Wizard Line',
         default=lambda self: self.env.context.get('fast_encode_line_id', 0))
+    # every Magic Wizard transient row to sync back after a multi-merge
+    fast_encode_line_ids = fields.Many2many(
+        'stock.move.line.fast_encode_rr.line',
+        'vifel_merge_wizard_fe_line_rel', string='Magic Wizard Rows')
 
     candidate_line_ids = fields.One2many(
         'pallet.merge.candidate', 'wizard_id', string='Available Pallets')
@@ -176,7 +197,6 @@ class PalletMergeWizard(models.TransientModel):
     # a live read-out of the current selection, for the inline warnings
     selected_candidate_id = fields.Many2one(
         'pallet.merge.candidate', compute='_compute_selection')
-    warn_different_product = fields.Boolean(compute='_compute_selection')
     selected_first_stock = fields.Boolean(compute='_compute_selection')
 
     # Shown as a labelled strip at the top of the dialog. Individual fields
@@ -249,8 +269,6 @@ class PalletMergeWizard(models.TransientModel):
         for wizard in self:
             selected = wizard.candidate_line_ids.filtered('is_target')[:1]
             wizard.selected_candidate_id = selected
-            wizard.warn_different_product = bool(
-                selected and not selected.matches_line_product)
             wizard.selected_first_stock = bool(
                 selected and selected.first_stock)
 
@@ -261,6 +279,10 @@ class PalletMergeWizard(models.TransientModel):
     def create(self, vals_list):
         wizards = super().create(vals_list)
         for wizard in wizards:
+            # a per-line open sets move_line_id only; keep move_line_ids the
+            # single source of truth for "which lines are we merging"
+            if not wizard.move_line_ids and wizard.move_line_id:
+                wizard.move_line_ids = wizard.move_line_id
             wizard._populate_candidates()
         return wizards
 
@@ -311,7 +333,13 @@ class PalletMergeWizard(models.TransientModel):
     def _compute_candidate_package_ids(self):
         for wizard in self:
             wizard.candidate_package_ids = wizard._candidate_packages() \
-                - wizard.move_line_id.result_package_id
+                - wizard._own_packages()
+
+    def _own_packages(self):
+        """Every selected line's own pallet — never a merge target of itself."""
+        self.ensure_one()
+        return (self.move_line_ids or self.move_line_id).mapped(
+            'result_package_id')
 
     def _populate_candidates(self):
         """Materialise the candidate rows in ONE grouped read.
@@ -324,8 +352,7 @@ class PalletMergeWizard(models.TransientModel):
         """
         self.ensure_one()
         partner = self.partner_id
-        packages = self._candidate_packages() \
-            - self.move_line_id.result_package_id
+        packages = self._candidate_packages() - self._own_packages()
         prefixes = set(partner.vifel_psi_type_ids.mapped('prefix'))
         line_product_id = self.line_product_id.id
 
@@ -399,13 +426,14 @@ class PalletMergeWizard(models.TransientModel):
         # Multiple mode only. A Fixed client is defined by having exactly ONE
         # pallet offered forever; adding whatever other lines of the receipt
         # happen to sit on would contradict that.
-        seen_pkgs = set(packages.ids) | {self.move_line_id.result_package_id.id}
+        own_lines = self.move_line_ids or self.move_line_id
+        seen_pkgs = set(packages.ids) | set(self._own_packages().ids)
         siblings = {}
         for sib in (self.picking_id.move_line_ids
                     if partner.vifel_multiple_pallet_support
                     else self.env['stock.move.line']):
             pkg = sib.result_package_id
-            if not pkg or sib == self.move_line_id or pkg.id in seen_pkgs:
+            if not pkg or sib in own_lines or pkg.id in seen_pkgs:
                 continue
             grp = siblings.setdefault(pkg.id, {
                 'package': pkg, 'psis': set(), 'products': [],
@@ -468,94 +496,132 @@ class PalletMergeWizard(models.TransientModel):
         opening this dialog replaced it.
         """
         self.ensure_one()
-        fe_line = self.env['stock.move.line.fast_encode_rr.line'].browse(
-            self.fast_encode_line_id)
-        if not fe_line.exists():
+        fe_lines = self._fast_encode_rows()
+        if not fe_lines:
             return {'type': 'ir.actions.act_window_close'}
-        return fe_line._reopen_fast_encode_list()
+        return fe_lines[0]._reopen_fast_encode_list()
+
+    def _fast_encode_rows(self):
+        """The Magic Wizard transient rows this wizard is acting on."""
+        FeLine = self.env['stock.move.line.fast_encode_rr.line']
+        rows = self.fast_encode_line_ids
+        if not rows and self.fast_encode_line_id:
+            rows = FeLine.browse(self.fast_encode_line_id)
+        return rows.exists()
 
     def action_confirm(self):
         self.ensure_one()
-        fe_line_id = self.fast_encode_line_id \
-            or self.env.context.get('fast_encode_line_id')
-        if fe_line_id:
+        if self._fast_encode_rows():
             # Inside the Magic Wizard the dialog offers the SAME two actions
             # as it does from the Pallet Breakdown. Either way it is applied
-            # to the REAL line first (Phase B logic, unchanged), then the
-            # transient row is synced so the Magic Wizard's deferred confirm
-            # keeps it, and the list is reopened.
+            # to the REAL line(s) first, then the transient row(s) are synced
+            # so the Magic Wizard's deferred confirm keeps the result, and the
+            # list is reopened.
             if self.mode == 'new':
                 self._apply_create_special()
-                # A drawn series becomes this line's OWN identity: the series
+                # A drawn series becomes the line's OWN identity: the series
                 # it arrived with has just gone back to the pool, so the
                 # wizard's restore machinery must not resurrect it.
-                return self._sync_fast_encode_and_reopen(
-                    fe_line_id, reset_original=True)
+                return self._sync_fast_encode_and_reopen(reset_original=True)
             self._apply_merge()
-            return self._sync_fast_encode_and_reopen(fe_line_id)
+            return self._sync_fast_encode_and_reopen()
         if self.mode == 'new':
             return self._apply_create_special()
         return self._apply_merge()
 
-    def _sync_fast_encode_and_reopen(self, fe_line_id, reset_original=False):
-        """Push what was just applied onto its Magic Wizard transient row and
-        reopen the list, so the two representations never diverge."""
-        line = self.move_line_id
-        fe_line = self.env['stock.move.line.fast_encode_rr.line'].browse(
-            fe_line_id)
-        if not fe_line.exists():
+    def _sync_fast_encode_and_reopen(self, reset_original=False):
+        """Push what was just applied onto every Magic Wizard transient row
+        and reopen the list, so the two representations never diverge."""
+        fe_lines = self._fast_encode_rows()
+        if not fe_lines:
             return {'type': 'ir.actions.act_window_close'}
-        fe_line._vifel_sync_from_move_line(line, reset_original=reset_original)
-        return fe_line._reopen_fast_encode_list()
+        MoveLine = self.env['stock.move.line']
+        for fe in fe_lines:
+            ml = MoveLine.browse(fe.stock_move_line)
+            if ml.exists():
+                fe._vifel_sync_from_move_line(ml, reset_original=reset_original)
+        return fe_lines[0]._reopen_fast_encode_list()
 
     # ------------------------------------------------------------------
     # merge onto a stocked pallet
     # ------------------------------------------------------------------
-    def _apply_merge(self):
-        line = self.move_line_id
-        picking = line.picking_id
-        partner = self.partner_id
-        # the manual Pallet # picker (shown when the list is capped) wins over
-        # a table selection; otherwise use the checked row
-        candidate = self.env['pallet.merge.candidate']
+    # ------------------------------------------------------------------
+    # merge onto a stocked pallet — one target, one or many lines
+    # ------------------------------------------------------------------
+    def _resolve_merge_target(self):
+        """The pallet to merge onto: the manual picker wins over the table."""
         if self.manual_package_id:
-            target = self.manual_package_id
-        else:
-            candidate = self.candidate_line_ids.filtered('is_target')[:1]
-            if not candidate:
-                raise UserError(_('Pick the pallet to merge onto first.'))
-            if not candidate.eligible:
-                raise UserError(candidate.ineligible_reason or _(
-                    'That pallet cannot be a merge target.'))
-            target = candidate.package_id
+            return self.manual_package_id, self.env['pallet.merge.candidate']
+        candidate = self.candidate_line_ids.filtered('is_target')[:1]
+        if not candidate:
+            raise UserError(_('Pick the pallet to merge onto first.'))
+        if not candidate.eligible:
+            raise UserError(candidate.ineligible_reason or _(
+                'That pallet cannot be a merge target.'))
+        return candidate.package_id, candidate
 
-        # A pallet started on THIS receipt is not yet on the floor, so the
-        # line is joining a pallet this document is itself creating — a mixed
+    def _partition_lines_for_merge(self, lines, target):
+        """Split the selected lines into those that can merge and those to
+        skip, so one stray row never blocks the rest (user ruling)."""
+        eligible = self.env['stock.move.line']
+        skipped = []
+        for line in lines:
+            if not line.vifel_show_merge_button:
+                skipped.append((line, _('not a mergeable line')))
+            elif line.is_pallet_merge:
+                skipped.append((line, _('already merged')))
+            elif line.result_package_id == target:
+                skipped.append((line, _('already on that pallet')))
+            else:
+                eligible |= line
+        return eligible, skipped
+
+    def _skipped_note(self, skipped):
+        if not skipped:
+            return ''
+        return _('\nSkipped: ') + ', '.join(
+            '#%s (%s)' % (line.x_studio_ or '?', reason)
+            for line, reason in skipped)
+
+    def _apply_merge(self):
+        partner = self.partner_id
+        target, candidate = self._resolve_merge_target()
+        lines = self.move_line_ids or self.move_line_id
+        eligible, skipped = self._partition_lines_for_merge(lines, target)
+        if not eligible:
+            raise UserError(_(
+                'None of the selected line(s) can be merged onto %s.%s'
+            ) % (target.name, self._skipped_note(skipped)))
+
+        # A pallet started on THIS receipt is not yet on the floor, so a line
+        # is joining a pallet this document is itself creating — a mixed
         # pallet, not a merge onto stored stock. It must NOT carry the merge
-        # flag: the ledger counts unique pallets per receipt, so both lines
-        # together already count exactly one. Flagging it would mean that
-        # deleting the line which created the pallet leaves the pallet counted
-        # ZERO, undercounting a pallet that physically exists.
+        # flag: the ledger counts unique pallets per receipt, so the lines
+        # together already count exactly one.
         if candidate and candidate.on_this_receipt:
-            return self._apply_same_receipt(candidate)
-        if target == line.result_package_id:
-            raise UserError(_('The line is already on that pallet.'))
+            adopted = (candidate.psi or '').strip()
+            if not adopted:
+                raise UserError(_(
+                    'That pallet has no Pallet Series yet on this receipt.'))
+            for line in eligible:
+                self._apply_same_receipt_one(
+                    line, target, adopted, candidate.location_id)
+            return self._merge_done(eligible, skipped, target, adopted,
+                                    kind='same_receipt')
+
         quants = self._stocked_quants(target)
         psis = sorted({q.x_studio_pallet_series_id
                        for q in quants if q.x_studio_pallet_series_id})
         if len(psis) > 1:
-            # defence in depth: the row was marked ineligible, but state may
-            # have moved since the wizard opened
             raise UserError(_(
                 'Pallet %s now carries %d different Pallet Series (%s) — it '
                 'must be consolidated to one before it can be a merge target.'
             ) % (target.name, len(psis), ', '.join(psis)))
+
         # +0 applies ONLY while the target already holds stock (user ruling
         # 2026-07-23). The FIRST stock on the empty pinned pallet BIRTHS the
-        # pallet — a plain, unflagged +1 line — because the ledger counts a
-        # pallet once when born and once when emptied: flag the birth +0 and
-        # the WR that later exhausts the pallet (−1) walks the balance
-        # negative on every empty→fill cycle.
+        # pallet — plain, unflagged +1 lines — because the WR that later
+        # exhausts it (minus 1) would otherwise walk the balance negative.
         first_stock = not psis
         if psis:
             adopted = psis[0]
@@ -569,120 +635,18 @@ class PalletMergeWizard(models.TransientModel):
             adopted = partner.vifel_fixed_psi.strip()
             target_location = self.env['stock.location']
 
-        old_series = line.x_studio_pallet_series_id or ''
-        old_package_id = line.result_package_id.id
-        old_location_id = line.location_dest_id.id
+        for line in eligible:
+            self._apply_merge_one(
+                line, target, adopted, target_location, first_stock)
+        return self._merge_done(
+            eligible, skipped, target, adopted,
+            kind='first_stock' if first_stock else 'merge')
 
-        vals = {
-            'result_package_id': target.id,
-            'x_studio_pallet_series_id': adopted,
-            'is_pallet_merge': not first_stock,
-        }
-        if not first_stock:
-            # remember what is being displaced so un-merge restores exactly
-            # this, including "there was nothing here yet". A first-stock
-            # line is plain (no Un-merge button), so nothing to capture.
-            vals.update({
-                'vifel_premerge_captured': True,
-                'vifel_premerge_series': old_series or False,
-                'vifel_premerge_location_id': old_location_id or False,
-            })
-        if target_location:
-            vals['location_dest_id'] = target_location.id
-        # skip_pallet_series_sync: keep the repallet-sync machinery out of an
-        # intentional merge; vifel_pallet_merge marks the write so the
-        # un-merge detector does not treat it as an un-merge. The stocked
-        # target is deliberately NOT stamped with reservation fields — it is
-        # occupied, not reserved.
-        line.with_context(skip_pallet_series_sync=True,
-                          vifel_pallet_merge=True).write(vals)
-
-        # the series drawn earlier for this line goes back to its pool,
-        # unless another line of this RR still uses it
-        if old_series and old_series != adopted:
-            still_used = self.env['stock.move.line'].search([
-                ('picking_id', '=', picking.id),
-                ('x_studio_pallet_series_id', '=', old_series),
-                ('id', '!=', line.id),
-            ], limit=1)
-            if not still_used:
-                partner.with_context(
-                    audit_picking_id=picking.id,
-                    audit_source='wizard').push_unused_pallet(old_series)
-
-        # the empty pallet / location reserved earlier are free again
-        if old_package_id and old_package_id != target.id:
-            line._free_pallet_if_unused(picking.id, old_package_id)
-        if old_location_id and old_location_id != line.location_dest_id.id:
-            line._free_location_if_unused(picking.id, old_location_id)
-
-        if first_stock:
-            # A pallet being STARTED gets the standard receiving reservation,
-            # exactly like the create-special path — it is this receipt's
-            # pallet now, not shared storage.
-            if not target.x_studio_is_reserved:
-                target.write({'x_studio_is_reserved': True,
-                              'x_studio_receiving_report_id': picking.id})
-            picking.message_post(body=Markup(_(
-                'Line #%s (%s): first stock on pallet <b>%s</b> — Pallet '
-                'Series <b>%s</b>. Counted as a received pallet (+1); lines '
-                'merging onto it once it holds stock will not be.')) % (
-                    line.x_studio_ or '', line.product_id.display_name,
-                    target.name, adopted))
-            return self._done_notification(_(
-                'Line #%(num)s starts pallet %(pallet)s (%(psi)s) — counted '
-                'as a received pallet.') % {
-                    'num': line.x_studio_ or '', 'pallet': target.name,
-                    'psi': adopted})
-
-        # Markup(...) % args — the template is trusted, the values are escaped.
-        # A plain str body is escaped whole by Odoo 17 and the tags would show
-        # up as literal text in the chatter.
-        picking.message_post(body=Markup(_(
-            'Line #%s (%s) merged onto pallet <b>%s</b> — adopted Pallet '
-            'Series <b>%s</b>%s. The pallet count is not incremented for '
-            'this line.')) % (
-                line.x_studio_ or '', line.product_id.display_name,
-                target.name, adopted,
-                _(' at %s') % target_location.complete_name
-                if target_location else ''))
-        return self._done_notification(_(
-            'Line #%(num)s merged onto %(pallet)s (%(psi)s). '
-            'Not counted as a new pallet.') % {
-                'num': line.x_studio_ or '', 'pallet': target.name,
-                'psi': adopted})
-
-    def _apply_same_receipt(self, candidate):
-        """Join a pallet another line of this same receipt already uses.
-
-        The line takes that pallet's number, series and location so the house
-        rule holds (same series = same pallet = same location), but it is left
-        UNFLAGGED — see the note in _apply_merge for why flagging would risk
-        an undercount.
-        """
-        line = self.move_line_id
+    def _free_displaced(self, line, old_series, adopted, old_package_id,
+                        old_location_id, target):
+        """Return the series/pallet/location this line no longer uses."""
         picking = line.picking_id
         partner = self.partner_id
-        target = candidate.package_id
-        adopted = (candidate.psi or '').strip()
-        if not adopted:
-            raise UserError(_(
-                'That pallet has no Pallet Series yet on this receipt.'))
-
-        old_series = line.x_studio_pallet_series_id or ''
-        old_package_id = line.result_package_id.id
-        old_location_id = line.location_dest_id.id
-
-        vals = {'result_package_id': target.id,
-                'x_studio_pallet_series_id': adopted,
-                'is_pallet_merge': False}
-        if candidate.location_id:
-            vals['location_dest_id'] = candidate.location_id.id
-        line.with_context(skip_pallet_series_sync=True,
-                          vifel_pallet_merge=True).write(vals)
-
-        # the series this line had drawn is free again, unless another line
-        # of this receipt still uses it
         if old_series and old_series != adopted:
             still_used = self.env['stock.move.line'].search([
                 ('picking_id', '=', picking.id),
@@ -697,21 +661,92 @@ class PalletMergeWizard(models.TransientModel):
         if old_location_id and old_location_id != line.location_dest_id.id:
             line._free_location_if_unused(picking.id, old_location_id)
 
+    def _apply_merge_one(self, line, target, adopted, target_location,
+                         first_stock):
+        picking = line.picking_id
+        old_series = line.x_studio_pallet_series_id or ''
+        old_package_id = line.result_package_id.id
+        old_location_id = line.location_dest_id.id
+
+        vals = {
+            'result_package_id': target.id,
+            'x_studio_pallet_series_id': adopted,
+            'is_pallet_merge': not first_stock,
+        }
+        if not first_stock:
+            # remember what is being displaced so un-merge restores exactly
+            # this. A first-stock line is plain (no Un-merge), nothing to keep.
+            vals.update({
+                'vifel_premerge_captured': True,
+                'vifel_premerge_series': old_series or False,
+                'vifel_premerge_location_id': old_location_id or False,
+            })
+        if target_location:
+            vals['location_dest_id'] = target_location.id
+        line.with_context(skip_pallet_series_sync=True,
+                          vifel_pallet_merge=True).write(vals)
+        self._free_displaced(line, old_series, adopted, old_package_id,
+                             old_location_id, target)
+
+        if first_stock:
+            if not target.x_studio_is_reserved:
+                target.write({'x_studio_is_reserved': True,
+                              'x_studio_receiving_report_id': picking.id})
+            picking.message_post(body=Markup(_(
+                'Line #%s (%s): first stock on pallet <b>%s</b> — Pallet '
+                'Series <b>%s</b>. Counted as a received pallet (+1).')) % (
+                    line.x_studio_ or '', line.product_id.display_name,
+                    target.name, adopted))
+        else:
+            picking.message_post(body=Markup(_(
+                'Line #%s (%s) merged onto pallet <b>%s</b> — adopted Pallet '
+                'Series <b>%s</b>%s. The pallet count is not incremented for '
+                'this line.')) % (
+                    line.x_studio_ or '', line.product_id.display_name,
+                    target.name, adopted,
+                    _(' at %s') % target_location.complete_name
+                    if target_location else ''))
+
+    def _apply_same_receipt_one(self, line, target, adopted, target_location):
+        """Join a pallet another line of this same receipt already uses —
+        adopt its number/series/location, left UNFLAGGED."""
+        picking = line.picking_id
+        old_series = line.x_studio_pallet_series_id or ''
+        old_package_id = line.result_package_id.id
+        old_location_id = line.location_dest_id.id
+
+        vals = {'result_package_id': target.id,
+                'x_studio_pallet_series_id': adopted,
+                'is_pallet_merge': False}
+        if target_location:
+            vals['location_dest_id'] = target_location.id
+        line.with_context(skip_pallet_series_sync=True,
+                          vifel_pallet_merge=True).write(vals)
+        self._free_displaced(line, old_series, adopted, old_package_id,
+                             old_location_id, target)
+
         picking.message_post(body=Markup(_(
-            'Line #%s (%s) placed on pallet <b>%s</b> (<b>%s</b>) together '
-            'with the other line(s) of this receipt — one physical pallet, '
-            'counted once.')) % (
+            'Line #%s (%s) placed on pallet <b>%s</b> (<b>%s</b>) with the '
+            'other line(s) of this receipt — one physical pallet, counted '
+            'once.')) % (
                 line.x_studio_ or '', line.product_id.display_name,
                 target.name, adopted))
-        return self._done_notification(_(
-            'Line #%(num)s placed on %(pallet)s (%(psi)s), together with the '
-            'other line(s) of this receipt.') % {
-                'num': line.x_studio_ or '', 'pallet': target.name,
-                'psi': adopted})
 
-    # ------------------------------------------------------------------
-    # create a new special pallet (Multiple mode)
-    # ------------------------------------------------------------------
+    def _merge_done(self, eligible, skipped, target, adopted, kind='merge'):
+        """One summary toast for the whole pass, per-line chatter above."""
+        n = len(eligible)
+        if kind == 'first_stock':
+            body = _('%(n)d line(s) started pallet %(pallet)s (%(psi)s) — '
+                     'counted as a received pallet.')
+        elif kind == 'same_receipt':
+            body = _('%(n)d line(s) placed on %(pallet)s (%(psi)s), with the '
+                     'other line(s) of this receipt.')
+        else:
+            body = _('%(n)d line(s) merged onto %(pallet)s (%(psi)s). Not '
+                     'counted as a new pallet.')
+        text = body % {'n': n, 'pallet': target.name, 'psi': adopted}
+        return self._done_notification(text + self._skipped_note(skipped))
+
     def _apply_create_special(self):
         line = self.move_line_id
         picking = line.picking_id
@@ -744,54 +779,51 @@ class PalletMergeWizard(models.TransientModel):
                         'other': pkg_wh.name, 'here': warehouse.name})
 
         series = self.psi_type_id.draw_number()
-        old_series = line.x_studio_pallet_series_id or ''
-        old_package_id = line.result_package_id.id
-        old_location_id = line.location_dest_id.id
+        target = self.new_package_id
 
-        # a plain line: a new pallet on the floor, counted +1
-        line.with_context(skip_pallet_series_sync=True).write({
-            'result_package_id': self.new_package_id.id,
-            'x_studio_pallet_series_id': series,
-            'location_dest_id': self.new_location_id.id,
-            'is_pallet_merge': False,
-        })
+        # one series, one new pallet — every selected line lands on it (one
+        # unique package per RR, so the ledger counts it once). Only lines
+        # that can actually take a new pallet participate.
+        lines = self.move_line_ids or self.move_line_id
+        eligible, skipped = self._partition_lines_for_merge(lines, target)
+        if not eligible:
+            raise UserError(_(
+                'None of the selected line(s) can start a new pallet.%s'
+            ) % self._skipped_note(skipped))
 
         # standard receiving reservations apply to a NEW pallet
-        if not self.new_package_id.x_studio_is_reserved:
-            self.new_package_id.write({
-                'x_studio_is_reserved': True,
-                'x_studio_receiving_report_id': picking.id,
-            })
+        if not target.x_studio_is_reserved:
+            target.write({'x_studio_is_reserved': True,
+                          'x_studio_receiving_report_id': picking.id})
         if not self.new_location_id.x_studio_is_reserved:
             self.new_location_id.write({
                 'x_studio_is_reserved': True,
-                'x_studio_receiving_report_id': picking.id,
+                'x_studio_receiving_report_id': picking.id})
+
+        for line in eligible:
+            old_series = line.x_studio_pallet_series_id or ''
+            old_package_id = line.result_package_id.id
+            old_location_id = line.location_dest_id.id
+            # a plain line: a new pallet on the floor, counted +1
+            line.with_context(skip_pallet_series_sync=True).write({
+                'result_package_id': target.id,
+                'x_studio_pallet_series_id': series,
+                'location_dest_id': self.new_location_id.id,
+                'is_pallet_merge': False,
             })
-
-        if old_series and old_series != series:
-            still_used = self.env['stock.move.line'].search([
-                ('picking_id', '=', picking.id),
-                ('x_studio_pallet_series_id', '=', old_series),
-                ('id', '!=', line.id),
-            ], limit=1)
-            if not still_used:
-                partner.with_context(
-                    audit_picking_id=picking.id,
-                    audit_source='wizard').push_unused_pallet(old_series)
-        if old_package_id and old_package_id != self.new_package_id.id:
-            line._free_pallet_if_unused(picking.id, old_package_id)
-        if old_location_id and old_location_id != self.new_location_id.id:
-            line._free_location_if_unused(picking.id, old_location_id)
-
-        picking.message_post(body=Markup(_(
-            'Line #%s (%s): new special pallet <b>%s</b> started with Pallet '
-            'Series <b>%s</b> at %s.')) % (
-                line.x_studio_ or '', line.product_id.display_name,
-                self.new_package_id.name, series,
-                self.new_location_id.complete_name))
-        return self._done_notification(_(
-            'New special pallet %(pallet)s started (%(psi)s).') % {
-                'pallet': self.new_package_id.name, 'psi': series})
+            self._free_displaced(line, old_series, series, old_package_id,
+                                 old_location_id, target)
+            picking.message_post(body=Markup(_(
+                'Line #%s (%s): new special pallet <b>%s</b> started with '
+                'Pallet Series <b>%s</b> at %s.')) % (
+                    line.x_studio_ or '', line.product_id.display_name,
+                    target.name, series,
+                    self.new_location_id.complete_name))
+        return self._done_notification(
+            _('New special pallet %(pallet)s started (%(psi)s) with '
+              '%(n)d line(s).') % {
+                'pallet': target.name, 'psi': series, 'n': len(eligible)}
+            + self._skipped_note(skipped))
 
     # ------------------------------------------------------------------
     def _done_notification(self, message):

@@ -107,13 +107,32 @@ class StockMoveLineMergeEntry(models.Model):
 
     def action_open_pallet_merge_wizard(self):
         self.ensure_one()
-        wizard = self.env['pallet.merge.wizard'].create(
-            {'move_line_id': self.id})
+        return self._vifel_open_merge_wizard(self, _('Merge Pallet — %s') % (
+            self.product_id.display_name or _('line #%s') % (
+                self.x_studio_ or '')))
+
+    def action_open_pallet_merge_wizard_multi(self):
+        """Selection-bar 'Merge Selected': open the wizard for every mergeable
+        line ticked in the Pallet Breakdown. Ineligible ones are dropped now;
+        any that slip through are skipped at confirm with a note."""
+        lines = self or self.browse(self.env.context.get('active_ids', []))
+        mergeable = lines.filtered(
+            lambda l: l.vifel_show_merge_button and not l.is_pallet_merge)
+        if not mergeable:
+            raise UserError(_(
+                'None of the selected lines can be merged — they must be '
+                'unmerged incoming lines of a merge-enabled client.'))
+        return self._vifel_open_merge_wizard(
+            mergeable, _('Merge %d Selected Lines') % len(mergeable))
+
+    def _vifel_open_merge_wizard(self, lines, name):
+        wizard = self.env['pallet.merge.wizard'].create({
+            'move_line_id': lines[:1].id,
+            'move_line_ids': [(6, 0, lines.ids)],
+        })
         return {
             'type': 'ir.actions.act_window',
-            'name': _('Merge Pallet — %s') % (
-                self.product_id.display_name or _('line #%s') % (
-                    self.x_studio_ or '')),
+            'name': name,
             'res_model': 'pallet.merge.wizard',
             'res_id': wizard.id,
             'view_mode': 'form',
