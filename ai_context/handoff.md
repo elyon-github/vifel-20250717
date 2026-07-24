@@ -302,6 +302,32 @@ changes cannot move a live ledger. A first Re-sync on this debug DB legitimately
 one stale row — the suite therefore asserts **idempotence** (a second run changes nothing)
 rather than "zero change", which would be a false failure.
 
+### 7.6 Downstream lifecycle verified (2026-07-24) — returns, voids, reports
+
+The three downstream concerns raised in the post-build brainstorm were investigated in
+code and VERIFIED, not blindly patched. Finding: the enhancement rides two pre-existing
+PHYSICAL invariants, so all three are already correct — no merge-specific fix was needed.
+
+- **Billing + occupancy reports** (`suite_u_merge_reports.py`, 10 checks). Billing xlsx
+  (`pallet_kilos_billing_xlsx.py`) READS PKR fields verbatim — already merge-aware, a
+  merged line drops its printed received count by 1. Occupancy xlsx
+  (`stock_quant_history/occupancy_xlsx_report.py`) counts DISTINCT
+  `x_studio_pallet_series_id`; merge guarantees one PSI per pallet, so a merge pallet
+  counts once. Two independent bases, both see one pallet.
+- **Voids/unvoid** (`suite_t_merge_void_lifecycle.py`, 9). The void WR withdrawn count
+  keys on `reserved_quantity_on_validation` (physical emptying), NOT `is_pallet_merge`;
+  void WR/return rows are archived from PKR (`models.py:782`); void source uses the
+  building preset, not the pinned pallet's PACKAGE reservation. Merge is transparent.
+- **Returns** (`suite_s_merge_return_lifecycle.py`, 6). A return lands via
+  `_find_psi_remainder_quant`, keyed on (owner, PSI) — it cannot tell a merge pallet from
+  any pallet carrying that PSI. Return routing reads the LOCATION reserved flag, not our
+  PACKAGE reservation, so the pinned pallet does not misroute a return.
+- **Pre-existing observation, NOT merge scope, surfaced for the ledger owner:** a
+  Partial-Withdraw return carries its own active PKR row counting `pallets_received` and
+  lands on the remainder. This is how all ~2,600 returns behave, merge or not; whether it
+  is a point-in-time pallet over-count is a separate question this enhancement neither
+  causes nor changes.
+
 ### 7.5 Remaining before go-live
 1. **Human UAT click-through** — nobody has clicked the wizard yet; structure is verified,
    the visual judgement is not. Configure a client, merge from both surfaces, un-merge.
