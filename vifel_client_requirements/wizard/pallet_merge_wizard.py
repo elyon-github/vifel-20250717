@@ -290,6 +290,44 @@ class PalletMergeWizard(models.TransientModel):
         return package.quant_ids.filtered(
             lambda q: q.quantity > 0 and q.location_id.usage == 'internal')
 
+    def _pinned_pallet_already_claimed(self, package):
+        """Has another UNVALIDATED receipt already claimed this empty pinned
+        pallet as its birth?
+
+        The empty pinned Fixed pallet is born exactly ONCE — the first receipt
+        to put stock on it counts +1 (an unflagged line); every later receipt
+        merges onto it (+0), even before the first validates. Two receipts that
+        both saw "no stock" would otherwise both birth it, counting the one
+        physical pallet twice (and Re-sync would not self-heal, since it counts
+        a unique package once per RR).
+
+        A claim = an unflagged incoming move line on this package from a
+        DIFFERENT, still-open picking. Lines of THIS wizard's own picking are
+        not a foreign claim (they share the birth, deduped to +1 by the ledger).
+        """
+        if not package:
+            return False
+        return bool(self.env['stock.move.line'].search_count([
+            ('result_package_id', '=', package.id),
+            ('is_pallet_merge', '=', False),
+            ('picking_id', '!=', self.picking_id.id),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.state', 'not in', ('done', 'cancel')),
+        ]))
+
+    def _lock_pinned_pallet(self, package):
+        """Serialise concurrent births of the same pinned pallet.
+
+        A row lock on the package (mirrors SA#297's FOR UPDATE pattern) so two
+        confirms racing on the same empty pinned pallet cannot both pass the
+        claim check: the second blocks until the first commits its unflagged
+        birth line, then sees it and merges (+0) instead of birthing again.
+        """
+        if package:
+            self.env.cr.execute(
+                'SELECT id FROM stock_quant_package WHERE id = %s FOR UPDATE',
+                (package.id,))
+
     def _candidate_packages(self):
         """The set of pallets offered to this client, owner-scoped.
 
@@ -391,7 +429,9 @@ class PalletMergeWizard(models.TransientModel):
             elif package == partner.vifel_fixed_package_id \
                     and (partner.vifel_fixed_psi or '').strip():
                 psi_label = '%s (empty)' % partner.vifel_fixed_psi.strip()
-                first_stock = True
+                # first stock ONLY if no other open receipt already claimed
+                # this empty pinned pallet — otherwise this one merges (+0)
+                first_stock = not self._pinned_pallet_already_claimed(package)
             else:
                 eligible = False
                 reason = _('Empty pallet — no stock, so there is no Pallet '
@@ -628,9 +668,15 @@ class PalletMergeWizard(models.TransientModel):
 
         # +0 applies ONLY while the target already holds stock (user ruling
         # 2026-07-23). The FIRST stock on the empty pinned pallet BIRTHS the
-        # pallet — plain, unflagged +1 lines — because the WR that later
+        # pallet — a plain, unflagged +1 line — because the WR that later
         # exhausts it (minus 1) would otherwise walk the balance negative.
-        first_stock = not psis
+        # But the birth happens exactly ONCE: if another open receipt already
+        # claimed the empty pinned pallet, THIS one merges (+0). Lock first so
+        # two concurrent confirms serialise on the claim check.
+        if not psis:
+            self._lock_pinned_pallet(target)
+        first_stock = not psis and not self._pinned_pallet_already_claimed(
+            target)
         if psis:
             adopted = psis[0]
             target_location = quants[:1].location_id
@@ -641,6 +687,8 @@ class PalletMergeWizard(models.TransientModel):
                     'Pallet %s has no stock, so there is no Pallet Series to '
                     'adopt. Merging needs a stocked pallet.') % target.name)
             adopted = partner.vifel_fixed_psi.strip()
+            # a claimed-but-empty pinned pallet: adopt the profile PSI (same as
+            # the birth), but flagged +0 — the birthing receipt owns the +1
             target_location = self.env['stock.location']
 
         for line in eligible:

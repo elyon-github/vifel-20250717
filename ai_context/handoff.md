@@ -335,6 +335,32 @@ PHYSICAL invariants, so all three are already correct — no merge-specific fix 
   on this DEBUG DB's known unrelated anomalies (RO-006886 doubling, orphan voids), not
   returns. Merge is unaffected either way.
 
+### 7.7 Concurrency / corrections / lifecycle verified (2026-07-24)
+
+Second downstream round. Only concurrency needed a fix; corrections and the lifecycle
+were already correct.
+
+- **#4 Concurrency FIXED** (`pallet_merge_wizard.py`, `suite_x_merge_concurrency.py`, 10).
+  Two receipts both merging onto the empty pinned Fixed pallet would both "first-stock"
+  it (+2 for one physical pallet; Re-sync would not self-heal). Now the birth happens
+  once: `_pinned_pallet_already_claimed` flags a later receipt as a merge (+0) if another
+  open receipt already put an unflagged line on the pinned pallet, and
+  `_lock_pinned_pallet` (SELECT ... FOR UPDATE, SA#297 pattern) serialises true
+  simultaneity. Because the flag persists, both live-count and Re-sync then count +1 once.
+  Single-document birth is unchanged (suites B/N still +1). Entirely in the module.
+- **KNOWN RARE EDGE, documented not fixed (user decision):** if the birthing line is
+  DELETED before validation while another receipt already merged onto the pinned pallet,
+  the pallet is left with only flagged lines and counts 0 despite physical stock. Extremely
+  rare; `pallet_drift` surfaces it; un-merging one line restores the birth. Revisit only if
+  the floor ever hits it.
+- **#5 Corrections — already merge-transparent** (`suite_v_merge_correction.py`, 7). The
+  correction wizard's pallet delta (`_package_change_pallet_delta`) is purely physical
+  (source/dest stock, owner-scoped), never reads `is_pallet_merge`. A merge pallet corrects
+  like any pallet; the flag on the RR line (history of its +0) is untouched.
+- **#7 Lifecycle nets to zero** (`suite_w_merge_lifecycle_resync.py`, 7). Driven through
+  the real counting engine: born +1, merges +0, partial WR -0 (remainder left), full WR
+  -1 (emptied) = 0. Full-owner Re-sync with a merge present is drift-free and idempotent.
+
 ### 7.5 Remaining before go-live
 1. **Human UAT click-through** — nobody has clicked the wizard yet; structure is verified,
    the visual judgement is not. Configure a client, merge from both surfaces, un-merge.
