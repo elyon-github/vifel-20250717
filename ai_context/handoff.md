@@ -322,11 +322,18 @@ PHYSICAL invariants, so all three are already correct — no merge-specific fix 
   `_find_psi_remainder_quant`, keyed on (owner, PSI) — it cannot tell a merge pallet from
   any pallet carrying that PSI. Return routing reads the LOCATION reserved flag, not our
   PACKAGE reservation, so the pinned pallet does not misroute a return.
-- **Pre-existing observation, NOT merge scope, surfaced for the ledger owner:** a
-  Partial-Withdraw return carries its own active PKR row counting `pallets_received` and
-  lands on the remainder. This is how all ~2,600 returns behave, merge or not; whether it
-  is a point-in-time pallet over-count is a separate question this enhancement neither
-  causes nor changes.
+- **Partial-Withdraw return accounting — TRACED, and it is CORRECT (not an over-count;
+  corrects an earlier note).** A Partial-Withdraw return carries its own active PKR row
+  counting `pallets_received` and lands on the remainder. I first flagged this as a
+  possible point-in-time over-count; a direct trace disproves that. Example
+  M/WR/00002 -> M/RR/00015: the WR counted 24 pallets withdrawn incl. the partially-
+  picked pallet NB 5456 (its WR line had `reserved_quantity_on_validation = 0`, i.e.
+  counted -1), and the return re-received exactly that 1 pallet (+1). Net -24 +1 = -23
+  pallets, matching the 23 that physically left. The return is proper double-entry: the
+  WR is encoded/counted for the full pallets, and the return brings back the portion that
+  stayed. Aggregate: 46/72 owners have ledger == physical exactly; the 26 with drift are
+  on this DEBUG DB's known unrelated anomalies (RO-006886 doubling, orphan voids), not
+  returns. Merge is unaffected either way.
 
 ### 7.5 Remaining before go-live
 1. **Human UAT click-through** — nobody has clicked the wizard yet; structure is verified,
