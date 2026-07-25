@@ -12,11 +12,13 @@
                 <field name="outgoing_label" invisible="1"/>
                 <field name="incoming_icon" invisible="1"/>
                 <field name="outgoing_icon" invisible="1"/>
+                <field name="incoming_done_label" invisible="1"/>
+                <field name="outgoing_done_label" invisible="1"/>
 
                 <div class="o_vifel_picker_body">
                     <p class="o_vifel_picker_hint">
-                        Choose which transfers to open — Draft, Waiting and
-                        Ready are shown first.
+                        The big number is what still needs doing — Draft,
+                        Waiting and Ready. Those are the ones the list opens on.
                     </p>
                     <div class="o_vifel_picker_options">
                         <div class="o_vifel_picker_choice">
@@ -28,6 +30,9 @@
                                 </span>
                                 <span class="o_vifel_picker_label">
                                     <field name="incoming_label" nolabel="1" readonly="1"/>
+                                </span>
+                                <span class="o_vifel_picker_done">
+                                    <field name="incoming_done_label" nolabel="1" readonly="1"/>
                                 </span>
                             </button>
                             <!-- Encoding starts from paper: the client and the
@@ -47,6 +52,9 @@
                                 </span>
                                 <span class="o_vifel_picker_label">
                                     <field name="outgoing_label" nolabel="1" readonly="1"/>
+                                </span>
+                                <span class="o_vifel_picker_done">
+                                    <field name="outgoing_done_label" nolabel="1" readonly="1"/>
                                 </span>
                             </button>
                             <button name="action_new_outgoing" type="object"

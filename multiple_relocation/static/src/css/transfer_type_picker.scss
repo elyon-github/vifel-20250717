@@ -31,6 +31,15 @@
         flex-wrap: wrap;
     }
 
+    // Validated documents, kept quiet: useful as context, but this dialog is
+    // about what still needs doing, so it must never compete with the count.
+    .o_vifel_picker_done {
+        font-size: 0.72rem;
+        line-height: 1;
+        color: $text-muted;
+        margin-top: 0.15rem;
+    }
+
     // One column per direction: the big card opens the existing transfers,
     // the quiet link under it starts a new one. Creating is the commoner job
     // (encoding starts from paper), but browsing is the safer default click,

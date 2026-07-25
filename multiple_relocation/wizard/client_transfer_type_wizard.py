@@ -14,13 +14,25 @@ class ClientTransferTypeWizard(models.TransientModel):
     _name = 'multiple_relocation.client.transfer.type.wizard'
     _description = 'Select Transfer Type'
 
+    # The list this picker opens is filtered to Draft / Waiting / Ready, so the
+    # headline number counts exactly those states — a total including years of
+    # validated documents would promise a list the user never gets. Mirrors the
+    # stock.picking search filters draft / waiting / available verbatim.
+    OPEN_STATES = ('draft', 'waiting', 'confirmed', 'assigned')
+
     partner_id = fields.Many2one('res.partner', string='Client', required=True,
                                  readonly=True)
     is_blast_freeze = fields.Boolean(string='Blast Freeze', readonly=True)
     incoming_count = fields.Integer(compute='_compute_counts',
-                                    string='Receiving Transfers')
+                                    string='Receiving To Do')
     outgoing_count = fields.Integer(compute='_compute_counts',
-                                    string='Withdrawal Transfers')
+                                    string='Withdrawal To Do')
+    incoming_done_count = fields.Integer(compute='_compute_counts',
+                                         string='Receiving Done')
+    outgoing_done_count = fields.Integer(compute='_compute_counts',
+                                         string='Withdrawal Done')
+    incoming_done_label = fields.Char(compute='_compute_counts')
+    outgoing_done_label = fields.Char(compute='_compute_counts')
     incoming_label = fields.Char(compute='_compute_counts')
     outgoing_label = fields.Char(compute='_compute_counts')
     incoming_icon = fields.Char(compute='_compute_counts')
@@ -28,6 +40,12 @@ class ClientTransferTypeWizard(models.TransientModel):
 
     # ------------------------------------------------------------------
     def _domain(self, code):
+        """Every transfer of this client for the direction — any state.
+
+        Left unfiltered on purpose: it is also the domain the opened list
+        uses, and the state filters there arrive as removable search defaults
+        so the encoder can still reach the validated ones.
+        """
         self.ensure_one()
         return self.partner_id._vifel_picking_domain(
             blast_freeze=self.is_blast_freeze) + [
@@ -37,8 +55,15 @@ class ClientTransferTypeWizard(models.TransientModel):
     def _compute_counts(self):
         Picking = self.env['stock.picking']
         for wiz in self:
-            wiz.incoming_count = Picking.search_count(wiz._domain('incoming'))
-            wiz.outgoing_count = Picking.search_count(wiz._domain('outgoing'))
+            for code in ('incoming', 'outgoing'):
+                base = wiz._domain(code)
+                pending = Picking.search_count(
+                    base + [('state', 'in', wiz.OPEN_STATES)])
+                done = Picking.search_count(base + [('state', '=', 'done')])
+                wiz['%s_count' % code] = pending
+                wiz['%s_done_count' % code] = done
+                wiz['%s_done_label' % code] = (
+                    '%d done' % done if done else 'none done yet')
             if wiz.is_blast_freeze:
                 wiz.incoming_label = 'Blast Freeze - IN'
                 wiz.outgoing_label = 'Blast Freeze - OUT'
