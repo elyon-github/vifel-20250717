@@ -58,4 +58,13 @@
                 <field name="print_report_name">'Outbound Log - %s' % (object.partner_id.name or 'All Clients')</field>
      </record>
 
+     <record id="action_report_inbound_log_xlsx" model="ir.actions.report">
+                <field name="name">Inbound Log XLSX</field>
+                <field name="model">stock.picking</field>
+                <field name="report_type">xlsx</field>
+                <field name="report_name">pallet_kilos_record_model.inbound_log_xlsx</field>
+                <field name="report_file">pallet_kilos_record_model.inbound_log_xlsx</field>
+                <field name="print_report_name">'Inbound Log - %s' % (object.partner_id.name or 'All Clients')</field>
+     </record>
+
 </odoo>
