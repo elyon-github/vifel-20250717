@@ -52,6 +52,10 @@ class ResPartnerClientButtons(models.Model):
         string='Blast Freeze Pallets', compute='_compute_vifel_client_counts')
     vifel_location_count = fields.Integer(
         string='Locations Occupied', compute='_compute_vifel_client_counts')
+    vifel_pending_transfer_count = fields.Integer(
+        string='Pending Transfers', compute='_compute_vifel_client_counts',
+        help='Transfers of this client that are not yet validated — the work '
+             'still outstanding, across normal and blast freeze.')
     vifel_latest_psi = fields.Char(
         string='Latest Pallet Series', compute='_compute_vifel_latest_psi',
         help='Most recently issued Pallet Series ID — the client code plus '
@@ -160,12 +164,21 @@ class ResPartnerClientButtons(models.Model):
                 partner.vifel_normal_pallet_count = 0
                 partner.vifel_bf_pallet_count = 0
                 partner.vifel_location_count = 0
+                partner.vifel_pending_transfer_count = 0
                 continue
 
             partner.vifel_normal_transfer_count = Picking.search_count(
                 partner._vifel_picking_domain())
             partner.vifel_bf_transfer_count = Picking.search_count(
                 partner._vifel_picking_domain(blast_freeze=True))
+
+            # Outstanding work, both directions and both categories. The other
+            # counts are stock figures, so across a wall of client cards every
+            # client reads as equally idle; this is the one number that says
+            # "something here still needs doing".
+            partner.vifel_pending_transfer_count = Picking.search_count(
+                [('partner_id', '=', partner.id),
+                 ('state', 'not in', ('done', 'cancel'))])
 
             # Pallet counting follows the house rule: unique Pallet # for
             # normal stock, unique Pallet Text (bf_pallet_char) for BF.

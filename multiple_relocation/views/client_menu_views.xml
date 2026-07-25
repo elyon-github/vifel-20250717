@@ -50,6 +50,7 @@
                 <field name="vifel_location_count"/>
                 <field name="vifel_normal_transfer_count"/>
                 <field name="vifel_bf_transfer_count"/>
+                <field name="vifel_pending_transfer_count"/>
                 <field name="vifel_latest_psi"/>
                 <templates>
                     <t t-name="kanban-box">
@@ -99,6 +100,15 @@
                                         <span class="badge rounded-pill text-bg-light"
                                               t-attf-title="#{record.vifel_normal_transfer_count.raw_value} normal + #{record.vifel_bf_transfer_count.raw_value} blast freeze">
                                             <i class="fa fa-exchange text-success me-1"/><t t-esc="record.vifel_normal_transfer_count.raw_value + record.vifel_bf_transfer_count.raw_value"/> Transfers
+                                        </span>
+                                        <!-- The only WORK figure on the card: every
+                                             other badge counts stock, so without this
+                                             a client with a dozen open documents looks
+                                             exactly like one with nothing to do. -->
+                                        <span t-if="record.vifel_pending_transfer_count.raw_value"
+                                              class="badge rounded-pill text-bg-warning"
+                                              title="Transfers not yet validated">
+                                            <i class="fa fa-clock-o me-1"/><t t-esc="record.vifel_pending_transfer_count.raw_value"/> Pending
                                         </span>
                                     </div>
                                     <div t-if="record.vifel_latest_psi.raw_value"
@@ -155,6 +165,55 @@
               parent="stock.menu_stock_root"
               action="action_vifel_clients"
               sequence="0"/>
+
+    <!--
+        Find Transfer: the paper-in-hand door.
+
+        Work here is paper-driven — a Tally Sheet or Picklist comes back from
+        the Checker with its RR/WR number printed on it, and the encoder has
+        to reach that exact document. The Clients hub cannot answer that: it
+        searches res.partner, so a document number typed there matches
+        nothing, and the only other route (Operations > Transfers > Receiving)
+        costs three clicks before you can even type.
+
+        Deliberately unrestricted: every operation type, both directions, and
+        Blast Freeze too — the BF menu entries are archived, so this is the
+        only menu path that reaches a BF transfer at all.
+
+        NO default state filter, on purpose. This screen answers "where is
+        M/RR/04376?", and a Draft/Ready default would hide a document that has
+        already been validated, which reads to the user as "it does not
+        exist". Predictability beats pre-filtering here.
+    -->
+    <record id="action_vifel_find_transfer" model="ir.actions.act_window">
+        <field name="name">Find Transfer</field>
+        <field name="res_model">stock.picking</field>
+        <field name="view_mode">tree,kanban,form</field>
+        <field name="context">{'contact_display': 'partner_address'}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No transfer matches your search</p>
+            <p>
+                Type the <b>RR / WR number</b> printed on the paper — for
+                example <b>M/RR/04376</b> — in the search box above.
+                You can also search by client, container or truck plate.
+            </p>
+        </field>
+    </record>
+
+    <!-- Most recent first, and the Documentation Staff column instead of
+         Responsible (same primary view the client transfer lists use). -->
+    <record id="action_vifel_find_transfer_tree" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="view_picking_tree_vifel_client"/>
+        <field name="act_window_id" ref="action_vifel_find_transfer"/>
+    </record>
+
+    <menuitem id="menu_vifel_find_transfer"
+              name="Find Transfer"
+              parent="stock.menu_stock_root"
+              action="action_vifel_find_transfer"
+              sequence="1"/>
 
     <!--
         Creating a client from this screen should tag it Client, otherwise

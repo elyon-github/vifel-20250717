@@ -31,6 +31,33 @@
         flex-wrap: wrap;
     }
 
+    // One column per direction: the big card opens the existing transfers,
+    // the quiet link under it starts a new one. Creating is the commoner job
+    // (encoding starts from paper), but browsing is the safer default click,
+    // so the destructive-by-accident option stays the smaller of the two.
+    .o_vifel_picker_choice {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.4rem;
+    }
+
+    .o_vifel_picker_new {
+        border: 1px solid $border-color;
+        border-radius: 0.35rem;
+        background-color: transparent;
+        color: $o-main-text-color;
+        font-size: 0.85rem;
+        padding: 0.3rem 0.5rem;
+        transition: background-color 0.12s ease, border-color 0.12s ease;
+
+        &:hover, &:focus {
+            background-color: rgba($o-brand-primary, 0.08);
+            border-color: $o-brand-primary;
+            color: $o-brand-primary;
+        }
+    }
+
     .o_vifel_picker_card {
         display: flex;
         flex-direction: column;

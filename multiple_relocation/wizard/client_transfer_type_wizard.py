@@ -117,3 +117,37 @@ class ClientTransferTypeWizard(models.TransientModel):
 
     def action_open_outgoing(self):
         return self._open('outgoing', self.outgoing_label)
+
+    # ------------------------------------------------------------------
+    # Create straight from the picker
+    #
+    # Encoding starts from paper: a Delivery Receipt arrives and the encoder
+    # already knows the client and the direction before opening anything.
+    # Making them walk client > picker > list > New spends three screens
+    # reaching a decision they had made in advance, so the picker offers the
+    # new document directly. The browse path is untouched.
+    # ------------------------------------------------------------------
+    def _new(self, code, label):
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': '%s — %s' % (label, self.partner_id.name),
+            'res_model': 'stock.picking',
+            'view_mode': 'form',
+            'views': [(False, 'form')],
+            'target': 'current',
+            'context': {
+                # Same pre-fill and partner lock as creating from the list, so
+                # a document born here cannot drift to another client.
+                'default_partner_id': self.partner_id.id,
+                'default_picking_type_id': self._picking_type(code).id,
+                'vifel_lock_partner': 1,
+                'vifel_client_id': self.partner_id.id,
+            },
+        }
+
+    def action_new_incoming(self):
+        return self._new('incoming', self.incoming_label)
+
+    def action_new_outgoing(self):
+        return self._new('outgoing', self.outgoing_label)
