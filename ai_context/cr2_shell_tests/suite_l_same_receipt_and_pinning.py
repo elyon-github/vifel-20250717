@@ -101,6 +101,11 @@ try:
           (l2.result_package_id.name, l2.x_studio_pallet_series_id))
     check('U7 line 2 is NOT flagged Merged (protects the pallet count)',
           not l2.is_pallet_merge)
+    # ...but the USER-FACING marker still shows it merged, so a shared pallet
+    # never reads as an unchecked-by-mistake box on the floor.
+    check('U7b line 2 shows on the Merged marker (shares a pallet), '
+          'while the ledger flag stays off',
+          l2.vifel_on_merged_pallet and not l2.is_pallet_merge)
 
     # both lines on one pallet must count as ONE received pallet
     pkgs = set(picking.move_line_ids.filtered(

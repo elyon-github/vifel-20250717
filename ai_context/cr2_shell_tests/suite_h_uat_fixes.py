@@ -38,8 +38,10 @@ try:
     tag = m.group(0) if m else ''
     check('U2 the arch does NOT override PSI readonly (would unlock it)',
           'readonly=' not in tag, tag[:200])
-    check('U3 merged rows are still visually marked',
-          'decoration-info="is_pallet_merge"' in tag)
+    # The tint now keys on vifel_on_merged_pallet, so it marks BOTH +0 merges
+    # and same-receipt shared pallets (is_pallet_merge alone missed the latter).
+    check('U3 merged rows are still visually marked (shared pallets too)',
+          'decoration-info="vifel_on_merged_pallet"' in tag)
 
     # Pallet # stays editable for normal rows, locked for merged ones —
     # that field is NOT readonly in Python, so the modifier is correct there.

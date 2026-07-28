@@ -36,10 +36,16 @@
                 <field name="client_lot_no" string="Lot No." optional="show"
                        column_invisible="not context.get('show_client_lot_no')"
                        readonly="state == 'done'"/>
-                <!-- Merged-pallet marker: this line joined an already stocked
-                     pallet and is NOT counted as a received pallet. -->
-                <field name="is_pallet_merge" string="Merged" optional="show"
-                       readonly="1"
+                <!-- Raw ledger flag: kept only for the button + readonly logic
+                     below. NOT shown — on its own it leaves same-receipt joins
+                     (two lines sharing one pallet) unchecked, which reads as a
+                     bug to the floor. -->
+                <field name="is_pallet_merge" column_invisible="1"/>
+                <!-- User-facing "Merged" column: checked when the line is part
+                     of a merged pallet either way — a +0 merge onto existing
+                     stock, OR sharing a pallet with other lines of this same
+                     receipt. One physical pallet, counted once. -->
+                <field name="vifel_on_merged_pallet" string="Merged" optional="show"
                        column_invisible="picking_code == 'outgoing'"/>
                 <field name="vifel_show_merge_button" column_invisible="1"/>
                 <button name="action_open_pallet_merge_wizard" type="object"

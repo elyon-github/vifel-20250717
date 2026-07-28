@@ -171,6 +171,22 @@ class FastEncodeLineMergeFields(models.TransientModel):
     client_lot_no = fields.Char(string='Lot No.')
     is_pallet_merge = fields.Boolean(string='Merged Pallet', readonly=True)
 
+    # Same user-facing marker as on stock.move.line: checked whenever a row is
+    # part of a merged pallet, INCLUDING two rows of this transfer that simply
+    # share one pallet (is_pallet_merge alone stays false there). Drives the row
+    # tint so the floor sees every consolidated pallet, not only the +0 ones.
+    vifel_on_merged_pallet = fields.Boolean(
+        compute='_compute_vifel_on_merged_pallet')
+
+    @api.depends('result_package_id', 'is_pallet_merge',
+                 'wizard_id.line_ids.result_package_id')
+    def _compute_vifel_on_merged_pallet(self):
+        for line in self:
+            pkg = line.result_package_id
+            shares = bool(pkg) and len(line.wizard_id.line_ids.filtered(
+                lambda l: l.result_package_id == pkg)) > 1
+            line.vifel_on_merged_pallet = bool(line.is_pallet_merge) or shares
+
     # Pallets another line of this transfer has MERGED onto. They must not be
     # offered in the RR Pallet # dropdown: a merge target is reached through
     # the Merge button, which sets the flag, the series and the location

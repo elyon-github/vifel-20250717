@@ -16,6 +16,29 @@ class StockMoveLineMergeEntry(models.Model):
     vifel_show_merge_button = fields.Boolean(
         compute='_compute_vifel_show_merge_button')
 
+    # A user-facing "is this line part of a merged pallet?" marker. is_pallet_merge
+    # alone answers only HALF of that — it flags a +0 merge onto stock from an
+    # EARLIER receipt, but stays FALSE when two lines of THIS receipt simply
+    # share one pallet (that pallet is born by this receipt, counted once, so no
+    # +0 is needed). To the floor both look identical — "two lines, one pallet" —
+    # so an unchecked box on an obviously-shared pallet reads as a bug. This
+    # marker is checked in BOTH cases; is_pallet_merge stays the ledger flag.
+    vifel_on_merged_pallet = fields.Boolean(
+        string='Merged', compute='_compute_vifel_on_merged_pallet',
+        help='Checked when this line sits on a merged pallet — either merged '
+             'onto an already-stocked pallet, or sharing a pallet with other '
+             'lines of this same receipt. Either way it is one physical pallet, '
+             'counted once.')
+
+    @api.depends('result_package_id', 'is_pallet_merge',
+                 'picking_id.move_line_ids.result_package_id')
+    def _compute_vifel_on_merged_pallet(self):
+        for line in self:
+            pkg = line.result_package_id
+            shares = bool(pkg) and len(line.picking_id.move_line_ids.filtered(
+                lambda l: l.result_package_id == pkg)) > 1
+            line.vifel_on_merged_pallet = bool(line.is_pallet_merge) or shares
+
     @api.depends('picking_id.partner_id', 'picking_id.state',
                  'picking_id.picking_type_id')
     def _compute_vifel_show_merge_button(self):
