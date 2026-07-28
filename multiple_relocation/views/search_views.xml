@@ -5,6 +5,32 @@
         <field name="model">stock.picking</field>
         <field name="inherit_id" ref="stock.view_picking_internal_search"/>
         <field name="arch" type="xml">
+            <!--
+                Search a transfer by what is ON it: the pallet, or the pallet
+                series. Both live on the move lines (the Operations tab), so
+                they are reached through filter_domain.
+
+                The field NAME on each entry is only an anchor — what the user
+                types is matched by filter_domain, and what they see in the
+                dropdown is the string. Anchors must be fields not already used
+                in this search view: the parent already spends move_line_ids on
+                "Package", and a second entry with that name would collide.
+
+                Pallet # covers all three ways a pallet is identified here:
+                the destination package on a receiving, the source package on a
+                withdrawal, and bf_pallet_char for blast-freeze pallets, which
+                have no package at all.
+            -->
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="move_line_ids_without_package" string="Pallet Series ID"
+                       filter_domain="[('move_line_ids.x_studio_pallet_series_id', 'ilike', self)]"/>
+                <field name="move_ids_without_package" string="Pallet #"
+                       filter_domain="['|', '|',
+                                       ('move_line_ids.result_package_id.name', 'ilike', self),
+                                       ('move_line_ids.package_id.name', 'ilike', self),
+                                       ('move_line_ids.bf_pallet_char', 'ilike', self)]"/>
+            </xpath>
+
             <xpath expr="//filter[@name='reception']" position="before">
                 <filter name="not_voided" string="Not Void" domain="[('x_studio_voided', '=', False)]"/>
                 <separator/>

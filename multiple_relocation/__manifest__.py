@@ -140,6 +140,8 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
             'multiple_relocation/static/src/js/magic_wizard_list_view_template.xml',
             'multiple_relocation/static/src/js/quant_report_button.js',
             'multiple_relocation/static/src/js/quant_report_button.xml',
+            'multiple_relocation/static/src/js/client_kanban_sort.js',
+            'multiple_relocation/static/src/js/client_kanban_sort.xml',
         ],
     },
     'license': 'LGPL-3',

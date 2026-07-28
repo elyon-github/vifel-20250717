@@ -38,7 +38,9 @@
         <field name="name">res.partner.kanban.vifel.clients</field>
         <field name="model">res.partner</field>
         <field name="arch" type="xml">
-            <kanban sample="1">
+            <!-- js_class carries the control-panel sort toggle (A → Z /
+                 Most Pending), beside New. -->
+            <kanban sample="1" js_class="vifel_client_kanban">
                 <field name="id"/>
                 <field name="active"/>
                 <field name="is_company"/>
@@ -51,6 +53,7 @@
                 <field name="vifel_normal_transfer_count"/>
                 <field name="vifel_bf_transfer_count"/>
                 <field name="vifel_pending_transfer_count"/>
+                <field name="vifel_has_activity"/>
                 <field name="vifel_latest_psi"/>
                 <templates>
                     <t t-name="kanban-box">
@@ -84,38 +87,74 @@
                                     <field name="display_name"/>
                                 </strong>
                                 <t t-if="record.is_vifel_client.raw_value">
-                                    <div class="d-flex flex-wrap mt-1" style="gap: 3px 6px;">
-                                        <span class="badge rounded-pill text-bg-light"
-                                              title="Pallets on hand — normal storage">
-                                            <i class="fa fa-cubes text-primary me-1"/><t t-esc="record.vifel_normal_pallet_count.raw_value"/> Pallets
-                                        </span>
-                                        <span class="badge rounded-pill text-bg-light"
-                                              title="Blast freeze pallets on hand">
-                                            <i class="fa fa-snowflake-o text-info me-1"/><t t-esc="record.vifel_bf_pallet_count.raw_value"/> BF
-                                        </span>
-                                        <span class="badge rounded-pill text-bg-light"
-                                              title="Storage locations currently occupied">
-                                            <i class="fa fa-map-marker text-danger me-1"/><t t-esc="record.vifel_location_count.raw_value"/> Locations
-                                        </span>
-                                        <span class="badge rounded-pill text-bg-light"
-                                              t-attf-title="#{record.vifel_normal_transfer_count.raw_value} normal + #{record.vifel_bf_transfer_count.raw_value} blast freeze">
-                                            <i class="fa fa-exchange text-success me-1"/><t t-esc="record.vifel_normal_transfer_count.raw_value + record.vifel_bf_transfer_count.raw_value"/> Transfers
-                                        </span>
-                                        <!-- The only WORK figure on the card: every
-                                             other badge counts stock, so without this
-                                             a client with a dozen open documents looks
-                                             exactly like one with nothing to do. -->
-                                        <span t-if="record.vifel_pending_transfer_count.raw_value"
-                                              class="badge rounded-pill text-bg-warning"
-                                              title="Transfers not yet validated">
+                                    <!-- PENDING FIRST, and loud. It is the only
+                                         actionable number on the card; the rest
+                                         describe stock. It used to be the
+                                         smallest badge, below reference trivia. -->
+                                    <div t-if="record.vifel_pending_transfer_count.raw_value"
+                                         class="mt-1">
+                                        <!-- Badges are buttons: each opens exactly
+                                             the records it counts. type="object"
+                                             inside a kanban card calls the method on
+                                             this record, same as a form smart button. -->
+                                        <button type="object" name="action_vifel_pending_transfers"
+                                                class="badge rounded-pill text-bg-warning border-0 o_vifel_badge_btn"
+                                                title="Show the transfers not yet validated">
                                             <i class="fa fa-clock-o me-1"/><t t-esc="record.vifel_pending_transfer_count.raw_value"/> Pending
+                                        </button>
+                                    </div>
+                                    <!-- Zero badges are printed as loudly as real
+                                         figures, so a shell client reads as busy as
+                                         a real one. Each badge now appears only when
+                                         it has something to say. -->
+                                    <div class="d-flex flex-wrap mt-1" style="gap: 3px 6px;">
+                                        <button t-if="record.vifel_normal_pallet_count.raw_value"
+                                                type="object" name="action_vifel_normal_stocks"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show these pallets in Stock Inquiry">
+                                            <i class="fa fa-cubes text-primary me-1"/><t t-esc="record.vifel_normal_pallet_count.raw_value"/> Pallets
+                                        </button>
+                                        <button t-if="record.vifel_bf_pallet_count.raw_value"
+                                                type="object" name="action_vifel_bf_stocks"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show these blast freeze pallets">
+                                            <i class="fa fa-snowflake-o text-info me-1"/><t t-esc="record.vifel_bf_pallet_count.raw_value"/> BF
+                                        </button>
+                                        <button t-if="record.vifel_location_count.raw_value"
+                                                type="object" name="action_vifel_locations"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show the storage locations this client occupies">
+                                            <i class="fa fa-map-marker text-danger me-1"/><t t-esc="record.vifel_location_count.raw_value"/> Locations
+                                        </button>
+                                        <!-- Normal and BF kept apart: they are
+                                             different operations with different
+                                             screens, so one combined total could not
+                                             open a meaningful list. -->
+                                        <button t-if="record.vifel_normal_transfer_count.raw_value"
+                                                type="object" name="action_vifel_all_normal_transfers"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show all normal transfers of this client">
+                                            <i class="fa fa-exchange text-success me-1"/><t t-esc="record.vifel_normal_transfer_count.raw_value"/> Transfers
+                                        </button>
+                                        <button t-if="record.vifel_bf_transfer_count.raw_value"
+                                                type="object" name="action_vifel_all_bf_transfers"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show all blast freeze transfers of this client">
+                                            <i class="fa fa-snowflake-o text-info me-1"/><t t-esc="record.vifel_bf_transfer_count.raw_value"/> BF Transfers
+                                        </button>
+                                        <!-- One quiet line beats four zeros. -->
+                                        <span t-if="!record.vifel_has_activity.raw_value"
+                                              class="text-muted small fst-italic">
+                                            No stock or transfers yet
                                         </span>
                                     </div>
-                                    <div t-if="record.vifel_latest_psi.raw_value"
+                                    <!-- Reference, not action: kept, but no longer
+                                         competing with the numbers above. -->
+                                    <div t-if="record.vifel_latest_psi.raw_value and record.vifel_has_activity.raw_value"
                                          class="text-muted small mt-1"
                                          title="Most recently issued Pallet Series ID">
                                         <i class="fa fa-barcode me-1"/>Latest PSI:
-                                        <strong t-esc="record.vifel_latest_psi.raw_value"/>
+                                        <t t-esc="record.vifel_latest_psi.raw_value"/>
                                     </div>
                                     <div class="d-flex mt-2" style="gap: 6px;">
                                         <button type="object" name="action_vifel_normal_transfers"
@@ -123,6 +162,11 @@
                                                 title="Normal Transfers — pick Receiving or Withdrawal">
                                             <i class="fa fa-exchange me-1"/>Transfers
                                         </button>
+                                        <!-- ALWAYS shown, even at zero: this is how a
+                                             client's FIRST blast-freeze transfer gets
+                                             created. Hiding it on clients with no BF
+                                             history made new BF work impossible to
+                                             start from the card. -->
                                         <button type="object" name="action_vifel_bf_transfers"
                                                 class="btn btn-sm btn-info py-0"
                                                 title="Blast Freeze Transfers — pick BF IN or BF OUT">

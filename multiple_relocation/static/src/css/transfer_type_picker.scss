@@ -153,3 +153,29 @@
         text-align: center;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Clickable count badges on the Clients kanban cards.
+//
+// Each badge is a <button>, so it opens exactly the records it counts. The
+// styling strips the button chrome and keeps the pill look, then adds the
+// affordances a plain badge lacks: a pointer cursor and a lift on hover, so
+// it reads as clickable rather than decorative.
+// ---------------------------------------------------------------------------
+.o_vifel_badge_btn {
+    cursor: pointer;
+    padding: 0.28em 0.62em;
+    line-height: 1;
+    transition: filter 0.12s ease, box-shadow 0.12s ease;
+
+    &:hover, &:focus {
+        filter: brightness(0.94);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+        text-decoration: none;
+    }
+
+    &:active {
+        filter: brightness(0.88);
+        box-shadow: none;
+    }
+}
