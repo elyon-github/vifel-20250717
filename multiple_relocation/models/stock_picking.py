@@ -2241,18 +2241,26 @@ class transfer_locations(models.Model):
             # (preprocess_stock_move_data): a pallet counts as withdrawn
             # only when it really left FULLY (0 KG remaining at validation)
             # AND no other pending outgoing picking still holds the lot.
+            # That rule is withdrawal-only: an incoming receipt counts every
+            # pallet received, whatever withdrawals are pending on its lots.
+            counts_as_pallet = True
+            if line.picking_id.picking_type_id.code == 'outgoing':
+                counts_as_pallet = (
+                    line.reserved_quantity_on_validation == 0
+                    and not same_quant_stocks_picked
+                )
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('package', line.package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if counts_as_pallet else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('result_package', line.result_package_id.id)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if counts_as_pallet else 0
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if counts_as_pallet else 0
  
         return page_pallet_count
  
@@ -2395,13 +2403,23 @@ class transfer_locations(models.Model):
                     ('picking_id.id', '!=', move_line.picking_id.id),
                     ('picking_id.picking_type_code', '=', 'outgoing')
                 ])
+                # The dedupe gate below is withdrawal-only: an incoming receipt
+                # counts every pallet received, whatever withdrawals are pending
+                # on its lots.
+                counts_as_pallet = True
+                if move_line.picking_id.picking_type_id.code == 'outgoing':
+                    counts_as_pallet = (
+                        move_line.reserved_quantity_on_validation == 0
+                        and not same_quant_stocks_picked
+                    )
+
                 # Track unique packages for pallet count
                 if move_line.package_id and not move_line.picking_id.x_studio_is_a_blast_freezer:
                     grouped_moves[key]['package_ids'].add(
                         move_line.package_id.id)
                     if move_line.package_id.id not in package_ids:
                         package_ids.add(move_line.package_id.id)
-                        grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                        grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
                 elif move_line.bf_pallet_char and move_line.picking_id.x_studio_is_a_blast_freezer:
 
@@ -2409,14 +2427,14 @@ class transfer_locations(models.Model):
                         move_line.bf_pallet_char)
                     if move_line.bf_pallet_char not in package_ids:
                         package_ids.add(move_line.bf_pallet_char)
-                        grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                        grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
                 elif move_line.result_package_id:
                     grouped_moves[key]['package_ids'].add(
                         move_line.result_package_id.id)
                     if move_line.result_package_id.id not in package_ids:
                         package_ids.add(move_line.result_package_id.id)
-                        grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                        grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
         # Convert to list and calculate final pallet counts
         processed_moves = []
