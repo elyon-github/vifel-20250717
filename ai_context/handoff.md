@@ -361,10 +361,43 @@ were already correct.
   the real counting engine: born +1, merges +0, partial WR -0 (remainder left), full WR
   -1 (emptied) = 0. Full-owner Re-sync with a merge present is drift-free and idempotent.
 
+### 7.8 UAT-driven refinements (2026-07-28)
+
+A round of fixes from clicking the feature on `vifel_07_28_2026_2`. All in
+`vifel_client_requirements` (plug-and-play intact). Test set now **351 checks / 32 suites**.
+
+- **New Location scoped to the receipt building** (`suite_z`, 5). Starting a new special
+  pallet only offers locations `child_of picking.location_dest_id` (e.g. an M/EX receipt →
+  under M/EX), enforced in the domain AND `_apply_create_special`. Merging onto an existing
+  pallet in another building is unaffected (it adopts the pallet's real location).
+- **No pallet/location reuse across a receipt's lines** (`suite_ab`, 8). A new special
+  pallet can't reuse a sibling line's pallet (would mix PSIs) or non-aisle bin (two pallets
+  in one spot); aisles may still hold several.
+- **Batch # / Prodcode** (`suite_y` 11, `suite_y2` 5). New profile toggle
+  `vifel_show_batch_no`. Batch # typed on the RR line (Pallet Breakdown + Magic Wizard,
+  written back on Confirm) is frozen at validation into a Prodcode on the quant:
+  `DD`+UPPER-mon+`YYYY`+Batch#+`x_studio_building_dropped` (e.g. `18MAY202699M`; no prod
+  date → Batch#+building). Shown read-only on the WR.
+- **Symmetric same-receipt Un-merge** (`suite_aa` 21, `suite_ac` 8). Same-receipt joins stay
+  `is_pallet_merge=False` (ledger untouched) but now CAPTURE pre-merge state, so any line on
+  a shared pallet shows "Merged" + Un-merge and can be peeled off; the pallet stays +1 until
+  a lone owner remains. The "Merged" marker = `is_pallet_merge OR shares-a-pallet`; buttons,
+  tint and location-lock all key on it, on BOTH the Pallet Breakdown and the Magic Wizard.
+- **Single 'Merge Here' target** (`suite_ad`, 5). Parent-level onchange re-asserts radio
+  behaviour so the web client re-renders de-selected rows; `_resolve_merge_target` refuses
+  an ambiguous (>1) pick server-side.
+- **UI declutter (JS)**: Print dropdown hidden on the Pallet Breakdown; redundant header
+  "Spawn Magic Wizard" hidden (the top-left JS Magic Wizard is the entry); the merge dialog's
+  X/Escape now re-spawns the Magic Wizard (`from_fast_encode`) instead of dropping the session.
+  *JS — confirm visually in a hard-refreshed browser.*
+- **Deliverable**: `ai_context/uat/VIFEL_Merge_Pallet_UAT_Test_Script.xlsx` — 15 scenario-based
+  UAT cases, Elyon → Vifel branded, status drop-downs + sign-off.
+
 ### 7.5 Remaining before go-live
-1. **Human UAT click-through** — nobody has clicked the wizard yet; structure is verified,
-   the visual judgement is not. Configure a client, merge from both surfaces, un-merge.
-2. Push `CR2-test` — **requires force-push approval** (branch deliberately diverged).
+1. **Browser confirmation of the JS bits** — Print hidden, Spawn hidden, merge-dialog X
+   re-spawns the Magic Wizard (headless upgrade is clean; visual not yet confirmed).
+2. **Human UAT click-through** — run the 15-case UAT script end to end.
+3. **SA#348 + SA#333 pastes** are mandatory at go-live (see `ai_context/sa348_*` and `sa333_*`).
 3. Prod profiles: Wonder Meats = Can Merge ON / Multiple OFF / pin `R 5666` + `WMF-00230`;
    Consistent = Can Merge ON / Multiple ON (types auto-seed); Show Lot No. per client.
 4. Install `vifel_client_requirements`; upgrade `multiple_relocation` +
