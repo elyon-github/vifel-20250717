@@ -22,7 +22,7 @@ copy=False on all — void mirrors and returns start clean, never inheriting a
 merge flag, a lot number or a stale pre-merge snapshot from the document they
 mirror.
 """
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class StockMoveLineVifelClientFields(models.Model):
@@ -36,6 +36,42 @@ class StockMoveLineVifelClientFields(models.Model):
     client_lot_no = fields.Char(
         string='Lot No.', copy=False,
         help="The client's own lot number for this pallet line.")
+    # Batch # is the checker's raw input on the RECEIVING line. At validation it
+    # is baked, together with the production date and the building it was
+    # dropped in, into a Prodcode stamped onto the quant (see the gating model).
+    batch_no = fields.Char(
+        string='Batch #', copy=False,
+        help="The client's batch number for this receiving line. At validation "
+             "it becomes part of the Prodcode stamped onto stock.")
+    # Prodcode is shown on the WITHDRAWAL line, read back from the quant being
+    # withdrawn (the outgoing line is a fresh record and never carried it). It
+    # is the frozen 'DDMONYYYY' + Batch# + building-shortname code.
+    prodcode = fields.Char(
+        string='Prodcode', compute='_compute_prodcode', compute_sudo=True,
+        help='The production code frozen onto this pallet at receiving: '
+             'production date + Batch # + building short name.')
+
+    @api.depends('package_id', 'product_id', 'lot_id', 'location_id')
+    def _compute_prodcode(self):
+        """Read the frozen Prodcode off the quant this line withdraws from.
+
+        Non-stored: the value lives on the quant (stamped at the receiving
+        validation); the withdrawal line only displays it, keyed on the same
+        quant identity used everywhere else (product / source location / lot /
+        package)."""
+        Quant = self.env['stock.quant']
+        for line in self:
+            code = ''
+            if line.package_id or line.location_id:
+                quant = Quant.search([
+                    ('product_id', '=', line.product_id.id),
+                    ('location_id', '=', line.location_id.id),
+                    ('lot_id', '=', line.lot_id.id),
+                    ('package_id', '=', line.package_id.id),
+                    ('prodcode', '!=', False),
+                ], limit=1)
+                code = quant.prodcode or ''
+            line.prodcode = code
 
     # What the merge displaced, so un-merge can put back exactly that instead
     # of guessing. The generic restore keys off original_pallet_series_id and
@@ -60,3 +96,10 @@ class StockQuantVifelClientFields(models.Model):
         help="The client's own lot number, stamped from the receiving line "
              "at validation. When several lines land on one quant, the last "
              "stamped value wins.")
+    batch_no = fields.Char(
+        string='Batch #', copy=False,
+        help="The raw batch number stamped from the receiving line.")
+    prodcode = fields.Char(
+        string='Prodcode', copy=False,
+        help="Production code frozen at receiving: production date "
+             "(DDMONYYYY) + Batch # + building short name, e.g. 18MAY202699M.")

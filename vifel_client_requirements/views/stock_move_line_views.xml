@@ -29,6 +29,16 @@
                         invisible="context.get('picking_code') != 'incoming' or context.get('state') == 'done'"/>
             </xpath>
 
+            <!-- Hide the header "Spawn Magic Wizard" button: it is redundant
+                 with the top-left JS Magic Wizard button (fa-magic, added by
+                 multiple_relocation's magic_wizard_list_view controller), which
+                 is the real entry point. We hide rather than delete so
+                 multiple_relocation stays untouched (plug-and-play). -->
+            <xpath expr="//tree/header/button[@name='action_open_fast_encode_wizard']"
+                   position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+
             <field name="vifel_dest_location_name" position="after">
                 <!-- Client Lot No. — only for clients whose profile shows it.
                      The context flag is supplied by action_detailed_operations
@@ -36,6 +46,16 @@
                 <field name="client_lot_no" string="Lot No." optional="show"
                        column_invisible="not context.get('show_client_lot_no')"
                        readonly="state == 'done'"/>
+                <!-- Batch # / Prodcode — gated by the same context flag from
+                     action_detailed_operations. Batch # is TYPED on the receipt
+                     (incoming); the Prodcode it becomes at validation is read
+                     back, read-only, on the withdrawal (outgoing). -->
+                <field name="batch_no" string="Batch #" optional="show"
+                       column_invisible="not context.get('show_batch_no') or picking_code == 'outgoing'"
+                       readonly="state == 'done'"/>
+                <field name="prodcode" string="Prodcode" optional="show"
+                       column_invisible="not context.get('show_batch_no') or picking_code == 'incoming'"
+                       readonly="1"/>
                 <!-- Raw ledger flag: kept only for the button + readonly logic
                      below. NOT shown — on its own it leaves same-receipt joins
                      (two lines sharing one pallet) unchecked, which reads as a
@@ -48,21 +68,25 @@
                 <field name="vifel_on_merged_pallet" string="Merged" optional="show"
                        column_invisible="picking_code == 'outgoing'"/>
                 <field name="vifel_show_merge_button" column_invisible="1"/>
+                <!-- The buttons key on the SAME "Merged" marker as the column,
+                     so they always agree: every line on a merged/shared pallet
+                     shows Un-merge (and can be peeled off), a plain line shows
+                     Merge Pallet. -->
                 <button name="action_open_pallet_merge_wizard" type="object"
                         string="Merge Pallet" class="btn-link"
                         icon="fa-object-group"
-                        invisible="not vifel_show_merge_button or is_pallet_merge"/>
+                        invisible="not vifel_show_merge_button or vifel_on_merged_pallet"/>
                 <button name="action_unmerge_pallet_line" type="object"
                         string="Un-merge" class="btn-link text-warning"
                         icon="fa-chain-broken"
-                        invisible="not vifel_show_merge_button or not is_pallet_merge"/>
+                        invisible="not vifel_show_merge_button or not vifel_on_merged_pallet"/>
             </field>
 
-            <!-- A merged line must stay where the pallet it joined is
-                 standing. Un-merge first to move it. -->
+            <!-- Any line on a merged/shared pallet must stay where that pallet
+                 is standing. Un-merge first to move it. -->
             <xpath expr="//tree//field[@name='location_dest_id'][2]"
                    position="attributes">
-                <attribute name="readonly">state == 'done' or is_pallet_merge</attribute>
+                <attribute name="readonly">state == 'done' or vifel_on_merged_pallet</attribute>
             </xpath>
 
         </field>

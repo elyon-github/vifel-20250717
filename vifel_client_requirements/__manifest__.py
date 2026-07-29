@@ -72,6 +72,15 @@ counts, and a wrong pallet count is a wrong invoice.
         'views/stock_quant_views.xml',
     ],
 
+    # Loads after multiple_relocation's own backend assets (this module depends
+    # on it), so the patch below lands on an already-defined controller.
+    'assets': {
+        'web.assets_backend': [
+            'vifel_client_requirements/static/src/js/hide_print_pallet_breakdown.js',
+            'vifel_client_requirements/static/src/js/merge_wizard_back_on_close.js',
+        ],
+    },
+
     'installable': True,
     'application': False,
     'auto_install': False,

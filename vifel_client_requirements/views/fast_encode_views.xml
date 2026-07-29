@@ -41,12 +41,12 @@
                 <attribute name="decoration-info">vifel_on_merged_pallet</attribute>
             </field>
 
-            <!-- A merged row is locked to its adopted pallet, and a pallet
+            <!-- A row on a merged/shared pallet is locked to it, and a pallet
                  another line already merged onto is not selectable at all:
                  it is reached through the Merge button, which sets flag,
                  series and location together. -->
             <field name="result_package_id" position="attributes">
-                <attribute name="readonly">is_pallet_merge</attribute>
+                <attribute name="readonly">vifel_on_merged_pallet</attribute>
                 <attribute name="domain">[('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'),
                              ('x_studio_active', '=', True),
                              ('x_studio_warehouse', '=', warehouse_id),
@@ -59,17 +59,19 @@
                 <button name="action_merge_from_fast_encode" type="object"
                         string="Merge" class="btn-link" icon="fa-object-group"
                         column_invisible="context.get('is_blast_freeze')"
-                        invisible="not show_merge_button or is_pallet_merge"/>
+                        invisible="not show_merge_button or vifel_on_merged_pallet"/>
                 <button name="action_unmerge_from_fast_encode" type="object"
                         string="Un-merge" class="btn-link text-warning"
                         icon="fa-chain-broken"
                         column_invisible="context.get('is_blast_freeze')"
-                        invisible="not show_merge_button or not is_pallet_merge"/>
+                        invisible="not show_merge_button or not vifel_on_merged_pallet"/>
             </field>
 
             <field name="container_number" position="after">
                 <field name="client_lot_no" string="Lot No."
                        column_invisible="not context.get('show_client_lot_no')"/>
+                <field name="batch_no" string="Batch #"
+                       column_invisible="not context.get('show_batch_no')"/>
             </field>
 
         </field>

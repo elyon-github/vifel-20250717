@@ -21,7 +21,8 @@
                 <page string="VIFEL Configuration" name="vifel_configuration"
                       invisible="not set(category_id).intersection([1])
                                  and not vifel_can_merge_pallets
-                                 and not vifel_show_lot_no">
+                                 and not vifel_show_lot_no
+                                 and not vifel_show_batch_no">
                     <!-- Step 1: does this client merge at all? Everything
                          else stays hidden until it does, so a client that
                          does not merge shows exactly one checkbox. -->
@@ -31,6 +32,7 @@
                         </group>
                         <group string="Documents">
                             <field name="vifel_show_lot_no"/>
+                            <field name="vifel_show_batch_no"/>
                         </group>
                     </group>
 

@@ -16,18 +16,17 @@ class StockMoveLineMergeEntry(models.Model):
     vifel_show_merge_button = fields.Boolean(
         compute='_compute_vifel_show_merge_button')
 
-    # A user-facing "is this line part of a merged pallet?" marker. is_pallet_merge
-    # alone answers only HALF of that — it flags a +0 merge onto stock from an
-    # EARLIER receipt, but stays FALSE when two lines of THIS receipt simply
-    # share one pallet (that pallet is born by this receipt, counted once, so no
-    # +0 is needed). To the floor both look identical — "two lines, one pallet" —
-    # so an unchecked box on an obviously-shared pallet reads as a bug. This
-    # marker is checked in BOTH cases; is_pallet_merge stays the ledger flag.
+    # A user-facing "is this line on a merged pallet?" marker, checked for
+    # EVERY line sharing the pallet — the one that started it AND the ones that
+    # joined — so the column and the Un-merge button are symmetric: any line on
+    # a consolidated pallet shows "Merged" and can be peeled back off. Checked
+    # when the line is a +0 merge (is_pallet_merge) OR shares its pallet with
+    # another line of the same receipt.
     vifel_on_merged_pallet = fields.Boolean(
         string='Merged', compute='_compute_vifel_on_merged_pallet',
-        help='Checked when this line sits on a merged pallet — either merged '
-             'onto an already-stocked pallet, or sharing a pallet with other '
-             'lines of this same receipt. Either way it is one physical pallet, '
+        help='Checked when this line sits on a merged pallet — a +0 merge onto '
+             'already-stocked pallet, or a pallet shared with other lines of '
+             'this same receipt. Any such line can be un-merged; the pallet is '
              'counted once.')
 
     @api.depends('result_package_id', 'is_pallet_merge',
@@ -223,14 +222,25 @@ class StockMoveLineMergeEntry(models.Model):
         never returned to the pool.
         """
         self.ensure_one()
-        if not self.is_pallet_merge:
+        if not self.vifel_on_merged_pallet:
             raise UserError(_('This line is not a merged pallet.'))
         target_name = self.result_package_id.name
         captured = self.vifel_premerge_captured
         pre_series = self.vifel_premerge_series
         pre_location = self.vifel_premerge_location_id
-        self.write({'result_package_id': False})
-        self._vifel_restore_premerge_state(captured, pre_series, pre_location)
+        if self.is_pallet_merge:
+            # +0 merge onto stock from an EARLIER receipt — the tested path:
+            # clearing the pallet routes through the write override, which drops
+            # the flag and runs the standard restore machinery.
+            self.write({'result_package_id': False})
+            self._vifel_restore_premerge_state(
+                captured, pre_series, pre_location)
+        else:
+            # A line sharing a same-receipt pallet — either the one that STARTED
+            # it or one that joined. Never flagged, so the pallet stays counted
+            # +1 via whichever lines remain. Peel THIS line off explicitly (the
+            # base restore machinery only runs for flagged lines).
+            self._vifel_detach_same_receipt_join(pre_location)
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
@@ -245,3 +255,54 @@ class StockMoveLineMergeEntry(models.Model):
                 'next': {'type': 'ir.actions.act_window_close'},
             },
         }
+
+    def _vifel_detach_same_receipt_join(self, pre_location):
+        """Peel a line off a pallet it SHARES with other lines of this receipt
+        (the host that started it, or a line that joined).
+
+        It drops the shared pallet and the shared Pallet Series so it becomes a
+        plain, unassigned line again; a joiner's captured pre-merge location is
+        put back. Whatever it vacated — the pallet, the series, the location —
+        is freed ONLY if no sibling line still uses it, so peeling the LAST line
+        off a pallet does not leave it reserved-but-empty. The former series is
+        NOT written back onto this line (re-assigning draws a fresh number;
+        writing the old one back directly would double-book it). The ledger flag
+        is never touched (it was already False, and the pallet stays +1 via any
+        remaining line).
+        """
+        self.ensure_one()
+        picking = self.picking_id
+        old_pkg = self.result_package_id
+        old_series = self.x_studio_pallet_series_id or ''
+        old_loc = self.location_dest_id
+        vals = {'result_package_id': False,
+                'x_studio_pallet_series_id': False,
+                'vifel_premerge_captured': False,
+                'vifel_premerge_series': False,
+                'vifel_premerge_location_id': False}
+        if pre_location:
+            vals['location_dest_id'] = pre_location.id
+        self.with_context(skip_pallet_series_sync=True,
+                          vifel_pallet_merge=True).write(vals)
+        # clear the stale STORED display series too (its compute only assigns,
+        # never clears — same reason the +0 path clears it)
+        if 'x_studio_pallet_series_display' in self._fields:
+            self.with_context(skip_pallet_series_sync=True,
+                              vifel_pallet_merge=True).write(
+                {'x_studio_pallet_series_display': False})
+
+        # free what no sibling line still uses (only bites when the last line
+        # leaves the pallet) — same helpers the merge uses to free displaced
+        # pallets/series/locations.
+        siblings = picking.move_line_ids - self
+        if old_series and old_series not in siblings.mapped(
+                'x_studio_pallet_series_id'):
+            picking.partner_id.with_context(
+                audit_picking_id=picking.id,
+                audit_source='wizard').push_unused_pallet(old_series)
+        if old_pkg and old_pkg not in siblings.mapped('result_package_id'):
+            self._free_pallet_if_unused(picking.id, old_pkg.id)
+        new_loc = pre_location or old_loc
+        if old_loc and old_loc != new_loc \
+                and old_loc not in siblings.mapped('location_dest_id'):
+            self._free_location_if_unused(picking.id, old_loc.id)

@@ -94,9 +94,14 @@ class FastEncodeLineMerge(models.TransientModel):
         }
 
     def action_unmerge_from_fast_encode(self):
-        """Un-merge this row's real line, sync the transient, reopen."""
+        """Un-merge this row's real line, sync the transient, reopen.
+
+        Guards on the same "on a merged/shared pallet" marker the Pallet
+        Breakdown uses, so a +0 merge AND a same-receipt share (host or joiner)
+        can both be peeled off from the Magic Wizard. The real line's
+        action_unmerge_pallet_line handles the two cases."""
         ml = self._real_line()
-        if not ml.is_pallet_merge:
+        if not ml.vifel_on_merged_pallet:
             raise UserError(_('This line is not a merged pallet.'))
         ml.action_unmerge_pallet_line()
         self._vifel_sync_from_move_line(ml)
@@ -156,6 +161,8 @@ class FastEncodeLineMerge(models.TransientModel):
                 'is_blast_freeze': picking.x_studio_is_a_blast_freezer,
                 'show_client_lot_no': getattr(
                     picking, 'show_client_lot_no', False),
+                'show_batch_no': getattr(
+                    picking, 'show_batch_no', False),
             },
         }
 
@@ -169,6 +176,7 @@ class FastEncodeLineMergeFields(models.TransientModel):
     _inherit = 'stock.move.line.fast_encode_rr.line'
 
     client_lot_no = fields.Char(string='Lot No.')
+    batch_no = fields.Char(string='Batch #')
     is_pallet_merge = fields.Boolean(string='Merged Pallet', readonly=True)
 
     # Same user-facing marker as on stock.move.line: checked whenever a row is
@@ -228,6 +236,7 @@ class FastEncodeLineMergeFields(models.TransientModel):
             if not move_line.exists():
                 continue
             vals.setdefault('client_lot_no', move_line.client_lot_no or '')
+            vals.setdefault('batch_no', move_line.batch_no or '')
             vals.setdefault('is_pallet_merge', move_line.is_pallet_merge)
         return super().create(vals_list)
 
@@ -259,6 +268,7 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
             'quantity': line.kilogram,
             'x_studio_container_number': line.container_number or '',
             'client_lot_no': line.client_lot_no or False,
+            'batch_no': line.batch_no or False,
             'x_studio_production_date': line.production_date,
             'x_studio_expiration_date': line.expiration_date,
             'x_studio_quantity_uom':
@@ -269,9 +279,11 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
         return True
 
     def _vifel_line_write_vals(self, line):
-        """Carry the client Lot No. through on the normal path."""
+        """Carry the client Lot No. and Batch # through on the normal path —
+        this is the Confirm write-back onto the real move line."""
         vals = super()._vifel_line_write_vals(line)
         vals['client_lot_no'] = line.client_lot_no or False
+        vals['batch_no'] = line.batch_no or False
         return vals
 
 
@@ -279,11 +291,14 @@ class StockMoveLineFastEncodeContext(models.Model):
     _inherit = 'stock.move.line'
 
     def action_open_fast_encode_wizard(self):
-        """Tell the Magic Wizard whether this client shows a Lot No. column."""
+        """Tell the Magic Wizard which client columns to show — Lot No. and
+        Batch #."""
         res = super().action_open_fast_encode_wizard()
         if isinstance(res, dict) and isinstance(res.get('context'), dict) \
                 and self:
+            picking = self[0].picking_id
             res['context'] = dict(
                 res['context'],
-                show_client_lot_no=bool(self[0].picking_id.show_client_lot_no))
+                show_client_lot_no=bool(picking.show_client_lot_no),
+                show_batch_no=bool(picking.show_batch_no))
         return res

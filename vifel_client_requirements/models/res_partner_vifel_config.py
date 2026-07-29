@@ -36,6 +36,10 @@ class ResPartnerVifelConfig(models.Model):
         string='Show Lot No.', default=False,
         help='Show the client Lot No. column on this client\'s transfer '
              'lines and stock.')
+    vifel_show_batch_no = fields.Boolean(
+        string='Show Batch # / Prodcode', default=False,
+        help='Show the Batch # input column on this client\'s receiving lines '
+             'and the derived Prodcode column on its withdrawals.')
     vifel_fixed_package_id = fields.Many2one(
         'stock.quant.package', string='Fixed Merge Pallet',
         help='The one pallet always offered as merge target (Fixed mode).')
