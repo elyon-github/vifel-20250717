@@ -1,6 +1,6 @@
 # VIFEL Session Handoff
 
-_Last updated: 2026-07-23. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
+_Last updated: 2026-07-28. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
 (Postgres localhost:5432, openpg/openpgpwd). Odoo 17 Enterprise, runs via nodemon
 (`python odoo-bin -c odoo.conf`), NOT the Windows service.
 **Business rules, per-client special cases, and hard-won learnings live in
@@ -23,7 +23,7 @@ rule that **MAIN is never written by the assistant — reads only**.
 | Branch | Tip | State |
 |---|---|---|
 | `MAIN` | `017ba7e` | Production (user pushed it themselves). UNTOUCHED by assistant, always. Has moved several times since 2026-07-17 (`d8762a3` → `d6753c2` "Merge consultant-test into MAIN" → `017ba7e`) — re-verify with `git ls-remote` rather than trusting this row. |
-| `client-trial` | `91e1c18` | **Update 2026-07-23 — two new commits:** `10f37e0` (inventory-apply perf root cause + `vifel_utility_tools` module + SA paste files) and `91e1c18` (three module fixes: return-RR source location, Pallet Breakdown grouping, FastEncodeRR PSI flicker). See §8 below. Manifest versions still PINNED. Earlier state follows: All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: **WR/RR PDF pallet count AND the PKR withdrawn count now dedupe by (pallet #, PSI)** — opening-balance pallets accidentally carrying several PSIs count once per PSI (each PSI is a real pallet; the shared pallet # is the import accident). Ledger change is the LIVE loop only — Re-sync's counted_out/wc_n stay per-package on purpose (per-PSI there would flag spurious split culprits; the wipe-and-rebuild residual absorbs the interim gap and zeroes once the pallet clears). Affected on next recompute/Re-sync: 6 WRs of CHEF BUDDY/FOSTER FOODS/MEATS SUPREME/TWINFISH (+1..+2 each). Transacted Pallet Count on the picking still physical. evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md. NOTE: branch `CR2-test` (from `be0c9a9`) carries the built Client-Specific Requirement Enhancement, pushed `25a29a0`. |
+| `client-trial` | `1b7f951` | **Update 2026-07-28 — two commits since `91e1c18`:** `e048502` (unvoid clears the void child's source-document pointer) and `1b7f951` by Ronafe Bula (**RR/WR PDF pallet count: the withdrawal gate now applies only to outgoing pickings** — both report counters gated every picking type on `reserved_quantity_on_validation == 0 and not same_quant_stocks_picked`, so a received pallet vanished from its RR as soon as any withdrawal was booked against its lot; M/RR/05006 printed 27 of 41. Receipts now count every distinct pallet; the (pallet, PSI) dedupe key is untouched; withdrawals unchanged. Matches `_compute_transacted_pallet_count`, which already branched on direction). Also note: branch `CR-test` carries the Clients-kanban work (`e97bd55`). Earlier state follows: **Update 2026-07-23 — two new commits:** `10f37e0` (inventory-apply perf root cause + `vifel_utility_tools` module + SA paste files) and `91e1c18` (three module fixes: return-RR source location, Pallet Breakdown grouping, FastEncodeRR PSI flicker). See §8 below. Manifest versions still PINNED. Earlier state follows: All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: **WR/RR PDF pallet count AND the PKR withdrawn count now dedupe by (pallet #, PSI)** — opening-balance pallets accidentally carrying several PSIs count once per PSI (each PSI is a real pallet; the shared pallet # is the import accident). Ledger change is the LIVE loop only — Re-sync's counted_out/wc_n stay per-package on purpose (per-PSI there would flag spurious split culprits; the wipe-and-rebuild residual absorbs the interim gap and zeroes once the pallet clears). Affected on next recompute/Re-sync: 6 WRs of CHEF BUDDY/FOSTER FOODS/MEATS SUPREME/TWINFISH (+1..+2 each). Transacted Pallet Count on the picking still physical. evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md. NOTE: branch `CR2-test` (from `be0c9a9`) carries the built Client-Specific Requirement Enhancement, pushed `25a29a0`. |
 | `CR2-test` | `ac053e7` | Client-Specific Requirement Enhancement. Local branch holds the **v2 rebuild** as a standalone module and is DIVERGED from this remote tip — the two are different lines of work, so check `git rev-list --left-right --count` before any push here. Never force-push without deciding deliberately. |
 | `consultant-test` (lowercase) | `691b6a7` | Moved since 2026-07-17 (`15465c4`) — user's own work. |
 | `Consultant-test` (capital) | `4a21391` | Moved since 2026-07-17 (`ac374a4`) — user's own work. |
@@ -71,6 +71,20 @@ stays untracked). Latest additions beyond the earlier list:
 (session temp dir — recreate from git history of this handoff if lost).
 
 ## 4. Changes Made
+
+**WR print pallet count = PKR (2026-07-28, `stock_picking.py`):** the WR/RR PDF
+withdrawn-pallet counters (`get_pallet_count_for_page` + `preprocess_stock_move_data`)
+gated outgoing lines on `reserved_quantity_on_validation == 0 AND not
+same_quant_stocks_picked`. That second gate was a LIVE query for pending outgoing
+pickings on the same lot, so an already-validated WR's printed count DRIFTED — e.g. a
+returned pallet re-reserved on a fresh WR would retroactively drop it from the count
+(reproduced on M/WR/07887: printed 2, dropped to 1 while a pending outgoing held the lot).
+Dropped the live gate; the WR print now counts on the FROZEN emptying snapshot alone,
+matching the PKR ledger and the on-screen Transacted Pallet Count. Verified: 4 previously-
+mismatched WRs now equal PKR (07887=2, 08028=7, 08025=1, 07995=14) and 07887 is stable
+under a simulated pending outgoing. Incoming (RR) counting is untouched — every pallet
+received still counts. Also removed the now-dead per-line `same_quant_stocks_picked`
+searches (perf).
 
 **Ledger accuracy (pallet_kilos_record_model):**
 - Re-sync Pallet Counts button: rebuilds received/withdrawn/adjustments per owner,
