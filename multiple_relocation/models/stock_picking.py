@@ -1751,8 +1751,61 @@ class transfer_locations(models.Model):
                 raise UserError(
                     _("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
+    def _vifel_pending_multitruck_siblings(self):
+        """For a Partial-Withdraw return, the pending outgoing withdrawals that
+        still reserve stock on the SAME pallet this return re-adds to — i.e. the
+        multi-truck siblings that must empty the pallet BEFORE the return puts
+        stock back. Scoped by (package, owner, PSI) so a shared physical pallet
+        holding other owners'/series' stock never cross-blocks.
+
+        Returns the blocking outgoing pickings (recordset)."""
+        self.ensure_one()
+        MoveLine = self.env['stock.move.line']
+        blockers = self.env['stock.picking']
+        for line in self.move_line_ids:
+            pkg = line.result_package_id
+            if not pkg:
+                continue
+            siblings = MoveLine.search([
+                ('package_id', '=', pkg.id),
+                ('owner_id', '=', line.owner_id.id),
+                ('x_studio_pallet_series_id', '=',
+                 line.x_studio_pallet_series_id or False),
+                ('picking_id.picking_type_id.code', '=', 'outgoing'),
+                ('picking_id.state', 'not in', ('done', 'cancel')),
+                ('picking_id', '!=', self.id),
+            ])
+            blockers |= siblings.mapped('picking_id')
+        return blockers
+
     def button_validate(self):
         """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
+        # SEQUENCE PARTIAL-WITHDRAW RETURNS BEHIND THEIR MULTI-TRUCK SIBLINGS.
+        # In a multi-truck withdrawal, one truck's partial-withdraw return must
+        # NOT be validated until the partner truck(s) have emptied the pallet —
+        # otherwise the return re-adds stock before the partner validates, so
+        # the partner reads reserved_quantity_on_validation > 0 and fails to
+        # count the pallet (it should), and the return mints an unreconciled +1
+        # received pallet (a phantom). Blocking here forces the correct order;
+        # the existing resv-based count then produces the right numbers with no
+        # counting-logic change. Void / Wrong-Details / Others returns and
+        # normal single-truck partials are unaffected (no pending sibling).
+        if not self.env.context.get('skip_partial_return_sequence_guard'):
+            for record in self:
+                if (record.return_id
+                        and record.return_reason == 'Partial Withdraw'):
+                    blockers = record._vifel_pending_multitruck_siblings()
+                    if blockers:
+                        raise UserError(_(
+                            "This Partial-Withdraw return cannot be validated "
+                            "yet.\n\nThe pallet(s) it returns stock to are still "
+                            "being withdrawn by: %(wrs)s.\n\nValidate that/those "
+                            "Withdrawal Report(s) FIRST so the pallet is emptied "
+                            "and counted, then validate this return. Validating "
+                            "now would re-add stock before the pallet is emptied "
+                            "and mis-count the withdrawal.") % {
+                                'wrs': ', '.join(blockers.mapped('name'))})
+
         result = super(transfer_locations, self).button_validate()
 
         # After validation, check if any of these pickings are void WRs or void returns

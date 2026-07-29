@@ -72,6 +72,21 @@ stays untracked). Latest additions beyond the earlier list:
 
 ## 4. Changes Made
 
+**Partial-Withdraw return sequencing guard (2026-07-29, `stock_picking.py::button_validate`):**
+a multi-truck withdrawal's Partial-Withdraw return, if validated BEFORE the partner WR empties
+the shared pallet, re-inflates the pallet so the partner reads `reserved_quantity_on_validation
+> 0` and fails to count it (undercount), and the return mints an unreconciled +1 received =
+a **phantom pallet** (proven on FO-021134/NB 2317 in `vifel_07_29_2026`: WR/07885 counted 5,
+should be 6; NB 2317 net +1 while physically empty). Fix: `button_validate` blocks a
+`return_reason == 'Partial Withdraw'` return while any pending (not done/cancel) OUTGOING WR
+still reserves the same (package, owner, PSI) — the multi-truck sibling that must empty +
+count the pallet first. New `_vifel_pending_multitruck_siblings()` helper;
+`skip_partial_return_sequence_guard` override. NO counting-logic change — the existing resv
+rule produces the right numbers once the order is right. Normal single-truck partials and
+void/wrong-details returns are unaffected. Verified `partial_return_sequence_guard_test.py`
+(11/11). `EDGE_CASE_THINKING.md` gained lens #8 (event-order), Case study 3, and a "How these
+were actually found" method section.
+
 **Client-change PSI reset (2026-07-28, `stock_picking.py::write`):** changing the Client on an
 EDITABLE (draft/assigned) normal RR that already had drawn Pallet Series left every line owned
 by the new client (AR#1 partner→owner) but still stamped with the OLD client's series — an
