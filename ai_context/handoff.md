@@ -72,6 +72,20 @@ stays untracked). Latest additions beyond the earlier list:
 
 ## 4. Changes Made
 
+**WR print pallet count = PKR (2026-07-28, `stock_picking.py`):** the WR/RR PDF
+withdrawn-pallet counters (`get_pallet_count_for_page` + `preprocess_stock_move_data`)
+gated outgoing lines on `reserved_quantity_on_validation == 0 AND not
+same_quant_stocks_picked`. That second gate was a LIVE query for pending outgoing
+pickings on the same lot, so an already-validated WR's printed count DRIFTED — e.g. a
+returned pallet re-reserved on a fresh WR would retroactively drop it from the count
+(reproduced on M/WR/07887: printed 2, dropped to 1 while a pending outgoing held the lot).
+Dropped the live gate; the WR print now counts on the FROZEN emptying snapshot alone,
+matching the PKR ledger and the on-screen Transacted Pallet Count. Verified: 4 previously-
+mismatched WRs now equal PKR (07887=2, 08028=7, 08025=1, 07995=14) and 07887 is stable
+under a simulated pending outgoing. Incoming (RR) counting is untouched — every pallet
+received still counts. Also removed the now-dead per-line `same_quant_stocks_picked`
+searches (perf).
+
 **Ledger accuracy (pallet_kilos_record_model):**
 - Re-sync Pallet Counts button: rebuilds received/withdrawn/adjustments per owner,
   events + residual anchor, rebuilds correction audit history; idempotent; perf-tuned

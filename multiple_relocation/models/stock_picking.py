@@ -2219,13 +2219,7 @@ class transfer_locations(models.Model):
         for line_idx in range(start_idx, min(end_idx, len(processed_lines))):
             line_data = processed_lines[line_idx]
             line = line_data['original_line']
-            same_quant_stocks_picked = self.env['stock.move.line'].search([
-                ('lot_id', '=', line.lot_id.id),
-                ('state', '!=', 'done'),
-                ('picking_id.id', '!=', line.picking_id.id),
-                ('picking_id.picking_type_code', '=', 'outgoing')
-            ])
- 
+
             # Same counting rule as the summary report
             # (preprocess_stock_move_data): a pallet counts as withdrawn
             # only when it really left FULLY (0 KG remaining at validation)
@@ -2234,10 +2228,17 @@ class transfer_locations(models.Model):
             # pallet received, whatever withdrawals are pending on its lots.
             counts_as_pallet = True
             if line.picking_id.picking_type_id.code == 'outgoing':
+                # WR withdrawn-pallet count = PHYSICAL emptying only, matching
+                # the PKR ledger and the on-screen Transacted Pallet Count. A
+                # validated WR's pallet count is fixed at validation, so it
+                # gates on the FROZEN reserved_quantity_on_validation snapshot
+                # alone. The former `and not same_quant_stocks_picked` gate was
+                # a LIVE query for pending outgoing pickings on the same lot,
+                # which made an already-validated WR's printout DRIFT — e.g. a
+                # returned pallet re-reserved on a fresh WR would retroactively
+                # drop it from this WR's count. Incoming receipts are untouched.
                 counts_as_pallet = (
-                    line.reserved_quantity_on_validation == 0
-                    and not same_quant_stocks_picked
-                )
+                    line.reserved_quantity_on_validation == 0)
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = self._pdf_pallet_count_key('package', line.package_id.id, line)
                 if first_occurrence.get(pallet_id) == line_idx:
@@ -2386,21 +2387,18 @@ class transfer_locations(models.Model):
                 grouped_moves[key]['packaging_qty'] += pack_qty
                 grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if move_line.x_studio_total_units else move_line.x_studio_withdraw_units
 
-                same_quant_stocks_picked = self.env['stock.move.line'].search([
-                    ('lot_id', '=', move_line.lot_id.id),
-                    ('state', '!=', 'done'),
-                    ('picking_id.id', '!=', move_line.picking_id.id),
-                    ('picking_id.picking_type_code', '=', 'outgoing')
-                ])
-                # The gate below is withdrawal-only: an incoming receipt counts
-                # every pallet received, whatever withdrawals are pending on
-                # its lots.
+                # WR withdrawn-pallet count = PHYSICAL emptying only, matching
+                # the PKR ledger and the on-screen Transacted Pallet Count. A
+                # validated WR's count is fixed at validation, so it gates on the
+                # FROZEN reserved_quantity_on_validation snapshot alone (the
+                # former live `not same_quant_stocks_picked` gate made the
+                # printout drift when a returned pallet was re-reserved on a
+                # pending WR). Incoming receipts are untouched — every pallet
+                # received still counts.
                 counts_as_pallet = True
                 if move_line.picking_id.picking_type_id.code == 'outgoing':
                     counts_as_pallet = (
-                        move_line.reserved_quantity_on_validation == 0
-                        and not same_quant_stocks_picked
-                    )
+                        move_line.reserved_quantity_on_validation == 0)
 
                 # Track unique pallets for the count. The dedupe key is
                 # (pallet, PSI), not the bare pallet: opening-balance
