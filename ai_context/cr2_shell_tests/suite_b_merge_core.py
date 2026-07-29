@@ -130,6 +130,7 @@ try:
         ('x_studio_active', '=', True)], limit=1)
     empty_loc = env['stock.location'].search([
         ('usage', '=', 'internal'),
+        ('id', 'child_of', line2.picking_id.location_dest_id.id),
         ('x_studio_is_a_blast_freezer', '!=', True),
         ('x_studio_is_an_aisle', '=', True)], limit=1)
     sdmg = owner.vifel_psi_type_ids.filtered(lambda t: t.prefix == 'SDMG')

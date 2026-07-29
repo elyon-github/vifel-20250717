@@ -84,15 +84,23 @@ try:
         check('W4 cross-warehouse LOCATION is refused server-side', False,
               'no error raised')
     except UserError as e:
+        # the guard is now dest-building containment, which SUBSUMES the old
+        # cross-warehouse check (another warehouse's location is not under this
+        # receipt's dest either) — so the message is now "not inside".
         check('W4 cross-warehouse LOCATION is refused server-side',
-              'belongs to' in str(e), str(e)[:110])
+              'not inside' in str(e) or 'belongs to' in str(e), str(e)[:110])
 
     foreign_pkg = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('x_studio_warehouse', 'in', other.ids)], limit=1)
+    # good_loc must be under THIS receipt's dest, else the location-containment
+    # guard fires before the pallet-warehouse guard we mean to test.
+    dest_dom = [('usage', '=', 'internal'),
+                ('id', 'child_of', ml.picking_id.location_dest_id.id),
+                ('x_studio_is_a_blast_freezer', '!=', True)]
     good_loc = env['stock.location'].search(
-        loc_dom + [('x_studio_is_an_aisle', '=', True)], limit=1) \
-        or env['stock.location'].search(loc_dom, limit=1)
+        dest_dom + [('x_studio_is_an_aisle', '=', True)], limit=1) \
+        or env['stock.location'].search(dest_dom, limit=1)
     if foreign_pkg:
         wiz.write({'new_package_id': foreign_pkg.id,
                    'new_location_id': good_loc.id})

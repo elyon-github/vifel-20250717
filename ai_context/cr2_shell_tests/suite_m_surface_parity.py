@@ -82,7 +82,7 @@ try:
         ('x_studio_warehouse', '=', picking.warehouse_id.id)], limit=1)
     loc = env['stock.location'].search([
         ('usage', '=', 'internal'),
-        ('warehouse_id', '=', picking.warehouse_id.id),
+        ('id', 'child_of', w_magic.move_line_id.picking_id.location_dest_id.id),
         ('x_studio_is_an_aisle', '=', True)], limit=1)
     tdmg = owner.vifel_psi_type_ids.filtered(lambda t: t.prefix == 'TDMG')
     w_magic.write({'mode': 'new', 'psi_type_id': tdmg.id,

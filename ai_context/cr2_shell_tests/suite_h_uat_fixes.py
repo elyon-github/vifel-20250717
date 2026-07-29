@@ -43,12 +43,13 @@ try:
     check('U3 merged rows are still visually marked (shared pallets too)',
           'decoration-info="vifel_on_merged_pallet"' in tag)
 
-    # Pallet # stays editable for normal rows, locked for merged ones —
-    # that field is NOT readonly in Python, so the modifier is correct there.
+    # Pallet # stays editable for normal rows, locked for rows on a
+    # merged/shared pallet — keyed on the same marker as the tint + button, so
+    # the whole row is consistent. Field is NOT readonly in Python.
     m2 = re.search(r'<field name="result_package_id"[^>]*>', arch)
     tag2 = m2.group(0) if m2 else ''
-    check('U4 Pallet # is locked only on merged rows',
-          'readonly="is_pallet_merge"' in tag2, tag2[:200])
+    check('U4 Pallet # is locked only on merged/shared rows',
+          'readonly="vifel_on_merged_pallet"' in tag2, tag2[:200])
     check('U5 Location stays readonly (pre-existing, derived not typed)',
           'readonly="1"' in (re.search(
               r'<field name="location_dest_id"[^>]*>', arch) or

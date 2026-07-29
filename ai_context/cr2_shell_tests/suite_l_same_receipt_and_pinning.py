@@ -61,9 +61,10 @@ try:
         ('package_type_id.name', '=', 'Pallet'),
         ('x_studio_active', '=', True),
         ('x_studio_warehouse', '=', picking.warehouse_id.id)], limit=1)
+    # a new special pallet's location must sit under the receipt's dest
     loc = env['stock.location'].search([
         ('usage', '=', 'internal'),
-        ('warehouse_id', '=', picking.warehouse_id.id),
+        ('id', 'child_of', picking.location_dest_id.id),
         ('x_studio_is_an_aisle', '=', True)], limit=1)
     mdgm = owner.vifel_psi_type_ids.filtered(lambda t: t.prefix == 'MDGM')
     w1 = W.create({'move_line_id': l1.id, 'mode': 'new'})
