@@ -2793,6 +2793,58 @@ class transfer_locations(models.Model):
         # Fallback (if nothing was processed)
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
+    def _vifel_reset_psi_after_client_change(self, series_old_owner):
+        """After the Client changed on an editable RR, return each drawn Pallet
+        Series to its OLD owner's pool and blank it off the lines, so the new
+        owner never keeps the old client's series (mismatch + pool leak). The
+        user re-runs Assign Pallet Series to draw fresh series under the new
+        client. Pallet/location reservations are RR-scoped, so they are left
+        intact — only the series is reset.
+
+        A series that still identifies stocked stock is left alone (the same
+        stocked-pallet guard the Clean Picking reset uses): recycling a live
+        series would let it be re-issued while a pallet still carries it.
+        """
+        self.ensure_one()
+        Quant = self.env['stock.quant']
+        recycled = set()
+        first_owner = False
+        for psi, old_owner in series_old_owner.items():
+            if not old_owner or not psi or '-' not in psi:
+                continue
+            num_txt = psi.split('-')[-1]
+            if not num_txt.isdigit():
+                continue
+            if Quant.search_count([
+                    ('x_studio_pallet_series_id', '=', psi),
+                    ('quantity', '>', 0),
+                    ('location_id.usage', '=', 'internal')]):
+                continue  # series identifies live stock — never recycle
+            old_owner.with_context(
+                audit_picking_id=self.id,
+                audit_source='pool_operation',
+            ).push_unused_pallet(psi)
+            recycled.add(psi)
+            first_owner = first_owner or old_owner
+
+        # blank the series + the stale stored display on the lines we recycled
+        lines = self.move_line_ids.filtered(
+            lambda l: l.x_studio_pallet_series_id in recycled)
+        if lines:
+            blank = {'x_studio_pallet_series_id': False}
+            if 'x_studio_pallet_series_display' in \
+                    self.env['stock.move.line']._fields:
+                blank['x_studio_pallet_series_display'] = False
+            lines.with_context(skip_pallet_series_sync=True).write(blank)
+
+        if recycled:
+            self.message_post(body=_(
+                "Client changed — %(n)d Pallet Series returned to "
+                "%(owner)s's pool and cleared from the lines. Re-assign Pallet "
+                "Series under the new client.") % {
+                    'n': len(recycled),
+                    'owner': first_owner.name if first_owner else _('the previous client')})
+
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
         # OWNER-CHANGE GUARD ON LINKED RETURNS: a return RR that changes its
@@ -2848,7 +2900,36 @@ class transfer_locations(models.Model):
                 line.id: line.location_dest_id for line in record.move_line_ids
             }
 
+            # CLIENT-CHANGE PSI RESET (snapshot BEFORE super().write, which lets
+            # AR#1 re-own the lines to the new client). Changing the Client on a
+            # normal editable RR that already has drawn Pallet Series would leave
+            # the OLD client's series on lines now owned by the NEW client —
+            # an owner/PSI mismatch AND a series-pool leak (the old client's
+            # numbers stay "used" but vanish from its documents). Snapshot each
+            # drawn series -> its current (old) owner now; recycle + blank after.
+            client_change_psi = None
+            new_owner_id = vals.get('partner_id') or vals.get('owner_id')
+            if (new_owner_id and new_owner_id != record.partner_id.id
+                    and not self.env.context.get('skip_client_change_psi_reset')
+                    and not self.env.context.get('skip_pallet_series_sync')
+                    and record.picking_type_id.code == 'incoming'
+                    and record.state in ('draft', 'assigned')
+                    and not record.return_id
+                    and not getattr(record, 'is_void_wr', False)
+                    and not record.x_studio_is_a_blast_freezer):
+                snap = {}
+                for line in record.move_line_ids:
+                    psi = line.x_studio_pallet_series_id
+                    if psi and psi not in snap:
+                        snap[psi] = (line.owner_id or record.owner_id
+                                     or record.partner_id)
+                if snap:
+                    client_change_psi = snap
+
             res = super(transfer_locations, record).write(vals)
+
+            if client_change_psi:
+                record._vifel_reset_psi_after_client_change(client_change_psi)
 
             if 'location_dest_id' in vals:
                 if record.picking_type_id.code == 'incoming':
