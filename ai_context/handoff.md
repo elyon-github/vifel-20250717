@@ -72,6 +72,18 @@ stays untracked). Latest additions beyond the earlier list:
 
 ## 4. Changes Made
 
+**Client-change PSI reset (2026-07-28, `stock_picking.py::write`):** changing the Client on an
+EDITABLE (draft/assigned) normal RR that already had drawn Pallet Series left every line owned
+by the new client (AR#1 partner→owner) but still stamped with the OLD client's series — an
+owner/PSI mismatch AND a series-pool leak (proven on M/RR/00352, BGZ→168). Now the write()
+override snapshots each series→old-owner before super().write, then recycles each series back
+to the OLD client's pool (stocked-pallet guard, audit context) and blanks the series + stale
+display; a chatter note tells the user to re-assign under the new client. Reservations are
+RR-scoped so pallets/locations are kept. Returns/void still BLOCK (existing guard); done RRs
+untouched; BF exempt; `skip_client_change_psi_reset` opts programmatic writes out. Verified by
+`ai_context/wr_psi_client_change_test.py` (10/10). New `ai_context/EDGE_CASE_THINKING.md`
+captures the reusable lenses behind this and the WR-drift fix.
+
 **WR print pallet count = PKR (2026-07-28, `stock_picking.py`):** the WR/RR PDF
 withdrawn-pallet counters (`get_pallet_count_for_page` + `preprocess_stock_move_data`)
 gated outgoing lines on `reserved_quantity_on_validation == 0 AND not
