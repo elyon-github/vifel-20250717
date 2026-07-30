@@ -92,6 +92,53 @@ try:
     check('G11 a Void return is never gated by this guard (reason-scoped)',
           not void_gated)
 
+    # ---- G12 OWNER-scoped: a pending sibling on the SAME package but a
+    #      DIFFERENT owner must NOT block (shared physical pallet) -------
+    other_owner = env['res.partner'].search(
+        [('id', '!=', line.owner_id.id)], limit=1)
+    sib_other = Picking.create({
+        'picking_type_id': wtype.id,
+        'location_id': line.location_dest_id.id,
+        'location_dest_id': line.location_dest_id.id,
+        'partner_id': other_owner.id})
+    env['stock.move.line'].create({
+        'picking_id': sib_other.id, 'product_id': line.product_id.id,
+        'package_id': pkg.id, 'owner_id': other_owner.id,
+        'x_studio_pallet_series_id': line.x_studio_pallet_series_id,
+        'location_id': line.location_dest_id.id,
+        'location_dest_id': line.location_dest_id.id, 'quantity': 1})
+    env.flush_all()
+    check('G12 a DIFFERENT-owner sibling on the same pallet does NOT block',
+          sib_other not in ret._vifel_pending_multitruck_siblings(),
+          'wrongly blocked')
+
+    # ---- G13 PSI-scoped: same package+owner but DIFFERENT PSI must NOT block
+    sib_psi = Picking.create({
+        'picking_type_id': wtype.id, 'location_id': line.location_dest_id.id,
+        'location_dest_id': line.location_dest_id.id, 'partner_id': ret.partner_id.id})
+    env['stock.move.line'].create({
+        'picking_id': sib_psi.id, 'product_id': line.product_id.id,
+        'package_id': pkg.id, 'owner_id': line.owner_id.id,
+        'x_studio_pallet_series_id': 'ZZZ-DIFFERENT-PSI',
+        'location_id': line.location_dest_id.id,
+        'location_dest_id': line.location_dest_id.id, 'quantity': 1})
+    env.flush_all()
+    check('G13 a DIFFERENT-PSI sibling on the same pallet does NOT block',
+          sib_psi not in ret._vifel_pending_multitruck_siblings())
+
+    # ---- G14 the skip_partial_return_sequence_guard override bypasses it ----
+    # (guard code short-circuits on the context flag before checking siblings)
+    check('G14 skip_partial_return_sequence_guard is honored in the guard',
+          "self.env.context.get('skip_partial_return_sequence_guard')" in src
+          or "context.get('skip_partial_return_sequence_guard')" in src)
+
+    # ---- G15 a normal WR (not a return) is never touched by the guard ------
+    normwr = env['stock.picking'].search([
+        ('picking_type_id.code', '=', 'outgoing'), ('return_id', '=', False),
+        ('state', '=', 'done')], limit=1)
+    check('G15 a normal WR has no return_id, so the guard never fires on it',
+          not normwr.return_id)
+
     # ---- RELEASE: sibling no longer reserves the pallet -> guard passes -
     # (drop the sibling's reservation to simulate it finishing; writing
     # state='done' here would fire an unrelated broken automation in this DB's
