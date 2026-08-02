@@ -65,7 +65,13 @@ class StockPickingClientLotNo(models.Model):
         """
         Quant = self.env['stock.quant']
         for picking in self:
+            # A present Lot No. is always persisted (the profile flag governs
+            # DISPLAY, not whether an entered value is kept — gating the write
+            # on it could silently drop data). Only cheap, always-correct
+            # guards here: done + incoming; empty lines short-circuit below.
             if picking.state != 'done':
+                continue
+            if picking.picking_type_id.code != 'incoming':
                 continue
             for line in picking.move_line_ids:
                 lot_no = (line.client_lot_no or '').strip()
@@ -103,17 +109,44 @@ class StockPickingClientLotNo(models.Model):
         code += (building_short or '').strip()
         return code
 
+    def _vifel_building_short(self, line, quant):
+        """Building short-name for the Prodcode, reliably.
+
+        Primary source is the quant's ``x_studio_building_dropped`` (the code
+        the user chose), BUT that field is stamped by a separate Studio
+        automation and is frequently empty when this runs (and its helper only
+        ever resolves M/A), so the Prodcode came out with no building suffix.
+        Fall back to the authoritative building record on the line's
+        destination location — ``x_studio_building.x_studio_short_name`` (M / A /
+        P2 …), which is always set at validation. This makes the suffix present
+        for every building, not just M/A, and matches x_studio_building_dropped
+        wherever that IS populated.
+        """
+        dropped = (quant.x_studio_building_dropped or '').strip()
+        if dropped:
+            return dropped
+        loc = line.location_dest_id
+        building = getattr(loc, 'x_studio_building', False)
+        short = getattr(building, 'x_studio_short_name', '') if building else ''
+        return (short or '').strip()
+
     def _vifel_stamp_batch_prodcode(self):
         """Freeze each receiving line's Batch # into a Prodcode on its quants.
 
-        The building segment is the quant's own ``x_studio_building_dropped``
-        (already the short code — M / A / EX / P2 …), so the code reflects where
-        the pallet physically landed. Quant match is the same identity used for
-        Lot No.; last write wins when several lines share a quant.
+        The building segment comes from ``_vifel_building_short`` (the quant's
+        x_studio_building_dropped, else the destination building's short name),
+        so the code reflects where the pallet physically landed. Quant match is
+        the same identity used for Lot No.; last write wins when several lines
+        share a quant.
         """
         Quant = self.env['stock.quant']
         for picking in self:
+            # A present Batch # is always baked into a Prodcode (profile flag =
+            # display only). Cheap, always-correct guards: done + incoming;
+            # empty-batch lines short-circuit below.
             if picking.state != 'done':
+                continue
+            if picking.picking_type_id.code != 'incoming':
                 continue
             for line in picking.move_line_ids:
                 batch = (line.batch_no or '').strip()
@@ -132,5 +165,5 @@ class StockPickingClientLotNo(models.Model):
                         'batch_no': batch,
                         'prodcode': self._vifel_format_prodcode(
                             line.x_studio_production_date, batch,
-                            quant.x_studio_building_dropped),
+                            self._vifel_building_short(line, quant)),
                     })

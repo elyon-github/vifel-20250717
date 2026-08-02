@@ -39,23 +39,32 @@
                 <attribute name="invisible">1</attribute>
             </xpath>
 
-            <field name="vifel_dest_location_name" position="after">
-                <!-- Client Lot No. — only for clients whose profile shows it.
-                     The context flag is supplied by action_detailed_operations
-                     in this module; without it the column stays hidden. -->
+            <!-- Lot No. / Batch # / Prodcode: placed right AFTER Container #,
+                 matching the Magic Wizard column order. Gated by the context
+                 flags supplied by action_detailed_operations. -->
+            <field name="x_studio_container_number" position="after">
+                <!-- Lot No.: TYPED + editable on the receipt (client_lot_no);
+                     on the withdrawal the same "Lot No." is READ BACK from the
+                     quant (vifel_lot_no_display), so a WR shows the value that
+                     was set at receiving. -->
                 <field name="client_lot_no" string="Lot No." optional="show"
-                       column_invisible="not context.get('show_client_lot_no')"
+                       column_invisible="not context.get('show_client_lot_no') or picking_code == 'outgoing'"
                        readonly="state == 'done'"/>
-                <!-- Batch # / Prodcode — gated by the same context flag from
-                     action_detailed_operations. Batch # is TYPED on the receipt
-                     (incoming); the Prodcode it becomes at validation is read
-                     back, read-only, on the withdrawal (outgoing). -->
+                <field name="vifel_lot_no_display" string="Lot No." optional="show"
+                       column_invisible="not context.get('show_client_lot_no') or picking_code == 'incoming'"
+                       readonly="1"/>
+                <!-- Batch # is TYPED on the receipt (incoming); the Prodcode it
+                     becomes at validation is read back, read-only, on the
+                     withdrawal (outgoing). -->
                 <field name="batch_no" string="Batch #" optional="show"
                        column_invisible="not context.get('show_batch_no') or picking_code == 'outgoing'"
                        readonly="state == 'done'"/>
                 <field name="prodcode" string="Prodcode" optional="show"
                        column_invisible="not context.get('show_batch_no') or picking_code == 'incoming'"
                        readonly="1"/>
+            </field>
+
+            <field name="vifel_dest_location_name" position="after">
                 <!-- Raw ledger flag: kept only for the button + readonly logic
                      below. NOT shown — on its own it leaves same-receipt joins
                      (two lines sharing one pallet) unchecked, which reads as a

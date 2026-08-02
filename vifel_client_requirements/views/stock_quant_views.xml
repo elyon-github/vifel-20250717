@@ -14,6 +14,10 @@
             <field name="x_studio_container_number" position="before">
                 <field name="client_lot_no" string="Lot No." optional="hide"
                        readonly="id"/>
+                <field name="batch_no" string="Batch #" optional="hide"
+                       readonly="id"/>
+                <field name="prodcode" string="Prodcode" optional="hide"
+                       readonly="id"/>
             </field>
         </field>
     </record>
@@ -26,6 +30,8 @@
         <field name="arch" type="xml">
             <field name="x_studio_pallet_series_id" position="after">
                 <field name="client_lot_no" string="Lot No." optional="hide"/>
+                <field name="batch_no" string="Batch #" optional="hide"/>
+                <field name="prodcode" string="Prodcode" optional="hide"/>
             </field>
         </field>
     </record>

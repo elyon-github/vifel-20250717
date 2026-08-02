@@ -86,19 +86,28 @@ try:
           q.prodcode)
 
     # ---- 4. a withdrawal line reads the Prodcode back off that quant ---
+    # attach a real OUTGOING picking so picking_code == 'outgoing' (the read-back
+    # is gated to withdrawals for efficiency).
+    owr = env['stock.picking'].search(
+        [('picking_type_id.code', '=', 'outgoing')], limit=1)
     wr_line = env['stock.move.line'].new({
+        'picking_id': owr.id,
         'product_id': line.product_id.id,
         'location_id': line.location_dest_id.id,
         'lot_id': line.lot_id.id,
         'package_id': line.result_package_id.id,
     })
-    wr_line._compute_prodcode()
+    wr_line._compute_vifel_quant_readback()
     check('Y9 a WR line withdrawing from that quant shows the Prodcode',
           wr_line.prodcode == expect, wr_line.prodcode)
+    check('Y9b the same WR line reads the Lot No. back too',
+          wr_line.vifel_lot_no_display == (q.client_lot_no or ''),
+          wr_line.vifel_lot_no_display)
 
     # ---- 5. an unrelated line shows nothing ---------------------------
-    blank = env['stock.move.line'].new({'product_id': line.product_id.id})
-    blank._compute_prodcode()
+    blank = env['stock.move.line'].new(
+        {'picking_id': owr.id, 'product_id': line.product_id.id})
+    blank._compute_vifel_quant_readback()
     check('Y10 a line not tied to a coded quant shows no Prodcode',
           not blank.prodcode, blank.prodcode)
 

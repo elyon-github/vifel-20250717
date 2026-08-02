@@ -47,31 +47,59 @@ class StockMoveLineVifelClientFields(models.Model):
     # withdrawn (the outgoing line is a fresh record and never carried it). It
     # is the frozen 'DDMONYYYY' + Batch# + building-shortname code.
     prodcode = fields.Char(
-        string='Prodcode', compute='_compute_prodcode', compute_sudo=True,
+        string='Prodcode', compute='_compute_vifel_quant_readback',
+        compute_sudo=True,
         help='The production code frozen onto this pallet at receiving: '
              'production date + Batch # + building short name.')
+    # Lot No. is TYPED on the receiving line (client_lot_no, editable) and
+    # stamped onto the quant at validation. A withdrawal line is a fresh record
+    # that never carried it, so the WR Pallet Breakdown showed an empty Lot No.
+    # This read-back pulls the stamped value off the source quant for display on
+    # the withdrawal, exactly like Prodcode.
+    vifel_lot_no_display = fields.Char(
+        string='Lot No.', compute='_compute_vifel_quant_readback',
+        compute_sudo=True,
+        help="The client Lot No. frozen onto this pallet at receiving, shown "
+             "read-only on the withdrawal line.")
 
-    @api.depends('package_id', 'product_id', 'lot_id', 'location_id')
-    def _compute_prodcode(self):
-        """Read the frozen Prodcode off the quant this line withdraws from.
+    @api.depends('package_id', 'product_id', 'lot_id', 'location_id',
+                 'picking_code')
+    def _compute_vifel_quant_readback(self):
+        """Read the frozen Prodcode AND Lot No. off the quant this line
+        withdraws from (one search, two display fields).
 
-        Non-stored: the value lives on the quant (stamped at the receiving
-        validation); the withdrawal line only displays it, keyed on the same
+        Non-stored: the values live on the quant (stamped at the receiving
+        validation); the withdrawal line only displays them, keyed on the same
         quant identity used everywhere else (product / source location / lot /
-        package)."""
+        package).
+
+        Both display fields are shown ONLY on withdrawals, so incoming/other
+        lines short-circuit to '' with no quant query, and a line without the
+        minimum identity (a source package or location) is skipped too — the
+        lookup only runs where it can actually resolve a quant."""
         Quant = self.env['stock.quant']
         for line in self:
-            code = ''
-            if line.package_id or line.location_id:
-                quant = Quant.search([
-                    ('product_id', '=', line.product_id.id),
-                    ('location_id', '=', line.location_id.id),
-                    ('lot_id', '=', line.lot_id.id),
-                    ('package_id', '=', line.package_id.id),
-                    ('prodcode', '!=', False),
-                ], limit=1)
-                code = quant.prodcode or ''
-            line.prodcode = code
+            # default first, so every branch leaves the fields assigned
+            line.prodcode = ''
+            line.vifel_lot_no_display = ''
+            # only withdrawals read back from a quant; skip the rest cheaply
+            if line.picking_code != 'outgoing':
+                continue
+            # need at least a source package or location to identify the quant
+            if not line.package_id and not line.location_id:
+                continue
+            if not line.product_id:
+                continue
+            quant = Quant.search([
+                ('product_id', '=', line.product_id.id),
+                ('location_id', '=', line.location_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('package_id', '=', line.package_id.id),
+            ], limit=1)
+            if not quant:
+                continue
+            line.prodcode = quant.prodcode or ''
+            line.vifel_lot_no_display = quant.client_lot_no or ''
 
     # What the merge displaced, so un-merge can put back exactly that instead
     # of guessing. The generic restore keys off original_pallet_series_id and
