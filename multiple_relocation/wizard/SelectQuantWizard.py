@@ -403,15 +403,53 @@ class SelectQuantWizard(models.TransientModel):
         if counter < 2:
             self.action_confirm(counter=counter)
 
+        # When the user cleared the WHOLE selection (a full removal), the main
+        # move has nothing left to withdraw — drop the empty product line so it
+        # does not linger on the transfer. Done AFTER the recursion (so the inner
+        # pass still had the move) and only on the outer frame; gated on an empty
+        # selection so an ordinary partial keep never deletes anything.
+        if counter == 1 and not self.quant_ids_picked:
+            main_move = self.env['stock.move'].browse(self.stock_move_id)
+            if main_move.exists() and (
+                    not main_move.quant_ids_picked
+                    or sum(main_move.quant_ids_picked.mapped('quantity')) <= 0):
+                main_move.move_line_ids.unlink()
+                main_move.unlink()
+
     # ------------------------------------------------------------------
     # Removal confirmation (merge AND normal pallets, treated the same)
     # ------------------------------------------------------------------
-    def _q_removal_line(self, quant):
-        """One '• Pallet PSI (Product)' row for the confirmation message."""
-        return '• <b>%s</b> %s (%s)' % (
-            (quant.package_id.name or '') if quant.package_id else '',
-            quant.x_studio_pallet_series_id or '',
-            quant.product_id.display_name)
+    def _removal_table(self, quants):
+        """A tidy Pallet / Series / Product / Weight table of what is removed —
+        one labelled column each, so nothing is a run-on concatenation."""
+        rows = ''.join(
+            '<tr>'
+            '<td class="fw-bold">%s</td>'
+            '<td>%s</td>'
+            '<td>%s</td>'
+            '<td class="text-end">%s</td>'
+            '</tr>' % (
+                (q.package_id.name or '') if q.package_id else '',
+                q.x_studio_pallet_series_id or '',
+                q.product_id.display_name,
+                ('%s %s' % (('%g' % q.quantity),
+                            q.product_id.uom_id.name or '')).strip())
+            for q in quants)
+        return (
+            '<table class="table table-sm table-bordered mb-0 mt-1" '
+            'style="width:auto;">'
+            '<thead><tr>'
+            '<th>%s</th><th>%s</th><th>%s</th><th class="text-end">%s</th>'
+            '</tr></thead><tbody>%s</tbody></table>'
+        ) % (_('Pallet #'), _('Pallet Series'), _('Product'),
+             _('Quantity'), rows)
+
+    def _removal_section(self, title, explanation, quants):
+        """A titled block: bold heading, one-line reason, then the table."""
+        return (
+            '<p class="mb-1"><b>%s</b></p>'
+            '<p class="mb-1">%s</p>%s'
+        ) % (title, explanation, self._removal_table(quants))
 
     def _removal_confirm_dialog_if_needed(self, this_stock_move):
         """Pop a floating 'are you sure?' when the user drops a previously-picked
@@ -471,28 +509,31 @@ class SelectQuantWizard(models.TransientModel):
         }
 
     def _build_removal_message(self, merge_partial, merge_full, normal_partial):
-        """Compose the confirmation HTML, one section per case that applies."""
+        """Compose the confirmation HTML, one titled section per case."""
         sections = []
         if merge_partial:
-            sections.append(_(
-                '<b>Partial withdrawal of a merge pallet.</b> The stock below is '
-                'taken off this withdrawal and stays in storage; the rest of what '
-                'you selected on that pallet is still withdrawn:') + '<br/>'
-                + '<br/>'.join(self._q_removal_line(q) for q in merge_partial))
+            sections.append(self._removal_section(
+                _('Partial withdrawal of a merge pallet'),
+                _('The stock below is taken off this withdrawal and stays in '
+                  'storage. The rest of what you selected on that pallet is '
+                  'still withdrawn.'),
+                merge_partial))
         if merge_full:
-            sections.append(_(
-                '<b>Merge pallet removed from this withdrawal.</b> This was the '
-                'only stock selected on the pallet(s) below, so nothing from them '
-                'is withdrawn — they stay in storage:') + '<br/>'
-                + '<br/>'.join(self._q_removal_line(q) for q in merge_full))
+            sections.append(self._removal_section(
+                _('Nothing left to withdraw from this pallet'),
+                _('This was the only stock selected on the pallet(s) below, so '
+                  'they are removed from this withdrawal and stay in storage.'),
+                merge_full))
         if normal_partial:
-            sections.append(_(
-                '<b>Whole-pallet withdrawal.</b> A normal pallet cannot be '
-                'withdrawn in part, so the stock below is added back and the '
-                'ENTIRE pallet is withdrawn together. Use a merge pallet to '
-                'withdraw only part of a pallet:') + '<br/>'
-                + '<br/>'.join(self._q_removal_line(q) for q in normal_partial))
-        return '<br/><br/>'.join(sections) + '<br/><br/>' + _('Proceed?')
+            sections.append(self._removal_section(
+                _('Whole-pallet withdrawal'),
+                _('A normal pallet cannot be withdrawn in part, so the stock '
+                  'below is added back and the entire pallet is withdrawn '
+                  'together.'),
+                normal_partial))
+        return ('<div class="mb-3">'
+                + '</div><div class="mb-3">'.join(sections)
+                + '</div>')
 
     def auto_adjust_line_values(record):
         """Automatically adjust values based on availability"""

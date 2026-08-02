@@ -192,6 +192,13 @@ try:
               and 'partial withdrawal' not in cmsg.lower(), cmsg[:90])
         check('AE16 the move is untouched until the user proceeds',
               set(env['stock.move'].browse(mv.id).quant_ids_picked.ids) == {keep.id})
+        # PROCEED: the selection is now empty, so the empty product move is
+        # dropped from the transfer (no lingering 0-qty line).
+        env['select_quant.partial.confirm'].browse(res4['res_id']).action_proceed()
+        env.flush_all()
+        check('AE16b Proceed on an empty selection removes the empty product '
+              'move from the transfer',
+              not env['stock.move'].browse(mv.id).exists())
     else:
         for n in ('AE8', 'AE9', 'AE10', 'AE11', 'AE12', 'AE13',
                   'AE14', 'AE15', 'AE16'):
@@ -259,8 +266,23 @@ try:
               and 'added back' in nmsg.lower(), nmsg[:90])
         check('AE19 the move is untouched until the user proceeds',
               set(env['stock.move'].browse(nmv.id).quant_ids_picked.ids) == set(nq.ids))
+
+        # Fully deselecting the normal pallet: no dialog needed (a plain
+        # removal), and the now-empty product move is dropped from the transfer.
+        nwiz2 = env['select_quant.wizard'].create({
+            'stock_move_id': nmv.id, 'transfer_id': nwr.id,
+            'product_id': nmv.product_id.id, 'owner_id': nowner.id,
+            'location_id': nkeep.location_id.id,
+            'quant_ids_picked': [(6, 0, [])],
+            'move_line_ids': [(6, 0, nmv.move_line_ids.ids)]})
+        r2 = nwiz2.action_confirm()
+        env.flush_all()
+        check('AE20 fully deselecting a NORMAL pallet needs no dialog and '
+              'removes the empty product move',
+              r2 is None and not env['stock.move'].browse(nmv.id).exists(),
+              type(r2).__name__)
     else:
-        for n in ('AE17', 'AE18', 'AE19'):
+        for n in ('AE17', 'AE18', 'AE19', 'AE20'):
             check(n + ' normal partial (no normal 2-SKU pallet in DB)', True)
 
 except Exception:

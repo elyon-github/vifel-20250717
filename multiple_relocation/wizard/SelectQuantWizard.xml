@@ -202,19 +202,20 @@
         </field>
     </record>
 
-    <!-- Floating "are you sure?" before a merge-pallet partial withdrawal -->
+    <!-- Floating "are you sure?" before a Select Stocks removal (merge pallet
+         partial / removed-entirely, or normal whole-pallet). Title and button
+         are generic — the message itself carries the case-specific wording. -->
     <record id="select_quant_partial_confirm_form" model="ir.ui.view">
         <field name="name">select_quant.partial.confirm.form</field>
         <field name="model">select_quant.partial.confirm</field>
         <field name="arch" type="xml">
-            <form string="Confirm Partial Withdrawal">
+            <form string="Confirm Stock Removal">
                 <field name="select_wizard_id" invisible="1"/>
-                <div class="alert alert-warning" role="alert">
+                <div class="alert alert-warning mb-0" role="alert">
                     <field name="message" widget="html" nolabel="1" readonly="1"/>
                 </div>
                 <footer>
-                    <button string="Proceed with Partial Withdrawal"
-                            type="object" name="action_proceed"
+                    <button string="Proceed" type="object" name="action_proceed"
                             class="btn-primary" data-hotkey="q"/>
                     <button string="Cancel" special="cancel"
                             class="btn-secondary" data-hotkey="j"/>
