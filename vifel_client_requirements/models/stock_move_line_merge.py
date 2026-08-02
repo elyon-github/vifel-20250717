@@ -353,16 +353,18 @@ class StockMoveLineMergeEntry(models.Model):
                               vifel_pallet_merge=True).write(
                 {'x_studio_pallet_series_display': False})
 
-        # free what no sibling line still uses (only bites when the last line
-        # leaves the pallet) — same helpers the merge uses to free displaced
-        # pallets/series/locations. The ADOPTED series is what is vacated here;
-        # a restored original was drawn from the pool above, never freed.
+        # free the vacated PALLET / LOCATION only if no sibling still uses them.
+        #
+        # The ADOPTED series (old_series) is DELIBERATELY never recycled here.
+        # It belongs to the pallet the line merged onto — the client's dedicated
+        # Fixed PSI, or a Multiple-mode special series — NOT to the peeling line,
+        # which only borrowed it. Pushing it to the pool re-issues that number to
+        # a brand-new pallet (the "Fixed/Multiple PSI getting recycled" bug). A
+        # line can only reach this detach while the pallet is still SHARED (a
+        # lone sole-owner line reads as plain and cannot un-merge), so the
+        # adopted series always still has a holder — there is nothing to free.
+        # The line's OWN pre-merge series is handled above by restore-if-free.
         siblings = picking.move_line_ids - self
-        if old_series and old_series != restore_series \
-                and old_series not in siblings.mapped('x_studio_pallet_series_id'):
-            picking.partner_id.with_context(
-                audit_picking_id=picking.id,
-                audit_source='wizard').push_unused_pallet(old_series)
         if old_pkg and old_pkg not in siblings.mapped('result_package_id'):
             self._free_pallet_if_unused(picking.id, old_pkg.id)
         new_loc = pre_location or old_loc

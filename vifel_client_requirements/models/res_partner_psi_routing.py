@@ -69,6 +69,18 @@ class ResPartnerPsiRouting(models.Model):
 
     def push_unused_pallet(self, pallet_series_id):
         """Route a freed series to the right home, or refuse it outright."""
+        # NEVER recycle the client's dedicated Fixed PSI. It is the permanent
+        # identity of the pinned Fixed pallet, reused across every receipt that
+        # merges onto it — not a pool number. Recycling it (e.g. when the last
+        # line peels off a not-yet-stocked Fixed pallet, before the floor-stock
+        # guard below can bite) would re-issue it to a brand-new pallet. This is
+        # a hard backstop regardless of the caller.
+        fixed_psi = (self.vifel_fixed_psi or '').strip() \
+            if 'vifel_fixed_psi' in self._fields else ''
+        if fixed_psi and pallet_series_id \
+                and pallet_series_id.strip() == fixed_psi:
+            return
+
         # Still on the floor: recycling it would duplicate live stock.
         if self._vifel_series_is_stocked(pallet_series_id):
             return
