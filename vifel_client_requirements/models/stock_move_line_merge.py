@@ -30,13 +30,33 @@ class StockMoveLineMergeEntry(models.Model):
              'counted once.')
 
     @api.depends('result_package_id', 'is_pallet_merge',
-                 'picking_id.move_line_ids.result_package_id')
+                 'vifel_premerge_captured',
+                 'picking_id.move_line_ids.result_package_id',
+                 'picking_id.move_line_ids.is_pallet_merge',
+                 'picking_id.move_line_ids.vifel_premerge_captured')
     def _compute_vifel_on_merged_pallet(self):
         for line in self:
+            # A +0 merge is always on a merged pallet (it sits on another
+            # receipt's stock — no same-receipt sibling to share with).
+            if line.is_pallet_merge:
+                line.vifel_on_merged_pallet = True
+                continue
+            # Otherwise it is merged only as a same-receipt consolidation: the
+            # pallet must be SHARED by more than one line of this receipt AND at
+            # least one of them must carry a merge marker (a captured joiner, or
+            # a +0). That second test is what tells a genuine merge from ordinary
+            # multi-line-on-one-pallet encoding (two SKUs stacked on one pallet
+            # share a pallet too, but carry no marker). Requiring sharing also
+            # means the lone line left after the others peel off is plain again —
+            # there is nothing left to un-merge it from.
             pkg = line.result_package_id
-            shares = bool(pkg) and len(line.picking_id.move_line_ids.filtered(
-                lambda l: l.result_package_id == pkg)) > 1
-            line.vifel_on_merged_pallet = bool(line.is_pallet_merge) or shares
+            if not pkg:
+                line.vifel_on_merged_pallet = False
+                continue
+            group = line.picking_id.move_line_ids.filtered(
+                lambda l: l.result_package_id == pkg)
+            line.vifel_on_merged_pallet = len(group) > 1 and any(
+                (l.is_pallet_merge or l.vifel_premerge_captured) for l in group)
 
     @api.depends('picking_id.partner_id', 'picking_id.state',
                  'picking_id.picking_type_id')
@@ -256,27 +276,68 @@ class StockMoveLineMergeEntry(models.Model):
             },
         }
 
+    def _vifel_restore_series_if_free(self, pre_series):
+        """Draw the line's captured pre-merge Pallet Series back if it is still
+        free, and return it; otherwise return False so the caller blanks the
+        series and lets the pool re-assign a fresh one.
+
+        "Free" = not physically on the floor (no stocked internal quant) AND not
+        already worn by another line of this same receipt. When the join was
+        made, _free_displaced pushed this series back to the owner's pool (unless
+        a sibling still used it), so restoring it means DRAWING it out again with
+        get_pallet_series_by_id — that keeps the pool consistent and can never
+        double-book a live number (the two guards above are exactly what would
+        make it live).
+        """
+        self.ensure_one()
+        if not pre_series:
+            return False
+        partner = self.picking_id.partner_id
+        if partner._vifel_series_is_stocked(pre_series):
+            return False
+        if (self.picking_id.move_line_ids - self).filtered(
+                lambda l: l.x_studio_pallet_series_id == pre_series):
+            return False
+        # consume it from the pool / its type so it is not issued twice
+        partner.get_pallet_series_by_id(pre_series)
+        return pre_series
+
     def _vifel_detach_same_receipt_join(self, pre_location):
         """Peel a line off a pallet it SHARES with other lines of this receipt
         (the host that started it, or a line that joined).
 
-        It drops the shared pallet and the shared Pallet Series so it becomes a
-        plain, unassigned line again; a joiner's captured pre-merge location is
-        put back. Whatever it vacated — the pallet, the series, the location —
-        is freed ONLY if no sibling line still uses it, so peeling the LAST line
-        off a pallet does not leave it reserved-but-empty. The former series is
-        NOT written back onto this line (re-assigning draws a fresh number;
-        writing the old one back directly would double-book it). The ledger flag
-        is never touched (it was already False, and the pallet stays +1 via any
-        remaining line).
+        It drops the shared pallet so the line becomes plain and unassigned
+        again; a joiner's captured pre-merge location is put back, and its
+        ORIGINAL Pallet Series is restored when that number is still free (drawn
+        back from the pool) — otherwise the series is blanked and the pool
+        re-assigns a fresh one. Whatever it vacated — the shared pallet, the
+        adopted series, the location — is freed ONLY if no sibling line still
+        uses it, so peeling the LAST line off a pallet does not leave it
+        reserved-but-empty. The ledger flag is never touched (it was already
+        False, and the pallet stays +1 via any remaining line).
         """
         self.ensure_one()
         picking = self.picking_id
         old_pkg = self.result_package_id
+
+        # DEFENSIVE: never blank a plain line. Only a genuinely merged line — one
+        # that carries a capture marker, or is the host sharing its pallet with a
+        # marked sibling — may be detached here. The detection fix already keeps
+        # the Un-merge button off plain lines; this makes the method safe even if
+        # it is ever reached directly.
+        marked = self.vifel_premerge_captured or (old_pkg and any(
+            (sib.is_pallet_merge or sib.vifel_premerge_captured)
+            for sib in (picking.move_line_ids - self)
+            if sib.result_package_id == old_pkg))
+        if not marked:
+            return
+
         old_series = self.x_studio_pallet_series_id or ''
         old_loc = self.location_dest_id
+        restore_series = self._vifel_restore_series_if_free(
+            self.vifel_premerge_series)
         vals = {'result_package_id': False,
-                'x_studio_pallet_series_id': False,
+                'x_studio_pallet_series_id': restore_series or False,
                 'vifel_premerge_captured': False,
                 'vifel_premerge_series': False,
                 'vifel_premerge_location_id': False}
@@ -284,19 +345,21 @@ class StockMoveLineMergeEntry(models.Model):
             vals['location_dest_id'] = pre_location.id
         self.with_context(skip_pallet_series_sync=True,
                           vifel_pallet_merge=True).write(vals)
-        # clear the stale STORED display series too (its compute only assigns,
-        # never clears — same reason the +0 path clears it)
-        if 'x_studio_pallet_series_display' in self._fields:
+        # clear the stale STORED display series only when nothing was restored
+        # (its compute only assigns, never clears — same reason the +0 path
+        # clears it); a restore re-populates it from the drawn series.
+        if not restore_series and 'x_studio_pallet_series_display' in self._fields:
             self.with_context(skip_pallet_series_sync=True,
                               vifel_pallet_merge=True).write(
                 {'x_studio_pallet_series_display': False})
 
         # free what no sibling line still uses (only bites when the last line
         # leaves the pallet) — same helpers the merge uses to free displaced
-        # pallets/series/locations.
+        # pallets/series/locations. The ADOPTED series is what is vacated here;
+        # a restored original was drawn from the pool above, never freed.
         siblings = picking.move_line_ids - self
-        if old_series and old_series not in siblings.mapped(
-                'x_studio_pallet_series_id'):
+        if old_series and old_series != restore_series \
+                and old_series not in siblings.mapped('x_studio_pallet_series_id'):
             picking.partner_id.with_context(
                 audit_picking_id=picking.id,
                 audit_source='wizard').push_unused_pallet(old_series)

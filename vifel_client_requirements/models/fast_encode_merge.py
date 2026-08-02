@@ -48,6 +48,13 @@ class FastEncodeLineMerge(models.TransientModel):
         """Open the merge wizard for this row's real line, tagged so confirm
         syncs this transient row and reloads."""
         self.ensure_one()
+        if self.vifel_pending_unmerge:
+            # The row shows "Merge" only because an un-merge is STAGED but not
+            # yet committed — the real line was never touched. Treat the click
+            # as "cancel that staged un-merge" rather than opening a merge onto
+            # a line that is, in truth, still merged.
+            self.write({'vifel_pending_unmerge': False})
+            return self._reopen_fast_encode_list()
         return self._vifel_open_merge_from_fast_encode(
             self, _('Merge Pallet — %s') % (
                 self._real_line().product_id.display_name or ''))
@@ -94,17 +101,24 @@ class FastEncodeLineMerge(models.TransientModel):
         }
 
     def action_unmerge_from_fast_encode(self):
-        """Un-merge this row's real line, sync the transient, reopen.
+        """STAGE an un-merge: flip the row to un-merged now, but leave the real
+        move line untouched until the wizard's Confirm applies it.
 
         Guards on the same "on a merged/shared pallet" marker the Pallet
         Breakdown uses, so a +0 merge AND a same-receipt share (host or joiner)
-        can both be peeled off from the Magic Wizard. The real line's
-        action_unmerge_pallet_line handles the two cases."""
+        can both be peeled off from the Magic Wizard. The real detach — with its
+        original-Pallet-Series restore — runs in FastEncodeRR.action_confirm via
+        _vifel_apply_staged_unmerge, so nothing in the Pallet Breakdown moves
+        before the encoder commits (matching how Merge defers its write-back)."""
         ml = self._real_line()
         if not ml.vifel_on_merged_pallet:
             raise UserError(_('This line is not a merged pallet.'))
-        ml.action_unmerge_pallet_line()
-        self._vifel_sync_from_move_line(ml)
+        # Mark only the transient row. Its pallet / series are LEFT in place, so
+        # the wizard's confirm passes treat it exactly like a still-merged row
+        # (merge-locked → a no-op through the series-recycle passes); the compute
+        # keys off vifel_pending_unmerge to show it un-merged, and the confirm's
+        # staged-unmerge hook applies the real detach.
+        self.write({'vifel_pending_unmerge': True})
         return self._reopen_fast_encode_list()
 
     def _vifel_sync_from_move_line(self, move_line, reset_original=False):
@@ -128,6 +142,10 @@ class FastEncodeLineMerge(models.TransientModel):
         self.write({'result_package_id': move_line.result_package_id.id})
         vals = {
             'is_pallet_merge': move_line.is_pallet_merge,
+            'vifel_premerge_captured': move_line.vifel_premerge_captured,
+            # the row now mirrors a freshly (un)merged real line — any earlier
+            # staged un-merge on it is stale
+            'vifel_pending_unmerge': False,
             'pallet_series_id': series,
             'location_dest_id': move_line.location_dest_id.id,
             'pre_wizard_pallet_series_id': series,
@@ -179,21 +197,57 @@ class FastEncodeLineMergeFields(models.TransientModel):
     batch_no = fields.Char(string='Batch #')
     is_pallet_merge = fields.Boolean(string='Merged Pallet', readonly=True)
 
+    # Mirrors stock.move.line.vifel_premerge_captured — a same-receipt JOINER
+    # carries it (the +0 host does not). Seeded from the real line at create so
+    # the Magic Wizard tells a genuine merge from ordinary multi-line encoding
+    # exactly as the Pallet Breakdown does.
+    vifel_premerge_captured = fields.Boolean(
+        string='Pre-merge State Recorded', readonly=True)
+
+    # Set when the encoder presses Un-merge INSIDE the Magic Wizard. The row
+    # shows as un-merged at once, but the real move line is left untouched — the
+    # detach is applied only on the wizard's Confirm (see
+    # _vifel_apply_staged_unmerge), so nothing in the Pallet Breakdown moves
+    # before the encoder commits.
+    vifel_pending_unmerge = fields.Boolean(
+        string='Pending Un-merge', default=False)
+
     # Same user-facing marker as on stock.move.line: checked whenever a row is
-    # part of a merged pallet, INCLUDING two rows of this transfer that simply
-    # share one pallet (is_pallet_merge alone stays false there). Drives the row
-    # tint so the floor sees every consolidated pallet, not only the +0 ones.
+    # part of a merged pallet, INCLUDING the HOST of a same-receipt merge (its
+    # own is_pallet_merge / vifel_premerge_captured stay false, but a joiner
+    # sibling carries the marker). Drives the row tint so the floor sees every
+    # consolidated pallet, not only the +0 ones.
     vifel_on_merged_pallet = fields.Boolean(
         compute='_compute_vifel_on_merged_pallet')
 
     @api.depends('result_package_id', 'is_pallet_merge',
-                 'wizard_id.line_ids.result_package_id')
+                 'vifel_premerge_captured', 'vifel_pending_unmerge',
+                 'wizard_id.line_ids.result_package_id',
+                 'wizard_id.line_ids.is_pallet_merge',
+                 'wizard_id.line_ids.vifel_premerge_captured')
     def _compute_vifel_on_merged_pallet(self):
         for line in self:
+            # A staged un-merge shows the row as un-merged immediately, even
+            # though the real line is only detached on Confirm.
+            if line.vifel_pending_unmerge:
+                line.vifel_on_merged_pallet = False
+                continue
+            # A +0 merge is always on a merged pallet.
+            if line.is_pallet_merge:
+                line.vifel_on_merged_pallet = True
+                continue
+            # Same-receipt consolidation: the pallet must be SHARED by more than
+            # one row AND at least one carry a merge marker — merely sharing a
+            # pallet (ordinary multi-line encoding) is NOT a merge, and the lone
+            # row left after the others peel off is plain again.
             pkg = line.result_package_id
-            shares = bool(pkg) and len(line.wizard_id.line_ids.filtered(
-                lambda l: l.result_package_id == pkg)) > 1
-            line.vifel_on_merged_pallet = bool(line.is_pallet_merge) or shares
+            if not pkg:
+                line.vifel_on_merged_pallet = False
+                continue
+            group = line.wizard_id.line_ids.filtered(
+                lambda l: l.result_package_id == pkg)
+            line.vifel_on_merged_pallet = len(group) > 1 and any(
+                (l.is_pallet_merge or l.vifel_premerge_captured) for l in group)
 
     # Pallets another line of this transfer has MERGED onto. They must not be
     # offered in the RR Pallet # dropdown: a merge target is reached through
@@ -238,6 +292,8 @@ class FastEncodeLineMergeFields(models.TransientModel):
             vals.setdefault('client_lot_no', move_line.client_lot_no or '')
             vals.setdefault('batch_no', move_line.batch_no or '')
             vals.setdefault('is_pallet_merge', move_line.is_pallet_merge)
+            vals.setdefault('vifel_premerge_captured',
+                            move_line.vifel_premerge_captured)
         return super().create(vals_list)
 
 
@@ -248,10 +304,27 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
     def _vifel_line_is_merge_locked(self, line):
         """A merged row keeps its adopted pallet, series and location: it is
         skipped by pallet-availability validation (it points at an occupied
-        pallet on purpose) and never competes in the winner grouping."""
-        if line.is_pallet_merge:
+        pallet on purpose) and never competes in the winner grouping.
+
+        A row with a STAGED un-merge is kept out of the same passes: its real
+        detach happens in the staged-unmerge pass, so the recycle machinery must
+        treat it as a no-op (and, for a joiner leaving a shared pallet, exclude
+        it from the remaining siblings' winner election)."""
+        if line.is_pallet_merge or line.vifel_pending_unmerge:
             return True
         return super()._vifel_line_is_merge_locked(line)
+
+    def _vifel_apply_staged_unmerge(self, line, move_line):
+        """A row the encoder un-merged inside the Magic Wizard: apply the real
+        detach NOW, at Confirm (it was deferred so the Pallet Breakdown did not
+        change mid-session). action_unmerge_pallet_line runs the full restore —
+        including putting the original Pallet Series back when it is still free —
+        and we skip the standard write for this row (return True)."""
+        if not line.vifel_pending_unmerge:
+            return super()._vifel_apply_staged_unmerge(line, move_line)
+        if move_line.exists() and move_line.vifel_on_merged_pallet:
+            move_line.action_unmerge_pallet_line()
+        return True
 
     def _vifel_apply_merge_locked_line(self, line, move_line):
         """Cargo-only write for a merged row.

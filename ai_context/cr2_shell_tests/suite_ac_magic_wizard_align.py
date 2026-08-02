@@ -1,6 +1,8 @@
 # CR2 v2 Suite AC - the Magic Wizard is aligned with the Pallet Breakdown:
-# a same-receipt shared row shows "Merged" (tint) AND offers Un-merge, and
-# un-merging it peels the real line off - same behaviour, both surfaces.
+# a same-receipt shared row shows "Merged" (tint) AND offers Un-merge. The
+# Magic Wizard un-merge is STAGED (like its Merge): the row flips to un-merged
+# at once, but the real line is only peeled off on the wizard's Confirm - so
+# nothing in the Pallet Breakdown moves mid-session.
 #
 #   python odoo-bin shell -c odoo.conf -d <db> --no-http --max-cron-threads=0 \
 #       < ai_context/cr2_shell_tests/suite_ac_magic_wizard_align.py
@@ -76,28 +78,51 @@ try:
     # mirror the two real lines as Magic Wizard rows
     fw = env['stock.move.line.fast_encode_rr'].create(
         {'transfer_id': picking.id})
+    # seed the rows' series so the wizard's Confirm write-back is faithful
+    # (a real Magic Wizard session seeds these when it opens the list).
     r1 = Line.create({'wizard_id': fw.id, 'stock_move_line': l1.id,
                       'x_studio_': l1.x_studio_ or 0, 'product_id': l1.product_id.id,
-                      'result_package_id': l1.result_package_id.id})
+                      'result_package_id': l1.result_package_id.id,
+                      'pallet_series_id': l1.x_studio_pallet_series_id or '',
+                      'pre_wizard_pallet_series_id': l1.x_studio_pallet_series_id or ''})
     r2 = Line.create({'wizard_id': fw.id, 'stock_move_line': l2.id,
                       'x_studio_': l2.x_studio_ or 0, 'product_id': l2.product_id.id,
-                      'result_package_id': l2.result_package_id.id})
+                      'result_package_id': l2.result_package_id.id,
+                      'pallet_series_id': l2.x_studio_pallet_series_id or '',
+                      'pre_wizard_pallet_series_id': l2.x_studio_pallet_series_id or ''})
     env.flush_all()
     check('AC5 BOTH Magic Wizard rows show the Merged tint (host + joiner)',
           r1.vifel_on_merged_pallet and r2.vifel_on_merged_pallet,
           (r1.vifel_on_merged_pallet, r2.vifel_on_merged_pallet))
 
-    # un-merge the JOINER row from the Magic Wizard -> real line peels off
+    # STAGE: un-merge the JOINER row from the Magic Wizard. The ROW flips to
+    # un-merged, but the real line is UNTOUCHED until Confirm.
     r2.action_unmerge_from_fast_encode()
     env.flush_all()
-    check('AC6 un-merging the joiner ROW peels the real line off',
+    check('AC6 the ROW shows un-merged at once (staged)',
+          r2.vifel_pending_unmerge and not r2.vifel_on_merged_pallet,
+          (r2.vifel_pending_unmerge, r2.vifel_on_merged_pallet))
+    check('AC6b the REAL line is UNCHANGED before Confirm (nothing peeled yet)',
+          l2.result_package_id == empty_pkg and l2.vifel_premerge_captured,
+          l2.result_package_id.name)
+
+    # APPLY: the wizard's Confirm applies the staged un-merge to the real line.
+    # Isolate the pending row for the confirm — the host row's real pallet may be
+    # reserved to another receipt in this DB, which would trip the (unrelated)
+    # pallet-availability check; the staged row itself is merge-locked and skips
+    # that check. l1 (host) is left untouched, exactly as it would be.
+    r1.unlink()
+    env.flush_all()
+    fw.action_confirm()
+    env.flush_all()
+    check('AC7 after Confirm the real joiner line is peeled off',
           not l2.result_package_id, l2.result_package_id.name)
-    check('AC7 the host real line still holds the pallet (still +1)',
+    check('AC8 the host real line still holds the pallet (still +1)',
           l1.result_package_id == empty_pkg)
     counted = set(picking.move_line_ids.filtered(
         lambda m: m.result_package_id and not m.is_pallet_merge).mapped(
         'result_package_id.id'))
-    check('AC8 the pallet is STILL counted +1 after the wizard un-merge',
+    check('AC9 the pallet is STILL counted +1 after the wizard un-merge',
           empty_pkg.id in counted)
 
 except Exception:
