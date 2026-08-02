@@ -40,19 +40,18 @@ try:
     check('AE3 wizard drops deselected lines by IDENTITY (not quant_id)',
           'selected_ident' in src
           and '(ml.product_id.id, ml.lot_id.id, ml.package_id.id)' in src)
-    check('AE4 wizard pops an "are you sure?" dialog before a partial withdrawal',
-          '_partial_confirm_dialog' in src
+    check('AE4 wizard pops an "are you sure?" dialog before ANY removal',
+          '_removal_confirm_dialog_if_needed' in src
           and 'partial_confirmed' in src)
-    check('AE5 normal packages are untouched (all-or-nothing preserved), and a '
-          'normal full re-add still shows an info notification',
-          'if pkg.id in partial_pkg_ids:' in src
-          and 'readded_full_normal' in src and 'display_notification' in src)
-    # regression: readded_full_normal collects PACKAGES (pkg |=, .name read),
-    # so it must be seeded as a stock.quant.package set — seeding it as
-    # stock.quant crashed a normal multi-SKU withdrawal with "inconsistent
-    # models: stock.quant() | stock.quant.package(...)".
-    check('AE5b readded_full_normal is a stock.quant.package set (model match)',
-          "readded_full_normal = self.env['stock.quant.package']" in src)
+    check('AE5 the confirmation covers all three cases in one prompt: merge '
+          'partial, merge removed-entirely, and normal whole-pallet',
+          'merge_partial' in src and 'merge_full' in src
+          and 'normal_partial' in src)
+    # WR 08420: removing the ONLY picked quant of a merge pallet is a full
+    # removal, not a "partial withdrawal — rest stays" (which read wrong).
+    check('AE5b a merge pallet with nothing left picked is worded as a full '
+          'removal, not a partial withdrawal',
+          'removed from this withdrawal' in src.lower())
 
     # ---- the SA#377 paste carries the merge guard (no chatter note) ----
     paste_path = os.path.join(
@@ -168,9 +167,101 @@ try:
         env.flush_all()
         check('AE13 Cancel (no proceed) leaves the move unchanged',
               set(env['stock.move'].browse(mv.id).quant_ids_picked.ids) == set(pq.ids))
+
+        # --- WR 08420: remove the ONLY picked quant of a merge pallet. That is
+        #     a FULL removal (nothing left to withdraw), NOT a partial
+        #     withdrawal — the old wording ("the rest stays in storage") read
+        #     wrong when there was no rest. ---
+        mv.quant_ids_picked = [(6, 0, [keep.id])]   # only ONE picked now
+        env.flush_all()
+        wiz4 = env['select_quant.wizard'].create({
+            'stock_move_id': mv.id, 'transfer_id': wr.id, 'product_id': mv.product_id.id,
+            'owner_id': owner.id, 'location_id': keep.location_id.id,
+            'quant_ids_picked': [(6, 0, [])],        # drop the only one
+            'move_line_ids': [(6, 0, mv.move_line_ids.ids)]})
+        res4 = wiz4.action_confirm()
+        check('AE14 removing the ONLY picked quant still pops the dialog',
+              isinstance(res4, dict)
+              and res4.get('res_model') == 'select_quant.partial.confirm',
+              res4.get('res_model') if isinstance(res4, dict) else type(res4).__name__)
+        cmsg = (env['select_quant.partial.confirm'].browse(res4['res_id']).message
+                or '') if isinstance(res4, dict) and res4.get('res_id') else ''
+        check('AE15 it is worded as a FULL removal (nothing left to withdraw), '
+              'NOT "partial withdrawal"',
+              'removed from this withdrawal' in cmsg.lower()
+              and 'partial withdrawal' not in cmsg.lower(), cmsg[:90])
+        check('AE16 the move is untouched until the user proceeds',
+              set(env['stock.move'].browse(mv.id).quant_ids_picked.ids) == {keep.id})
     else:
-        for n in ('AE8', 'AE9', 'AE10', 'AE11', 'AE12', 'AE13'):
+        for n in ('AE8', 'AE9', 'AE10', 'AE11', 'AE12', 'AE13',
+                  'AE14', 'AE15', 'AE16'):
             check(n + ' merge partial (no eligible 2-quant merge pallet in DB)', True)
+
+    # ====================================================================
+    # EQUAL TREATMENT: dropping ONE SKU of a NORMAL (non-merge) multi-SKU
+    # pallet now ALSO pops the floating confirmation BEFORE applying — it used
+    # to apply silently and only show an after-the-fact notice.
+    # ====================================================================
+    npkg = None
+    for cand in Q.search([('package_id', '!=', False), ('quantity', '>', 0),
+                          ('location_id.usage', '=', 'internal'),
+                          ('lot_id', '!=', False)], limit=5000):
+        p = cand.package_id
+        if Q._vifel_package_allows_partial_withdrawal(p.id):
+            continue
+        if Q.search_count([('package_id', '=', p.id), ('quantity', '>', 0),
+                           ('location_id.usage', '=', 'internal'),
+                           ('lot_id', '!=', False)]) >= 2:
+            npkg = p
+            break
+    if npkg:
+        nq = Q.search([('package_id', '=', npkg.id), ('quantity', '>', 0),
+                       ('location_id.usage', '=', 'internal'),
+                       ('lot_id', '!=', False)])
+        nkeep = nq[0]
+        nowner = nkeep.owner_id or owner
+        wtype = env['stock.picking.type'].search([('code', '=', 'outgoing')], limit=1)
+        nwr = env['stock.picking'].create({
+            'picking_type_id': wtype.id, 'partner_id': nowner.id,
+            'location_id': nkeep.location_id.id,
+            'location_dest_id': nkeep.location_id.id})
+        nmv = env['stock.move'].create({
+            'name': nkeep.product_id.name, 'picking_id': nwr.id,
+            'product_id': nkeep.product_id.id,
+            'product_uom': nkeep.product_id.uom_id.id,
+            'product_uom_qty': sum(nq.mapped('quantity')),
+            'location_id': nkeep.location_id.id,
+            'location_dest_id': nkeep.location_id.id})
+        for q in nq:
+            env['stock.move.line'].create({
+                'picking_id': nwr.id, 'move_id': nmv.id, 'product_id': q.product_id.id,
+                'quantity': q.quantity, 'lot_id': q.lot_id.id, 'package_id': q.package_id.id,
+                'location_id': nkeep.location_id.id, 'location_dest_id': nkeep.location_id.id})
+        nmv.quant_ids_picked = [(6, 0, nq.ids)]
+        env.flush_all()
+        nwiz = env['select_quant.wizard'].create({
+            'stock_move_id': nmv.id, 'transfer_id': nwr.id,
+            'product_id': nmv.product_id.id, 'owner_id': nowner.id,
+            'location_id': nkeep.location_id.id,
+            'quant_ids_picked': [(6, 0, [nkeep.id])],   # drop the other SKU(s)
+            'move_line_ids': [(6, 0, nmv.move_line_ids.ids)]})
+        nres = nwiz.action_confirm()
+        check('AE17 dropping ONE SKU of a NORMAL pallet ALSO pops the dialog '
+              '(equal treatment, no longer a silent notice)',
+              isinstance(nres, dict)
+              and nres.get('res_model') == 'select_quant.partial.confirm',
+              nres.get('res_model') if isinstance(nres, dict) else type(nres).__name__)
+        nmsg = (env['select_quant.partial.confirm'].browse(nres['res_id']).message
+                or '') if isinstance(nres, dict) and nres.get('res_id') else ''
+        check('AE18 it is worded as a WHOLE-pallet withdrawal (added back), not '
+              'a partial withdrawal',
+              'whole-pallet withdrawal' in nmsg.lower()
+              and 'added back' in nmsg.lower(), nmsg[:90])
+        check('AE19 the move is untouched until the user proceeds',
+              set(env['stock.move'].browse(nmv.id).quant_ids_picked.ids) == set(nq.ids))
+    else:
+        for n in ('AE17', 'AE18', 'AE19'):
+            check(n + ' normal partial (no normal 2-SKU pallet in DB)', True)
 
 except Exception:
     print('UNEXPECTED ERROR:')
