@@ -3,17 +3,21 @@
 #   Studio -> Server Actions -> id 348 (model stock.picking) -> Python Code box.
 #   Select ALL in that box, delete, and paste everything BELOW the divider line.
 #
-# This is the COMPLETE action with two changes already applied inline. Nothing
-# else differs from production. The three changed spots are marked with the
-# comment ">>> MERGE" so you can find them:
+# This is the COMPLETE action with the merge changes already applied inline.
+# Nothing else differs from production. The changed spots are marked ">>> MERGE":
 #   1. LOGIC   — a merged line skips the duplicate-series-in-stock guard, the
 #                same exemption return lines already get (search: is_pallet_merge).
-#   2. WORDING — the offending-series detail line is trimmed to facts.
-#   3. WORDING — the section header/footer now states the RULE and the FIX
-#                (fresh series, or use Merge Pallet). No change to WHEN it fires.
-# is_pallet_merge is defined on stock.move.line by multiple_relocation (always
-# installed here), so change 1 reads the field directly — server actions run
-# sandboxed and have no getattr/hasattr.
+#   2. LOGIC   — the "already reserved in another Transfer" guard now EXEMPTS a
+#                merged line AND a line on the client's pinned Fixed Merge Pallet
+#                (that pallet is reserved by config and reused every receipt, so
+#                a Fixed-PSI merge onto it is legitimate). Also fixed the message
+#                to name the ACTUAL reserving transfer, not the current one.
+#   3. WORDING — the offending-series detail line is trimmed to facts.
+#   4. WORDING — the duplicate-series section header/footer states the RULE and
+#                the FIX (fresh series, or use Merge Pallet). No change to WHEN.
+# is_pallet_merge and vifel_fixed_package_id are defined by the merge module
+# (always installed where this is pasted), so the guards read them directly —
+# server actions run sandboxed and have no getattr/hasattr.
 # ============================================================================
 # ---------------------------- PASTE FROM HERE -------------------------------
 lines = record.move_line_ids
@@ -305,9 +309,22 @@ for record in records:
         location, package = line.location_dest_id, line.result_package_id
     
     
-        if line.result_package_id.x_studio_is_reserved and line.result_package_id.x_studio_receiving_report_id.id != line.picking_id.id:
+        # >>> MERGE: a merged line, or a line on the client's PINNED Fixed
+        # >>> Merge Pallet, uses a pallet that is reserved ON PURPOSE — the
+        # >>> pinned pallet is reserved by the client config and reused every
+        # >>> receipt, and a merge deliberately adopts an in-use pallet. Exempt
+        # >>> them from the "already reserved elsewhere" guard (same spirit as
+        # >>> the duplicate-PSI exemption further below).
+        _fixed_pkg = line.picking_id.partner_id.vifel_fixed_package_id
+        _reserved_ok = line.is_pallet_merge or (
+            _fixed_pkg and line.result_package_id == _fixed_pkg)
+        if (line.result_package_id.x_studio_is_reserved
+                and line.result_package_id.x_studio_receiving_report_id.id != line.picking_id.id
+                and not _reserved_ok):
+            # name the ACTUAL reserving transfer, not this one
+            _reserver = line.result_package_id.x_studio_receiving_report_id.name or '(unknown)'
             error_messages['already_reserved'].append(
-                f"Pallet: {line.result_package_id.name}, is already reserved in another Transfer: {line.picking_id.name}. Please change the Pallet manually."
+                f"Pallet: {line.result_package_id.name}, is already reserved in another Transfer: {_reserver}. Please change the Pallet manually."
             )
           
         # Check for missing pallet (destination_package_id) and skip further validation if missing
