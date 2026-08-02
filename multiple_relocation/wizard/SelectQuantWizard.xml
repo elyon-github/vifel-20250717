@@ -198,7 +198,28 @@
                 </footer>
               </div>
             </form>
-      
+
+        </field>
+    </record>
+
+    <!-- Floating "are you sure?" before a merge-pallet partial withdrawal -->
+    <record id="select_quant_partial_confirm_form" model="ir.ui.view">
+        <field name="name">select_quant.partial.confirm.form</field>
+        <field name="model">select_quant.partial.confirm</field>
+        <field name="arch" type="xml">
+            <form string="Confirm Partial Withdrawal">
+                <field name="select_wizard_id" invisible="1"/>
+                <div class="alert alert-warning" role="alert">
+                    <field name="message" widget="html" nolabel="1" readonly="1"/>
+                </div>
+                <footer>
+                    <button string="Proceed with Partial Withdrawal"
+                            type="object" name="action_proceed"
+                            class="btn-primary" data-hotkey="q"/>
+                    <button string="Cancel" special="cancel"
+                            class="btn-secondary" data-hotkey="j"/>
+                </footer>
+            </form>
         </field>
     </record>
 

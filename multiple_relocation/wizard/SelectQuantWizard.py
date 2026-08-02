@@ -128,11 +128,29 @@ class SelectQuantWizard(models.TransientModel):
         # Browse the stock.move record and the transfer (picking)
         this_stock_move = self.env['stock.move'].browse(self.stock_move_id)
         transfer_id = self.env['stock.picking'].browse(self.transfer_id)
-        
+
         # Basic validation
         if not this_stock_move.exists():
             raise UserError("The Stock Move record does not exist.")
-        
+
+        # --- CONFIRM PARTIAL WITHDRAWAL of a MERGE pallet -------------------
+        # Removing a quant from a merge pallet is a real partial withdrawal — the
+        # rest of the pallet stays in storage. Before applying it, pop a floating
+        # "are you sure?" that names exactly what is being removed and what will
+        # happen, so it is never silent. Only on the user's first click
+        # (partial_confirmed not yet set); Proceed re-enters with the flag.
+        if not self.env.context.get('partial_confirmed'):
+            _Quant = self.env['stock.quant']
+            _prev = this_stock_move.quant_ids_picked
+            _sel = set(self.quant_ids_picked.ids)
+            partial_removed = _prev.filtered(
+                lambda q: q.package_id
+                and _Quant._vifel_package_allows_partial_withdrawal(
+                    q.package_id.id)
+                and q.id not in _sel)
+            if partial_removed:
+                return self._partial_confirm_dialog(partial_removed)
+
         # --- Identify packages to work with ---
         # Get currently selected packages in this wizard
         selected_packages = self.quant_ids_picked.mapped('package_id')
@@ -405,49 +423,55 @@ class SelectQuantWizard(models.TransientModel):
         if counter < 2:
             self.action_confirm(counter=counter)
 
-        # Part C — INFORM the user what the confirm did (never silent). Only on
-        # the outermost call. Two things can happen and either is worth saying:
-        #   * MERGE pallet: the quants you removed STAYED removed (partial
-        #     withdrawal) — say so, and post a durable chatter note.
-        #   * NORMAL pallet: a whole pallet is withdrawn, so removed quants were
-        #     added back — say so.
-        if counter == 1 and (partial_removed or readded_full_normal):
-            picking = transfer_id
-            msg_parts = []
-            if partial_removed:
-                # readable label: pallet + PSI + product (NOT the long internal
-                # lot name).
-                dropped = ', '.join(
-                    '%s%s (%s)' % (
-                        (q.package_id.name + ' ') if q.package_id else '',
-                        q.x_studio_pallet_series_id or '',
-                        q.product_id.display_name)
-                    for q in partial_removed)
-                msg_parts.append(_(
-                    'Partial withdrawal — removed %s from this withdrawal. The '
-                    'rest of the pallet stays in storage.') % dropped)
-                # durable record on the WR
-                picking.message_post(body=_(
-                    'Select Stocks: partial withdrawal — removed %s. The pallet '
-                    'is a merge pallet, so its remaining stock is NOT withdrawn.')
-                    % dropped)
-            if readded_full_normal:
-                names = ', '.join(readded_full_normal.mapped('name'))
-                msg_parts.append(_(
-                    'Pallet(s) %s are withdrawn as a whole — the stock you '
-                    'removed was added back (use a merge pallet to withdraw part '
-                    'of a pallet).') % names)
+        # A NORMAL pallet is withdrawn as a whole, so quants the user dropped
+        # from it were re-added — tell them (info, non-blocking) so it is not a
+        # silent surprise. The MERGE partial-removal case is already handled by
+        # the "are you sure?" dialog BEFORE this point, so it needs nothing here.
+        if counter == 1 and readded_full_normal:
+            names = ', '.join(readded_full_normal.mapped('name'))
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'title': _('Withdrawal updated'),
-                    'message': '\n'.join(msg_parts),
+                    'title': _('Whole pallet withdrawn'),
+                    'message': _(
+                        'Pallet(s) %s are withdrawn as a whole — the stock you '
+                        'removed was added back. Use a merge pallet to withdraw '
+                        'part of a pallet.') % names,
                     'type': 'info',
                     'sticky': False,
                     'next': {'type': 'ir.actions.act_window_close'},
                 },
             }
+
+    def _partial_confirm_dialog(self, partial_removed):
+        """Floating 'are you sure?' before a merge-pallet partial withdrawal.
+        Names exactly what is being removed and what will happen; Proceed
+        re-runs the confirm with partial_confirmed=True."""
+        self.ensure_one()
+        dropped = '<br/>'.join(
+            '• <b>%s</b> %s (%s)' % (
+                (q.package_id.name or '') if q.package_id else '',
+                q.x_studio_pallet_series_id or '',
+                q.product_id.display_name)
+            for q in partial_removed)
+        message = _(
+            'You are removing the following from this withdrawal:'
+            '<br/><br/>%s<br/><br/>'
+            'This is a <b>partial withdrawal</b> of a merge pallet — the rest of '
+            'the pallet stays in storage and is NOT withdrawn. Proceed?') % dropped
+        confirm = self.env['select_quant.partial.confirm'].create({
+            'select_wizard_id': self.id,
+            'message': message,
+        })
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Confirm Partial Withdrawal'),
+            'res_model': 'select_quant.partial.confirm',
+            'res_id': confirm.id,
+            'view_mode': 'form',
+            'target': 'new',
+        }
 
     def auto_adjust_line_values(record):
         """Automatically adjust values based on availability"""
@@ -554,6 +578,22 @@ class SelectQuantWizard(models.TransientModel):
             'target': 'new',
         }
             
+
+class SelectQuantPartialConfirm(models.TransientModel):
+    """Floating 'are you sure?' shown before a merge-pallet partial withdrawal.
+    Displays what is being removed + the consequence; Proceed re-runs the Select
+    Stocks confirm with partial_confirmed=True."""
+    _name = 'select_quant.partial.confirm'
+    _description = 'Confirm Partial Withdrawal of a Merge Pallet'
+
+    select_wizard_id = fields.Many2one('select_quant.wizard', required=True)
+    message = fields.Html(string='Message', readonly=True, sanitize=False)
+
+    def action_proceed(self):
+        self.ensure_one()
+        return self.select_wizard_id.with_context(
+            partial_confirmed=True).action_confirm()
+
 
 class StockAdjustmentAdd(models.TransientModel):
     _inherit = 'stock.inventory.adjustment.name'
