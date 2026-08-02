@@ -47,6 +47,12 @@ try:
           'normal full re-add still shows an info notification',
           'if pkg.id in partial_pkg_ids:' in src
           and 'readded_full_normal' in src and 'display_notification' in src)
+    # regression: readded_full_normal collects PACKAGES (pkg |=, .name read),
+    # so it must be seeded as a stock.quant.package set — seeding it as
+    # stock.quant crashed a normal multi-SKU withdrawal with "inconsistent
+    # models: stock.quant() | stock.quant.package(...)".
+    check('AE5b readded_full_normal is a stock.quant.package set (model match)',
+          "readded_full_normal = self.env['stock.quant.package']" in src)
 
     # ---- the SA#377 paste carries the merge guard (no chatter note) ----
     paste_path = os.path.join(

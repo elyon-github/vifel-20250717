@@ -176,7 +176,10 @@ class SelectQuantWizard(models.TransientModel):
         selected_quant_ids = set(self.quant_ids_picked.ids)
         # a NORMAL pallet where the user dropped some (but not all) of its quants:
         # the rule will re-add them; remember so we can inform the user (Part C).
-        readded_full_normal = self.env['stock.quant']
+        # This collects PACKAGES (pkg below, and .name is read at Part C), so it
+        # must be a stock.quant.package set — unioning a package into an empty
+        # stock.quant set raises "inconsistent models".
+        readded_full_normal = self.env['stock.quant.package']
         for pkg in packages_unchanged:
             if pkg.id in partial_pkg_ids:
                 continue
