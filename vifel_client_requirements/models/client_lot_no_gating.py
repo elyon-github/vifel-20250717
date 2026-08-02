@@ -51,7 +51,11 @@ class StockPickingClientLotNo(models.Model):
                 show_batch_no=self.show_batch_no,
                 # Blast freezer has no Merge Pallet feature (no package/PSI), so
                 # the Pallet Breakdown hides the "Merged" column there.
-                vifel_is_blast_freeze=bool(self.x_studio_is_a_blast_freezer))
+                vifel_is_blast_freeze=bool(self.x_studio_is_a_blast_freezer),
+                # A non-merge client sees no merge UI at all — the header
+                # "Merge Selected" button keys on this (the column + per-row
+                # buttons key on the vifel_client_can_merge field).
+                vifel_can_merge=bool(self.partner_id.vifel_can_merge_pallets))
         return res
 
     def button_validate(self):

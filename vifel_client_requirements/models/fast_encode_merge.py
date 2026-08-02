@@ -26,6 +26,12 @@ class FastEncodeLineMerge(models.TransientModel):
 
     show_merge_button = fields.Boolean(compute='_compute_show_merge_button')
 
+    # Whether this row's client uses the merge feature at all — drives whether
+    # the Merge / Un-merge button columns show. A non-merge client sees none of
+    # the merge UI in the Magic Wizard, mirroring the Pallet Breakdown.
+    vifel_client_can_merge = fields.Boolean(
+        compute='_compute_vifel_client_can_merge')
+
     @api.depends('stock_move_line')
     def _compute_show_merge_button(self):
         MoveLine = self.env['stock.move.line']
@@ -34,6 +40,16 @@ class FastEncodeLineMerge(models.TransientModel):
                 if tline.stock_move_line else MoveLine
             tline.show_merge_button = bool(
                 ml.exists() and ml.vifel_show_merge_button)
+
+    @api.depends('transfer_id')
+    def _compute_vifel_client_can_merge(self):
+        Picking = self.env['stock.picking']
+        for tline in self:
+            picking = Picking.browse(tline.transfer_id) \
+                if tline.transfer_id else Picking
+            tline.vifel_client_can_merge = bool(
+                picking.exists()
+                and picking.partner_id.vifel_can_merge_pallets)
 
     def _real_line(self):
         self.ensure_one()
@@ -181,6 +197,9 @@ class FastEncodeLineMerge(models.TransientModel):
                     picking, 'show_client_lot_no', False),
                 'show_batch_no': getattr(
                     picking, 'show_batch_no', False),
+                # gates the header "Merge Selected" button for a non-merge client
+                'vifel_can_merge': bool(
+                    picking.partner_id.vifel_can_merge_pallets),
             },
         }
 
@@ -373,5 +392,6 @@ class StockMoveLineFastEncodeContext(models.Model):
             res['context'] = dict(
                 res['context'],
                 show_client_lot_no=bool(picking.show_client_lot_no),
-                show_batch_no=bool(picking.show_batch_no))
+                show_batch_no=bool(picking.show_batch_no),
+                vifel_can_merge=bool(picking.partner_id.vifel_can_merge_pallets))
         return res

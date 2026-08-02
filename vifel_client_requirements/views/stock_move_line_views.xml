@@ -26,7 +26,7 @@
                 <button name="action_open_pallet_merge_wizard_multi"
                         type="object" string="Merge Selected"
                         class="btn-primary" icon="fa-object-group"
-                        invisible="context.get('picking_code') != 'incoming' or context.get('state') == 'done'"/>
+                        invisible="context.get('picking_code') != 'incoming' or context.get('state') == 'done' or not context.get('vifel_can_merge')"/>
             </xpath>
 
             <!-- Hide the header "Spawn Magic Wizard" button: it is redundant
@@ -70,24 +70,32 @@
                      (two lines sharing one pallet) unchecked, which reads as a
                      bug to the floor. -->
                 <field name="is_pallet_merge" column_invisible="1"/>
+                <!-- Client merge capability: hides the whole merge UI (the
+                     "Merged" column and both buttons) for a client that does
+                     not use the feature. -->
+                <field name="vifel_client_can_merge" column_invisible="1"/>
                 <!-- User-facing "Merged" column: checked when the line is part
                      of a merged pallet either way — a +0 merge onto existing
                      stock, OR sharing a pallet with other lines of this same
-                     receipt. One physical pallet, counted once. -->
+                     receipt. One physical pallet, counted once. Hidden for
+                     outgoing, blast-freeze, and non-merge clients. -->
                 <field name="vifel_on_merged_pallet" string="Merged" optional="show"
-                       column_invisible="picking_code == 'outgoing' or context.get('vifel_is_blast_freeze')"/>
+                       column_invisible="picking_code == 'outgoing' or context.get('vifel_is_blast_freeze') or not vifel_client_can_merge"/>
                 <field name="vifel_show_merge_button" column_invisible="1"/>
                 <!-- The buttons key on the SAME "Merged" marker as the column,
                      so they always agree: every line on a merged/shared pallet
                      shows Un-merge (and can be peeled off), a plain line shows
-                     Merge Pallet. -->
+                     Merge Pallet. The whole column is dropped for a non-merge
+                     client. -->
                 <button name="action_open_pallet_merge_wizard" type="object"
                         string="Merge Pallet" class="btn-link"
                         icon="fa-object-group"
+                        column_invisible="not vifel_client_can_merge"
                         invisible="not vifel_show_merge_button or vifel_on_merged_pallet"/>
                 <button name="action_unmerge_pallet_line" type="object"
                         string="Un-merge" class="btn-link text-warning"
                         icon="fa-chain-broken"
+                        column_invisible="not vifel_client_can_merge"
                         invisible="not vifel_show_merge_button or not vifel_on_merged_pallet"/>
             </field>
 

@@ -16,6 +16,16 @@ class StockMoveLineMergeEntry(models.Model):
     vifel_show_merge_button = fields.Boolean(
         compute='_compute_vifel_show_merge_button')
 
+    # Whether this line's client uses the merge feature at all — drives whether
+    # the whole merge UI (the "Merged" column and the Merge / Un-merge buttons)
+    # is shown as a column. A non-merge client should see none of it.
+    # Resolved through move_id.picking_id, NOT the line's own picking_id: in this
+    # DB many lines carry a NULL picking_id (the picking reaches them via
+    # move_ids.move_line_ids), so the direct related is unreliable.
+    vifel_client_can_merge = fields.Boolean(
+        string='Client Can Merge',
+        related='move_id.picking_id.partner_id.vifel_can_merge_pallets')
+
     # A user-facing "is this line on a merged pallet?" marker, checked for
     # EVERY line sharing the pallet — the one that started it AND the ones that
     # joined — so the column and the Un-merge button are symmetric: any line on
