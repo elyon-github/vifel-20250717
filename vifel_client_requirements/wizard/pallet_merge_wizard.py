@@ -790,15 +790,20 @@ class PalletMergeWizard(models.TransientModel):
             'result_package_id': target.id,
             'x_studio_pallet_series_id': adopted,
             'is_pallet_merge': not first_stock,
+            # Remember what is being displaced so un-merge restores exactly this
+            # — captured for a +0 merge AND for a first-stock birth. A birth line
+            # stays UNFLAGGED (is_pallet_merge False, so it still counts +1), but
+            # the user placed it with the Merge button, so it must show "Merged"
+            # and offer Un-merge like any other merged line. Detection still
+            # needs the pallet to be SHARED, so a lone birth line (the pallet's
+            # sole owner) reads as a plain line — there is nothing to peel it
+            # off. This is what makes several lines birthing one Fixed pallet
+            # (M/RR/05300) show as merged instead of looking like plain
+            # multi-line encoding.
+            'vifel_premerge_captured': True,
+            'vifel_premerge_series': old_series or False,
+            'vifel_premerge_location_id': old_location_id or False,
         }
-        if not first_stock:
-            # remember what is being displaced so un-merge restores exactly
-            # this. A first-stock line is plain (no Un-merge), nothing to keep.
-            vals.update({
-                'vifel_premerge_captured': True,
-                'vifel_premerge_series': old_series or False,
-                'vifel_premerge_location_id': old_location_id or False,
-            })
         if target_location:
             vals['location_dest_id'] = target_location.id
         line.with_context(skip_pallet_series_sync=True,

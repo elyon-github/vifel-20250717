@@ -109,8 +109,11 @@ try:
     check('B3 the pinned pallet is reserved but NOT tied to this receipt',
           empty_pkg.x_studio_is_reserved and not rr_ref,
           (empty_pkg.x_studio_is_reserved, rr_ref))
-    check('B4 nothing captured - a plain line has no Un-merge',
-          not line.vifel_premerge_captured)
+    check('B4 a LONE first-stock birth shows no Un-merge — it is the sole '
+          'owner of the pallet, nothing to peel off (it captures its pre-merge '
+          'state so it CAN un-merge once a sibling joins, but stays plain while '
+          'alone)',
+          not line.vifel_on_merged_pallet, line.vifel_on_merged_pallet)
 
     # ---- B-flagged: merge onto a STOCKED pinned pallet, exact restore -
     env.cr.execute("""
