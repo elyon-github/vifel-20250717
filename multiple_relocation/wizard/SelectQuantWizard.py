@@ -1,3 +1,5 @@
+from markupsafe import escape
+
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 import logging
@@ -408,11 +410,19 @@ class SelectQuantWizard(models.TransientModel):
         # does not linger on the transfer. Done AFTER the recursion (so the inner
         # pass still had the move) and only on the outer frame; gated on an empty
         # selection so an ordinary partial keep never deletes anything.
-        if counter == 1 and not self.quant_ids_picked:
+        #
+        # The move MUST belong to this wizard's own transfer before we delete
+        # it: stock_move_id / transfer_id arrive as raw ids from the client, so
+        # confirming the move sits on this transfer stops a crafted wizard from
+        # unlinking an unrelated move. (Odoo's ORM still enforces the user's
+        # unlink ACL on stock.move on top of this.)
+        if counter == 1 and not self.quant_ids_picked and self.transfer_id:
             main_move = self.env['stock.move'].browse(self.stock_move_id)
-            if main_move.exists() and (
-                    not main_move.quant_ids_picked
-                    or sum(main_move.quant_ids_picked.mapped('quantity')) <= 0):
+            if (main_move.exists()
+                    and main_move.picking_id.id == self.transfer_id
+                    and (not main_move.quant_ids_picked
+                         or sum(main_move.quant_ids_picked.mapped(
+                             'quantity')) <= 0)):
                 main_move.move_line_ids.unlink()
                 main_move.unlink()
 
@@ -421,7 +431,12 @@ class SelectQuantWizard(models.TransientModel):
     # ------------------------------------------------------------------
     def _removal_table(self, quants):
         """A tidy Pallet / Series / Product / Weight table of what is removed —
-        one labelled column each, so nothing is a run-on concatenation."""
+        one labelled column each, so nothing is a run-on concatenation.
+
+        Every cell value is HTML-escaped: they are free-text / Studio fields
+        (product name, pallet name, Pallet Series) rendered into a
+        sanitize=False Html field, so an unescaped '<' or '&' would corrupt the
+        dialog (and a crafted name could inject markup)."""
         rows = ''.join(
             '<tr>'
             '<td class="fw-bold">%s</td>'
@@ -429,11 +444,11 @@ class SelectQuantWizard(models.TransientModel):
             '<td>%s</td>'
             '<td class="text-end">%s</td>'
             '</tr>' % (
-                (q.package_id.name or '') if q.package_id else '',
-                q.x_studio_pallet_series_id or '',
-                q.product_id.display_name,
-                ('%s %s' % (('%g' % q.quantity),
-                            q.product_id.uom_id.name or '')).strip())
+                escape((q.package_id.name or '') if q.package_id else ''),
+                escape(q.x_studio_pallet_series_id or ''),
+                escape(q.product_id.display_name or ''),
+                escape(('%s %s' % (('%g' % q.quantity),
+                                   q.product_id.uom_id.name or '')).strip()))
             for q in quants)
         return (
             '<table class="table table-sm table-bordered mb-0 mt-1" '
@@ -526,10 +541,12 @@ class SelectQuantWizard(models.TransientModel):
                 merge_full))
         if normal_partial:
             sections.append(self._removal_section(
-                _('Whole-pallet withdrawal'),
-                _('A normal pallet cannot be withdrawn in part, so the stock '
-                  'below is added back and the entire pallet is withdrawn '
-                  'together.'),
+                _('Are you sure? The WHOLE pallet will be withdrawn'),
+                _('This is a normal pallet, which cannot be withdrawn one item '
+                  'at a time — even though it holds more than one SKU. If you '
+                  'proceed, the item you removed below is put back and the '
+                  'ENTIRE pallet — every SKU stored on it — is withdrawn '
+                  'together, not just this one.'),
                 normal_partial))
         return ('<div class="mb-3">'
                 + '</div><div class="mb-3">'.join(sections)

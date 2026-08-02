@@ -52,6 +52,16 @@ try:
     check('AE5b a merge pallet with nothing left picked is worded as a full '
           'removal, not a partial withdrawal',
           'removed from this withdrawal' in src.lower())
+    # XSS: the message is HTML built from free-text / Studio fields (product,
+    # pallet, PSI) into a sanitize=False Html field, so cell values must be
+    # escaped.
+    check('AE5c the confirmation table HTML-escapes its cell values (no XSS / '
+          'no broken markup on a "<"/"&" in a name)',
+          'from markupsafe import escape' in src
+          and 'escape(q.product_id.display_name' in src)
+    # destructive: the empty-move delete only fires for a move on THIS transfer.
+    check('AE5d the empty-move deletion is scoped to this wizard\'s transfer',
+          'main_move.picking_id.id == self.transfer_id' in src)
 
     # ---- the SA#377 paste carries the merge guard (no chatter note) ----
     paste_path = os.path.join(
@@ -260,10 +270,12 @@ try:
               nres.get('res_model') if isinstance(nres, dict) else type(nres).__name__)
         nmsg = (env['select_quant.partial.confirm'].browse(nres['res_id']).message
                 or '') if isinstance(nres, dict) and nres.get('res_id') else ''
-        check('AE18 it is worded as a WHOLE-pallet withdrawal (added back), not '
-              'a partial withdrawal',
-              'whole-pallet withdrawal' in nmsg.lower()
-              and 'added back' in nmsg.lower(), nmsg[:90])
+        check('AE18 it warns the WHOLE pallet (every SKU) is withdrawn together '
+              'and asks "are you sure", not a partial withdrawal',
+              'whole pallet' in nmsg.lower()
+              and 'are you sure' in nmsg.lower()
+              and 'entire pallet' in nmsg.lower()
+              and 'partial withdrawal' not in nmsg.lower(), nmsg[:120])
         check('AE19 the move is untouched until the user proceeds',
               set(env['stock.move'].browse(nmv.id).quant_ids_picked.ids) == set(nq.ids))
 
