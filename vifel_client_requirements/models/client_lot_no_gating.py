@@ -52,9 +52,11 @@ class StockPickingClientLotNo(models.Model):
                 # Blast freezer has no Merge Pallet feature (no package/PSI), so
                 # the Pallet Breakdown hides the "Merged" column there.
                 vifel_is_blast_freeze=bool(self.x_studio_is_a_blast_freezer),
-                # A non-merge client sees no merge UI at all — the header
-                # "Merge Selected" button keys on this (the column + per-row
-                # buttons key on the vifel_client_can_merge field).
+                # A non-merge client sees no merge UI at all: the "Merged"
+                # column, the Merge / Un-merge buttons AND the "Merge Selected"
+                # header all key on this flag. It MUST be a context key, not a
+                # field — column_invisible is evaluated without a record in
+                # scope, so a field reference there crashes the list.
                 vifel_can_merge=bool(self.partner_id.vifel_can_merge_pallets))
         return res
 

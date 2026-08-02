@@ -74,38 +74,49 @@ try:
               '(no ineligible candidate in the first page)')
 
     # ---- the whole merge UI is hidden for a NON-merge client ----------
+    # column_invisible is evaluated WITHOUT a record in scope, so the hide MUST
+    # key on the vifel_can_merge CONTEXT flag, never a per-record field (a field
+    # reference raises "Name ... is not defined" in the web client).
     from odoo.modules.module import get_module_path
     vdir = get_module_path('vifel_client_requirements')
     pb = open(os.path.join(vdir, 'views', 'stock_move_line_views.xml'),
               encoding='utf-8').read()
     mw = open(os.path.join(vdir, 'views', 'fast_encode_views.xml'),
               encoding='utf-8').read()
-    check('C6 Pallet Breakdown "Merged" column hides for a non-merge client',
-          'not vifel_client_can_merge' in pb
-          and 'vifel_on_merged_pallet' in pb)
-    check('C7 Pallet Breakdown Merge/Un-merge buttons drop for a non-merge '
-          'client (column_invisible on the buttons)',
-          pb.count('column_invisible="not vifel_client_can_merge"') >= 2)
-    check('C8 Pallet Breakdown "Merge Selected" header hides for a non-merge '
-          'client',
+    check('C6 no column_invisible references a per-record FIELD for the merge '
+          'gate (that crashes the list) — the field vifel_client_can_merge is '
+          'gone from both views',
+          'vifel_client_can_merge' not in pb
+          and 'vifel_client_can_merge' not in mw)
+    check('C7 Pallet Breakdown "Merged" column + both buttons hide via the '
+          'context flag',
+          "not context.get('vifel_can_merge')" in pb
+          and pb.count("column_invisible=\"not context.get('vifel_can_merge')\"") >= 2)
+    check('C8 Pallet Breakdown "Merge Selected" header hides via the context flag',
           "not context.get('vifel_can_merge')" in pb)
-    check('C9 Magic Wizard Merge/Un-merge + "Merge Selected" hide for a '
-          'non-merge client',
-          'not vifel_client_can_merge' in mw
-          and "not context.get('vifel_can_merge')" in mw)
+    check('C9 Magic Wizard Merge/Un-merge + "Merge Selected" hide via the '
+          'context flag',
+          "not context.get('vifel_can_merge')" in mw)
 
-    # functional: the flag itself resolves per client (via move_id.picking_id,
-    # robust to the many lines whose own picking_id is NULL in this DB)
-    check('C10 vifel_client_can_merge is TRUE for a merge client line',
-          bool(line) and line.vifel_client_can_merge is True,
-          line.vifel_client_can_merge if line else None)
-    non = env['stock.move.line'].search([
-        ('move_id.picking_id.partner_id', '!=', False),
-        ('move_id.picking_id.partner_id.vifel_can_merge_pallets', '=', False),
-        ('product_id', '!=', False)], limit=1)
-    check('C11 vifel_client_can_merge is FALSE for a non-merge client line',
-          bool(non) and non.vifel_client_can_merge is False,
-          non.vifel_client_can_merge if non else '(none found)')
+    # functional: action_detailed_operations injects the flag per client
+    def dop_flag(partner_can_merge):
+        pk = env['stock.picking'].search([
+            ('picking_type_id.code', '=', 'incoming'),
+            ('partner_id', '!=', False),
+            ('partner_id.vifel_can_merge_pallets', '=', partner_can_merge)],
+            limit=1)
+        if not pk:
+            return None, None
+        res = pk.action_detailed_operations()
+        ctx = res.get('context', {}) if isinstance(res, dict) else {}
+        return pk, ctx.get('vifel_can_merge')
+
+    pk_m, flag_m = dop_flag(True)
+    check('C10 action_detailed_operations sets vifel_can_merge=True for a merge '
+          'client', flag_m is True, flag_m)
+    pk_n, flag_n = dop_flag(False)
+    check('C11 action_detailed_operations sets vifel_can_merge=False for a '
+          'non-merge client', flag_n is False if pk_n else True, flag_n)
 
 except Exception:
     print('UNEXPECTED ERROR:')
