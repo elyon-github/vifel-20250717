@@ -571,6 +571,30 @@ class ReturnPackageWizard(models.TransientModel):
             # Create new return with selected packages
             return self._create_new_return_with_packages(selected_packages)
 
+    def _return_source_location_id(self):
+        """Source location for a return RR.
+
+        The return picking is built with picking_id.copy(), so without this it
+        silently inherits the WR's SOURCE location — an internal bin/building
+        (e.g. "M") — and the RR then looks like stock arriving from inside the
+        warehouse instead of from the client. Goods coming back belong to the
+        supplier/vendor side, exactly like a normal receipt.
+
+        Mirrors stock.picking._onchange_picking_type: picking-type default,
+        else the partner's supplier location, else the standard Vendors
+        location. (RECEIVING types here have no default_location_src_id, which
+        is why normal RRs land on Partners/Vendors via the partner fallback.)
+        """
+        self.ensure_one()
+        if self.picking_type_id.default_location_src_id:
+            return self.picking_type_id.default_location_src_id.id
+        partner = self.picking_id.partner_id
+        if partner and partner.property_stock_supplier:
+            return partner.property_stock_supplier.id
+        supplier_loc = self.env.ref('stock.stock_location_suppliers',
+                                    raise_if_not_found=False)
+        return supplier_loc.id if supplier_loc else False
+
     def _create_blank_return(self):
         """Create a blank return picking without any move lines"""
         # Always force the incoming picking type — never trust pre-set values
@@ -586,7 +610,9 @@ class ReturnPackageWizard(models.TransientModel):
         new_picking = self.picking_id.copy(default={
             'picking_type_id': self.picking_type_id.id,
             'location_dest_id': self.location_id.id,
-            'location_id': 4,
+            # was hardcoded id 4 (Partners/Vendors) - derived now so it stays
+            # correct across databases and for BF picking types
+            'location_id': self._return_source_location_id(),
             'return_id': self.picking_id.id,
             'return_reason': self.return_reason,
             'x_studio_for_revision': True if self.return_reason == 'Wrong Details Encoded' else False,
@@ -845,6 +871,10 @@ class ReturnPackageWizard(models.TransientModel):
         new_picking = self.picking_id.copy(default={
             'picking_type_id': self.picking_type_id.id,
             'location_dest_id': self.location_id.id,
+            # WITHOUT THIS the copy() inherits the WR's internal source ("M")
+            # and the return RR looks like stock arriving from inside the
+            # warehouse. Returned goods come from the client side.
+            'location_id': self._return_source_location_id(),
             'return_id': self.picking_id.id,
             'return_reason': self.return_reason,
             'x_studio_for_revision': True if self.return_reason == 'Wrong Details Encoded' else False,

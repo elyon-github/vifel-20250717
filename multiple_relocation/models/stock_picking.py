@@ -1513,6 +1513,17 @@ class transfer_locations(models.Model):
             'is_void_wr': False,
             'void_source_picking_id': False,
             'return_reason': False,
+            # operation-chain pointer stamped at creation
+            # (_create_void_wr_from_rr sets it to the parent's id). Left set, the
+            # neutralized child still points at the unvoided parent, AND the
+            # parent keeps showing "Next Operation Source Document" — that field
+            # is a NON-STORED reverse compute searching for a picking whose
+            # x_studio_last_operation_source_document = the parent's id, so it
+            # empties by itself once this is cleared. Only cleared HERE, where the
+            # child is deliberately reduced to a plain draft: the field is also
+            # the legitimate chain on real RR->WR operations (e.g. the done
+            # M/BF/WR/* documents), which must keep it.
+            'x_studio_last_operation_source_document': False,
             # descriptive leftovers copied from the voided parent — a plain
             # draft leftover must not carry them (union of both directions:
             # RR children have Source, WR children have Destination)
@@ -1740,8 +1751,61 @@ class transfer_locations(models.Model):
                 raise UserError(
                     _("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
+    def _vifel_pending_multitruck_siblings(self):
+        """For a Partial-Withdraw return, the pending outgoing withdrawals that
+        still reserve stock on the SAME pallet this return re-adds to — i.e. the
+        multi-truck siblings that must empty the pallet BEFORE the return puts
+        stock back. Scoped by (package, owner, PSI) so a shared physical pallet
+        holding other owners'/series' stock never cross-blocks.
+
+        Returns the blocking outgoing pickings (recordset)."""
+        self.ensure_one()
+        MoveLine = self.env['stock.move.line']
+        blockers = self.env['stock.picking']
+        for line in self.move_line_ids:
+            pkg = line.result_package_id
+            if not pkg:
+                continue
+            siblings = MoveLine.search([
+                ('package_id', '=', pkg.id),
+                ('owner_id', '=', line.owner_id.id),
+                ('x_studio_pallet_series_id', '=',
+                 line.x_studio_pallet_series_id or False),
+                ('picking_id.picking_type_id.code', '=', 'outgoing'),
+                ('picking_id.state', 'not in', ('done', 'cancel')),
+                ('picking_id', '!=', self.id),
+            ])
+            blockers |= siblings.mapped('picking_id')
+        return blockers
+
     def button_validate(self):
         """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
+        # SEQUENCE PARTIAL-WITHDRAW RETURNS BEHIND THEIR MULTI-TRUCK SIBLINGS.
+        # In a multi-truck withdrawal, one truck's partial-withdraw return must
+        # NOT be validated until the partner truck(s) have emptied the pallet —
+        # otherwise the return re-adds stock before the partner validates, so
+        # the partner reads reserved_quantity_on_validation > 0 and fails to
+        # count the pallet (it should), and the return mints an unreconciled +1
+        # received pallet (a phantom). Blocking here forces the correct order;
+        # the existing resv-based count then produces the right numbers with no
+        # counting-logic change. Void / Wrong-Details / Others returns and
+        # normal single-truck partials are unaffected (no pending sibling).
+        if not self.env.context.get('skip_partial_return_sequence_guard'):
+            for record in self:
+                if (record.return_id
+                        and record.return_reason == 'Partial Withdraw'):
+                    blockers = record._vifel_pending_multitruck_siblings()
+                    if blockers:
+                        raise UserError(_(
+                            "This Partial-Withdraw return cannot be validated "
+                            "yet.\n\nThe pallet(s) it returns stock to are still "
+                            "being withdrawn by: %(wrs)s.\n\nValidate that/those "
+                            "Withdrawal Report(s) FIRST so the pallet is emptied "
+                            "and counted, then validate this return. Validating "
+                            "now would re-add stock before the pallet is emptied "
+                            "and mis-count the withdrawal.") % {
+                                'wrs': ', '.join(blockers.mapped('name'))})
+
         result = super(transfer_locations, self).button_validate()
 
         # After validation, check if any of these pickings are void WRs or void returns
@@ -2208,29 +2272,38 @@ class transfer_locations(models.Model):
         for line_idx in range(start_idx, min(end_idx, len(processed_lines))):
             line_data = processed_lines[line_idx]
             line = line_data['original_line']
-            same_quant_stocks_picked = self.env['stock.move.line'].search([
-                ('lot_id', '=', line.lot_id.id),
-                ('state', '!=', 'done'),
-                ('picking_id.id', '!=', line.picking_id.id),
-                ('picking_id.picking_type_code', '=', 'outgoing')
-            ])
- 
+
             # Same counting rule as the summary report
             # (preprocess_stock_move_data): a pallet counts as withdrawn
             # only when it really left FULLY (0 KG remaining at validation)
             # AND no other pending outgoing picking still holds the lot.
+            # That rule is withdrawal-only: an incoming receipt counts every
+            # pallet received, whatever withdrawals are pending on its lots.
+            counts_as_pallet = True
+            if line.picking_id.picking_type_id.code == 'outgoing':
+                # WR withdrawn-pallet count = PHYSICAL emptying only, matching
+                # the PKR ledger and the on-screen Transacted Pallet Count. A
+                # validated WR's pallet count is fixed at validation, so it
+                # gates on the FROZEN reserved_quantity_on_validation snapshot
+                # alone. The former `and not same_quant_stocks_picked` gate was
+                # a LIVE query for pending outgoing pickings on the same lot,
+                # which made an already-validated WR's printout DRIFT — e.g. a
+                # returned pallet re-reserved on a fresh WR would retroactively
+                # drop it from this WR's count. Incoming receipts are untouched.
+                counts_as_pallet = (
+                    line.reserved_quantity_on_validation == 0)
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = self._pdf_pallet_count_key('package', line.package_id.id, line)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if counts_as_pallet else 0
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = self._pdf_pallet_count_key('result_package', line.result_package_id.id, line)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if counts_as_pallet else 0
             elif line.bf_pallet_char and line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = ('bf_pallet', line.bf_pallet_char)
                 if first_occurrence.get(pallet_id) == line_idx:
-                    page_pallet_count += 1 if line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                    page_pallet_count += 1 if counts_as_pallet else 0
  
         return page_pallet_count
  
@@ -2367,12 +2440,19 @@ class transfer_locations(models.Model):
                 grouped_moves[key]['packaging_qty'] += pack_qty
                 grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if move_line.x_studio_total_units else move_line.x_studio_withdraw_units
 
-                same_quant_stocks_picked = self.env['stock.move.line'].search([
-                    ('lot_id', '=', move_line.lot_id.id),
-                    ('state', '!=', 'done'),
-                    ('picking_id.id', '!=', move_line.picking_id.id),
-                    ('picking_id.picking_type_code', '=', 'outgoing')
-                ])
+                # WR withdrawn-pallet count = PHYSICAL emptying only, matching
+                # the PKR ledger and the on-screen Transacted Pallet Count. A
+                # validated WR's count is fixed at validation, so it gates on the
+                # FROZEN reserved_quantity_on_validation snapshot alone (the
+                # former live `not same_quant_stocks_picked` gate made the
+                # printout drift when a returned pallet was re-reserved on a
+                # pending WR). Incoming receipts are untouched — every pallet
+                # received still counts.
+                counts_as_pallet = True
+                if move_line.picking_id.picking_type_id.code == 'outgoing':
+                    counts_as_pallet = (
+                        move_line.reserved_quantity_on_validation == 0)
+
                 # Track unique pallets for the count. The dedupe key is
                 # (pallet, PSI), not the bare pallet: opening-balance
                 # imports parked several PSIs on one physical pallet #,
@@ -2385,7 +2465,7 @@ class transfer_locations(models.Model):
                         'package', move_line.package_id.id, move_line)
                     if count_key not in package_ids:
                         package_ids.add(count_key)
-                        grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                        grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
                 elif move_line.bf_pallet_char and move_line.picking_id.x_studio_is_a_blast_freezer:
 
@@ -2393,7 +2473,7 @@ class transfer_locations(models.Model):
                         move_line.bf_pallet_char)
                     if move_line.bf_pallet_char not in package_ids:
                         package_ids.add(move_line.bf_pallet_char)
-                        grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                        grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
                 elif move_line.result_package_id:
                     grouped_moves[key]['package_ids'].add(
@@ -2402,7 +2482,7 @@ class transfer_locations(models.Model):
                         'result_package', move_line.result_package_id.id, move_line)
                     if count_key not in package_ids:
                         package_ids.add(count_key)
-                        grouped_moves[key]['pallet_count'] += 1 if move_line.reserved_quantity_on_validation == 0 and not same_quant_stocks_picked else 0
+                        grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
         # Convert to list and calculate final pallet counts
         processed_moves = []
@@ -2765,6 +2845,58 @@ class transfer_locations(models.Model):
         # Fallback (if nothing was processed)
         return {'type': 'ir.actions.client', 'tag': 'reload'}
 
+    def _vifel_reset_psi_after_client_change(self, series_old_owner):
+        """After the Client changed on an editable RR, return each drawn Pallet
+        Series to its OLD owner's pool and blank it off the lines, so the new
+        owner never keeps the old client's series (mismatch + pool leak). The
+        user re-runs Assign Pallet Series to draw fresh series under the new
+        client. Pallet/location reservations are RR-scoped, so they are left
+        intact — only the series is reset.
+
+        A series that still identifies stocked stock is left alone (the same
+        stocked-pallet guard the Clean Picking reset uses): recycling a live
+        series would let it be re-issued while a pallet still carries it.
+        """
+        self.ensure_one()
+        Quant = self.env['stock.quant']
+        recycled = set()
+        first_owner = False
+        for psi, old_owner in series_old_owner.items():
+            if not old_owner or not psi or '-' not in psi:
+                continue
+            num_txt = psi.split('-')[-1]
+            if not num_txt.isdigit():
+                continue
+            if Quant.search_count([
+                    ('x_studio_pallet_series_id', '=', psi),
+                    ('quantity', '>', 0),
+                    ('location_id.usage', '=', 'internal')]):
+                continue  # series identifies live stock — never recycle
+            old_owner.with_context(
+                audit_picking_id=self.id,
+                audit_source='pool_operation',
+            ).push_unused_pallet(psi)
+            recycled.add(psi)
+            first_owner = first_owner or old_owner
+
+        # blank the series + the stale stored display on the lines we recycled
+        lines = self.move_line_ids.filtered(
+            lambda l: l.x_studio_pallet_series_id in recycled)
+        if lines:
+            blank = {'x_studio_pallet_series_id': False}
+            if 'x_studio_pallet_series_display' in \
+                    self.env['stock.move.line']._fields:
+                blank['x_studio_pallet_series_display'] = False
+            lines.with_context(skip_pallet_series_sync=True).write(blank)
+
+        if recycled:
+            self.message_post(body=_(
+                "Client changed — %(n)d Pallet Series returned to "
+                "%(owner)s's pool and cleared from the lines. Re-assign Pallet "
+                "Series under the new client.") % {
+                    'n': len(recycled),
+                    'owner': first_owner.name if first_owner else _('the previous client')})
+
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
         # OWNER-CHANGE GUARD ON LINKED RETURNS: a return RR that changes its
@@ -2820,7 +2952,36 @@ class transfer_locations(models.Model):
                 line.id: line.location_dest_id for line in record.move_line_ids
             }
 
+            # CLIENT-CHANGE PSI RESET (snapshot BEFORE super().write, which lets
+            # AR#1 re-own the lines to the new client). Changing the Client on a
+            # normal editable RR that already has drawn Pallet Series would leave
+            # the OLD client's series on lines now owned by the NEW client —
+            # an owner/PSI mismatch AND a series-pool leak (the old client's
+            # numbers stay "used" but vanish from its documents). Snapshot each
+            # drawn series -> its current (old) owner now; recycle + blank after.
+            client_change_psi = None
+            new_owner_id = vals.get('partner_id') or vals.get('owner_id')
+            if (new_owner_id and new_owner_id != record.partner_id.id
+                    and not self.env.context.get('skip_client_change_psi_reset')
+                    and not self.env.context.get('skip_pallet_series_sync')
+                    and record.picking_type_id.code == 'incoming'
+                    and record.state in ('draft', 'assigned')
+                    and not record.return_id
+                    and not getattr(record, 'is_void_wr', False)
+                    and not record.x_studio_is_a_blast_freezer):
+                snap = {}
+                for line in record.move_line_ids:
+                    psi = line.x_studio_pallet_series_id
+                    if psi and psi not in snap:
+                        snap[psi] = (line.owner_id or record.owner_id
+                                     or record.partner_id)
+                if snap:
+                    client_change_psi = snap
+
             res = super(transfer_locations, record).write(vals)
+
+            if client_change_psi:
+                record._vifel_reset_psi_after_client_change(client_change_psi)
 
             if 'location_dest_id' in vals:
                 if record.picking_type_id.code == 'incoming':

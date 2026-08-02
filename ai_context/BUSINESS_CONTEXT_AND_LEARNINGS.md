@@ -3,8 +3,9 @@
 > _Created 2026-07-17. This captures the BUSINESS knowledge behind the code — the process
 > on the warehouse floor, the identity/counting doctrine, per-client special cases, and
 > operational lessons that cost real debugging time. Read together with `handoff.md`
-> (current state) and `SYSTEM_OVERVIEW.md` (architecture). Update when the business rules
-> themselves change, not on every code commit._
+> (current state), `SYSTEM_OVERVIEW.md` (architecture), and `EDGE_CASE_THINKING.md` (the
+> **how-to-reason** playbook — 7 lenses for counting/ownership bugs, with worked case
+> studies). Update when the business rules themselves change, not on every code commit._
 
 ## 1. The business in one page
 

@@ -1,6 +1,6 @@
 # VIFEL Session Handoff
 
-_Last updated: 2026-07-17. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_12_2026`
+_Last updated: 2026-07-28. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
 (Postgres localhost:5432, openpg/openpgpwd). Odoo 17 Enterprise, runs via nodemon
 (`python odoo-bin -c odoo.conf`), NOT the Windows service.
 **Business rules, per-client special cases, and hard-won learnings live in
@@ -22,10 +22,11 @@ rule that **MAIN is never written by the assistant — reads only**.
 **Git (remote):**
 | Branch | Tip | State |
 |---|---|---|
-| `MAIN` | `d8762a3` | Production (user pushed it themselves). UNTOUCHED by assistant, always. |
-| `client-trial` | (tip = this commit; run `git log --oneline -1`) | All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: **WR/RR PDF pallet count AND the PKR withdrawn count now dedupe by (pallet #, PSI)** — opening-balance pallets accidentally carrying several PSIs count once per PSI (each PSI is a real pallet; the shared pallet # is the import accident). Ledger change is the LIVE loop only — Re-sync's counted_out/wc_n stay per-package on purpose (per-PSI there would flag spurious split culprits; the wipe-and-rebuild residual absorbs the interim gap and zeroes once the pallet clears). Affected on next recompute/Re-sync: 6 WRs of CHEF BUDDY/FOSTER FOODS/MEATS SUPREME/TWINFISH (+1..+2 each). Transacted Pallet Count on the picking still physical. evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md. NOTE: branch `CR2-test` (from `be0c9a9`) carries the built Client-Specific Requirement Enhancement, pushed `25a29a0`. |
-| `consultant-test` (lowercase) | `15465c4` | Rehearsal merge of the PRE-pin client-trial — STALE, needs re-merge |
-| `Consultant-test` (capital) | `ac374a4` | User's own rehearsal merge (17:42 Jul 14) |
+| `MAIN` | `017ba7e` | Production (user pushed it themselves). UNTOUCHED by assistant, always. Has moved several times since 2026-07-17 (`d8762a3` → `d6753c2` "Merge consultant-test into MAIN" → `017ba7e`) — re-verify with `git ls-remote` rather than trusting this row. |
+| `client-trial` | `1b7f951` | **Update 2026-07-28 — two commits since `91e1c18`:** `e048502` (unvoid clears the void child's source-document pointer) and `1b7f951` by Ronafe Bula (**RR/WR PDF pallet count: the withdrawal gate now applies only to outgoing pickings** — both report counters gated every picking type on `reserved_quantity_on_validation == 0 and not same_quant_stocks_picked`, so a received pallet vanished from its RR as soon as any withdrawal was booked against its lot; M/RR/05006 printed 27 of 41. Receipts now count every distinct pallet; the (pallet, PSI) dedupe key is untouched; withdrawals unchanged. Matches `_compute_transacted_pallet_count`, which already branched on direction). Also note: branch `CR-test` carries the Clients-kanban work (`e97bd55`). Earlier state follows: **Update 2026-07-23 — two new commits:** `10f37e0` (inventory-apply perf root cause + `vifel_utility_tools` module + SA paste files) and `91e1c18` (three module fixes: return-RR source location, Pallet Breakdown grouping, FastEncodeRR PSI flicker). See §8 below. Manifest versions still PINNED. Earlier state follows: All session work + ALL FOUR manifest versions PINNED to MAIN's (see §4/§5). Latest adds: **WR/RR PDF pallet count AND the PKR withdrawn count now dedupe by (pallet #, PSI)** — opening-balance pallets accidentally carrying several PSIs count once per PSI (each PSI is a real pallet; the shared pallet # is the import accident). Ledger change is the LIVE loop only — Re-sync's counted_out/wc_n stay per-package on purpose (per-PSI there would flag spurious split culprits; the wipe-and-rebuild residual absorbs the interim gap and zeroes once the pallet clears). Affected on next recompute/Re-sync: 6 WRs of CHEF BUDDY/FOSTER FOODS/MEATS SUPREME/TWINFISH (+1..+2 each). Transacted Pallet Count on the picking still physical. evidence-policy Re-sync (unbacked residuals stay UNRESOLVED — truth retention), M/WR/06825 void-of-return fix (exemption on BOTH self and record), void-mirror guards re-enabled, WR per-pallet report aligned with picklist order (`9ac8f7e`), **RR per-pallet report now uses the same PSI-anchored sort** (all operation types share `get_picklist_sorted_move_line_ids`; prev-row description grouping unified; BF unaffected — no PSI → plain base order), full ai_context audit + BUSINESS_CONTEXT_AND_LEARNINGS.md. NOTE: branch `CR2-test` (from `be0c9a9`) carries the built Client-Specific Requirement Enhancement, pushed `25a29a0`. |
+| `CR2-test` | `ac053e7` | Client-Specific Requirement Enhancement. Local branch holds the **v2 rebuild** as a standalone module and is DIVERGED from this remote tip — the two are different lines of work, so check `git rev-list --left-right --count` before any push here. Never force-push without deciding deliberately. |
+| `consultant-test` (lowercase) | `691b6a7` | Moved since 2026-07-17 (`15465c4`) — user's own work. |
+| `Consultant-test` (capital) | `4a21391` | Moved since 2026-07-17 (`ac374a4`) — user's own work. |
 | `main` (lowercase) | `d2136dc` | Untouched, never analyzed |
 | tag `backup/consultant-test-2026-07-14` | `7c99e3f` | Preserves consultant's 18 commits incl. UNREVIEWED "Added new Client Requirements" (`b575766`) |
 
@@ -70,6 +71,47 @@ stays untracked). Latest additions beyond the earlier list:
 (session temp dir — recreate from git history of this handoff if lost).
 
 ## 4. Changes Made
+
+**Partial-Withdraw return sequencing guard (2026-07-29, `stock_picking.py::button_validate`):**
+a multi-truck withdrawal's Partial-Withdraw return, if validated BEFORE the partner WR empties
+the shared pallet, re-inflates the pallet so the partner reads `reserved_quantity_on_validation
+> 0` and fails to count it (undercount), and the return mints an unreconciled +1 received =
+a **phantom pallet** (proven on FO-021134/NB 2317 in `vifel_07_29_2026`: WR/07885 counted 5,
+should be 6; NB 2317 net +1 while physically empty). Fix: `button_validate` blocks a
+`return_reason == 'Partial Withdraw'` return while any pending (not done/cancel) OUTGOING WR
+still reserves the same (package, owner, PSI) — the multi-truck sibling that must empty +
+count the pallet first. New `_vifel_pending_multitruck_siblings()` helper;
+`skip_partial_return_sequence_guard` override. NO counting-logic change — the existing resv
+rule produces the right numbers once the order is right. Normal single-truck partials and
+void/wrong-details returns are unaffected. Verified `partial_return_sequence_guard_test.py`
+(11/11). `EDGE_CASE_THINKING.md` gained lens #8 (event-order), Case study 3, and a "How these
+were actually found" method section.
+
+**Client-change PSI reset (2026-07-28, `stock_picking.py::write`):** changing the Client on an
+EDITABLE (draft/assigned) normal RR that already had drawn Pallet Series left every line owned
+by the new client (AR#1 partner→owner) but still stamped with the OLD client's series — an
+owner/PSI mismatch AND a series-pool leak (proven on M/RR/00352, BGZ→168). Now the write()
+override snapshots each series→old-owner before super().write, then recycles each series back
+to the OLD client's pool (stocked-pallet guard, audit context) and blanks the series + stale
+display; a chatter note tells the user to re-assign under the new client. Reservations are
+RR-scoped so pallets/locations are kept. Returns/void still BLOCK (existing guard); done RRs
+untouched; BF exempt; `skip_client_change_psi_reset` opts programmatic writes out. Verified by
+`ai_context/wr_psi_client_change_test.py` (10/10). New `ai_context/EDGE_CASE_THINKING.md`
+captures the reusable lenses behind this and the WR-drift fix.
+
+**WR print pallet count = PKR (2026-07-28, `stock_picking.py`):** the WR/RR PDF
+withdrawn-pallet counters (`get_pallet_count_for_page` + `preprocess_stock_move_data`)
+gated outgoing lines on `reserved_quantity_on_validation == 0 AND not
+same_quant_stocks_picked`. That second gate was a LIVE query for pending outgoing
+pickings on the same lot, so an already-validated WR's printed count DRIFTED — e.g. a
+returned pallet re-reserved on a fresh WR would retroactively drop it from the count
+(reproduced on M/WR/07887: printed 2, dropped to 1 while a pending outgoing held the lot).
+Dropped the live gate; the WR print now counts on the FROZEN emptying snapshot alone,
+matching the PKR ledger and the on-screen Transacted Pallet Count. Verified: 4 previously-
+mismatched WRs now equal PKR (07887=2, 08028=7, 08025=1, 07995=14) and 07887 is stable
+under a simulated pending outgoing. Incoming (RR) counting is untouched — every pallet
+received still counts. Also removed the now-dead per-line `same_quant_stocks_picked`
+searches (perf).
 
 **Ledger accuracy (pallet_kilos_record_model):**
 - Re-sync Pallet Counts button: rebuilds received/withdrawn/adjustments per owner,
@@ -416,3 +458,103 @@ A round of fixes from clicking the feature on `vifel_07_28_2026_2`. All in
    has a value, so clearing a PSI anywhere leaves a stale one displayed (not merge-specific).
 8. No new SA/AR beyond the two pastes above — PSI→quant stamping remains a DB automation
    and flows automatically.
+
+<!-- MERGED FROM client-trial (base-module counting/ownership fixes brought into CR2-test) -->
+
+### 7.4 Deploy additions (on top of §6.4 checklist)
+- Upgrade multiple_relocation + pallet_kilos_record_model.
+- Prod profiles: Wonder Meats = Can Merge ON / Multiple OFF / pin R 5666 + WMF-00230;
+  Consistent = Can Merge ON / Multiple ON (types auto-seed); Show Lot No. per client.
+- Optional: add Lot No. column to the Studio "Inventory Overview" action DB-side.
+
+---
+
+## 8. Update 2026-07-23 — inventory-apply performance, new module, three UI/data fixes
+
+_Debug DB for this work: `vifel_07_21_2026`. Commits `10f37e0` and `91e1c18` on
+client-trial. Every measurement below was taken in odoo-shell inside rolled-back
+transactions unless stated otherwise._
+
+### 8.1 Inventory Adjustment "Apply" was unusable past ~800 quants (root cause + fix)
+~15 **stored** `x_studio_` computes on `stock.move.line` run
+`for quants in location.quant_ids:` for lines with **no picking**. A POSITIVE inventory
+adjustment sources from the virtual "Inventory adjustment" location (`loc#14`, 23k+ quants
+and growing), so every created line scanned all of them, ~15 times over.
+**Measured 1226 → 109 ms/line = 11.3x** (~16.4 min → ~1.5 min for 800 quants),
+correctness 30/30. Profiler: ~60 s of an 84 s apply in `flush_all → _recompute_all`,
+~70 s cumulative in `safe_eval`, **only ~1.8 s in SQL** — a CPU/ORM problem, not a query one.
+Controlled proof: positive adj (source loc#14) 1330 ms/line vs negative adj (source = a
+normal storage location) 149 ms/line.
+
+- Fix + per-field paste code: `studio_computes_inventory_apply_perf_FIX.md`,
+  `studio_move_line_computes_{BACKUP,REVISED}.txt`,
+  `sa_apply_move_line_picking_guard.py` (server action, idempotent, self-backing-up).
+- **CORRECTION to the first diagnosis:** BA#42/SA#432 was blamed initially; measured in
+  isolation it is only **~6% (1.1x)**. Worth applying (`sa432_line_id_picking_scoped.py`)
+  but it is NOT the cure.
+- **STILL NOT FIXED:** the same flaw in two Python computes,
+  `multiple_relocation/models/stock_move.py` `_compute_container_number` (~447) and
+  `_compute_x_studio_building_dropped` (~461).
+
+### 8.2 New module `vifel_utility_tools`
+Auto-creates products from the `NAME (BRAND)` convention during `stock.quant` import,
+gated on the `import_file` context (inert everywhere else). **Never modifies an existing
+template** — every unmatched name gets a new one, so an unbranded product can never be
+renamed into a branded one (Odoo reuses the single variant when an attribute line has one
+value; writing two values at once ARCHIVES the original — both measured). New templates
+inherit catalogue defaults incl. `tracking='lot'`. 19/19 shell tests.
+Spec: `vifel_utility_tools_PLAN.md`; suite: `utility_tools_tests/`.
+NOTE: standard `name_create` is already broken on this DB (computed `name` →
+`NotNullViolation`), which is why the import's "Create new values" option never worked.
+
+### 8.3 Three module fixes (`91e1c18`)
+- **Return RR source location** — `_create_new_return_with_packages` builds the RR with
+  `picking_id.copy()` and never overrode `location_id`, so void-created returns inherited
+  the WR's INTERNAL source ("M"). New `_return_source_location_id()` used by both creation
+  paths (also replaces a hardcoded id `4`). Verified Partners/Vendors, 4/4.
+- **Pallet Breakdown grouping crashed** — the Detailed Operations trees set
+  `default_order="x_studio_, ..."`; Odoo 17 `read_group` rejects order terms that are not a
+  groupby field or aggregate. `read_group` override on `stock.move.line` drops invalid
+  terms; ungrouped ordering untouched. 12/12.
+- **FastEncodeRR PSI flicker** — `_resolve_series_for_unique_line` excluded the line by
+  `{self.id}`, but in an onchange `self.id` is a `NewId`, so the line never excluded itself,
+  judged its own original series "claimed", and previewed a fresh counter number
+  (7S-000049) that snapped back to 7S-000044 on save. Now also matches the `_origin` id.
+  Display-only — no pool number was ever consumed.
+
+### 8.4 Health-monitor findings investigated (NOT yet fixed)
+- **HEXAGON KG −125 — CLOSED.** `M/WR/06655` recorded 500 kg but removed 375; a correct
+  325→200 correction was applied against a snapshot its own conflict check had flagged
+  `deleted`; `M/WR/06727` then took the full 200 → quant went to −125. The ledger was
+  right all along; the check's `quantity > 0` filter hid the negative and made it look like
+  ledger drift.
+- **Pallet drift** — the ledger credits receipts per **pallet #** (`models.py:227`) but
+  debits withdrawals per **(pallet #, PSI)** (`models.py:191`). Any pallet # carrying 2 PSIs
+  (the OB import accident) is credited once and debited twice → permanent −1.
+  MEATS SUPREME is exactly this. HEXAGON's −2 is different and REAL: two phantom pallets
+  (`NP 1324`, `NP 1209`) that got stock back via a direct `package_id` write with no move
+  line. APENA is partly each and still not fully explained.
+- **Health checks measure differently from the ledger** — `_check_pallet_drift` counts
+  `DISTINCT package_id` (should be `(package_id, PSI)`), and both drift checks filter
+  `quantity > 0` so negative quants are invisible. A dry-run showed naively switching the
+  unit alone makes things WORSE (2 new findings, 0 resolved) — fix the received side first.
+- **The underlying leak:** quantity edits on **done** documents re-apply stock with no
+  unlock flag required (`x_studio_edit_record` was False on the G 602 edit).
+
+### 8.5 Open / next
+1. Two Python computes in §8.1 still unguarded (perf fix ~90% applied).
+2. `_neutralize_void_child` does not clear `x_studio_last_operation_source_document`, so an
+   unvoided parent leaves the child still pointing at it (SA#483 DOES clear it — the two
+   cleanup paths disagree). One line in `unbind_vals`; NOT applied.
+3. Stale drafts `M/RR/04839`–`04842` still carry `src=M` (created before the fix).
+4. PSI `25820` sits in 168 ENTERPRISES' pool from an SA#483 run made before the
+   return-guard ordering was fixed.
+5. Sweep `quantity` vs `reserved_quantity_on_validation` across all WRs to size whether
+   the post-validation edit problem is systemic or a one-off.
+
+### 8.6 Environment
+`openpyxl==3.1.2` installed into BOTH Odoo 17 interpreters
+(`C:\Odoo17E\server\.venv` and `C:\Odoo17E\python`) — fixes the xlsx import error.
+Caution: `nodemon.json` launches bare `python`, which on PATH resolves to
+**`C:\Odoo18\python\python.exe`**; VS Code's terminal activates the `.venv` instead.
+Its `-u pallet_kilos_record_log` looks like a typo for `pallet_kilos_record_model`.
