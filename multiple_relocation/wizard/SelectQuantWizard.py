@@ -169,6 +169,14 @@ class SelectQuantWizard(models.TransientModel):
             if len(pkg_selected) < len(pkg_all):
                 readded_full_normal |= pkg
 
+        # MERGE pallet where the user dropped some quants: partial withdrawal took
+        # effect — the removal STAYS (not silently reverted). Capture what was
+        # dropped so we can INFORM the user what happened and why.
+        prev_picked = this_stock_move.quant_ids_picked
+        partial_removed = prev_picked.filtered(
+            lambda q: q.package_id.id in partial_pkg_ids
+            and q.id not in selected_quant_ids)
+
 
         # Check if quant_ids_picked has changed from original
         original_quant_ids = set(self._origin.quant_ids_picked.ids) if self._origin.quant_ids_picked else set()
@@ -397,21 +405,44 @@ class SelectQuantWizard(models.TransientModel):
         if counter < 2:
             self.action_confirm(counter=counter)
 
-        # Part C — INFORM (don't silently revert): a NORMAL pallet is withdrawn
-        # as a whole, so quants the user dropped from it were re-added. Tell them
-        # on the outermost call. (Merge pallets kept the user's selection, so
-        # they are never in this set.)
-        if counter == 1 and readded_full_normal:
-            names = ', '.join(readded_full_normal.mapped('name'))
+        # Part C — INFORM the user what the confirm did (never silent). Only on
+        # the outermost call. Two things can happen and either is worth saying:
+        #   * MERGE pallet: the quants you removed STAYED removed (partial
+        #     withdrawal) — say so, and post a durable chatter note.
+        #   * NORMAL pallet: a whole pallet is withdrawn, so removed quants were
+        #     added back — say so.
+        if counter == 1 and (partial_removed or readded_full_normal):
+            picking = transfer_id
+            msg_parts = []
+            if partial_removed:
+                # readable label: pallet + PSI + product (NOT the long internal
+                # lot name).
+                dropped = ', '.join(
+                    '%s%s (%s)' % (
+                        (q.package_id.name + ' ') if q.package_id else '',
+                        q.x_studio_pallet_series_id or '',
+                        q.product_id.display_name)
+                    for q in partial_removed)
+                msg_parts.append(_(
+                    'Partial withdrawal — removed %s from this withdrawal. The '
+                    'rest of the pallet stays in storage.') % dropped)
+                # durable record on the WR
+                picking.message_post(body=_(
+                    'Select Stocks: partial withdrawal — removed %s. The pallet '
+                    'is a merge pallet, so its remaining stock is NOT withdrawn.')
+                    % dropped)
+            if readded_full_normal:
+                names = ', '.join(readded_full_normal.mapped('name'))
+                msg_parts.append(_(
+                    'Pallet(s) %s are withdrawn as a whole — the stock you '
+                    'removed was added back (use a merge pallet to withdraw part '
+                    'of a pallet).') % names)
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'title': _('Whole pallet withdrawn'),
-                    'message': _(
-                        'Pallet(s) %s are withdrawn as a whole — the stock you '
-                        'removed was added back. Un-merge or use a merge pallet '
-                        'to withdraw part of a pallet.') % names,
+                    'title': _('Withdrawal updated'),
+                    'message': '\n'.join(msg_parts),
                     'type': 'info',
                     'sticky': False,
                     'next': {'type': 'ir.actions.act_window_close'},

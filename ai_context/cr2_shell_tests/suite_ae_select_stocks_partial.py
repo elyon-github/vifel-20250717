@@ -120,8 +120,33 @@ try:
         check('AE10 every remaining line matches the kept quant identity',
               all((l.product_id.id, l.lot_id.id, l.package_id.id) == keep_ident
                   for l in mv2.move_line_ids))
+
+        # ---- INFORM: the partial removal returns an info notification + note
+        # (re-establish both quants, then remove one via a fresh wizard)
+        mv3 = env['stock.move'].browse(mv.id)
+        mv3.quant_ids_picked = [(6, 0, pq.ids)]
+        env.flush_all()
+        Msg = env['mail.message']
+        before_notes = Msg.search_count(
+            [('model', '=', 'stock.picking'), ('res_id', '=', wr.id)])
+        wiz2 = env['select_quant.wizard'].create({
+            'stock_move_id': mv3.id, 'transfer_id': wr.id,
+            'product_id': mv3.product_id.id, 'owner_id': owner.id,
+            'location_id': keep.location_id.id,
+            'quant_ids_picked': [(6, 0, [keep.id])],
+            'move_line_ids': [(6, 0, mv3.move_line_ids.ids)]})
+        res = wiz2.action_confirm()
+        env.flush_all()
+        check('AE11 partial removal returns an INFO notification',
+              isinstance(res, dict)
+              and res.get('tag') == 'display_notification'
+              and 'Partial withdrawal' in res.get('params', {}).get('message', ''),
+              res.get('params', {}).get('message', '')[:60] if isinstance(res, dict) else type(res).__name__)
+        check('AE12 ... and posts a durable chatter note on the WR',
+              Msg.search_count([('model', '=', 'stock.picking'),
+                                ('res_id', '=', wr.id)]) == before_notes + 1)
     else:
-        for n in ('AE8', 'AE9', 'AE10'):
+        for n in ('AE8', 'AE9', 'AE10', 'AE11', 'AE12'):
             check(n + ' merge partial (no eligible 2-quant merge pallet in DB)', True)
 
 except Exception:
