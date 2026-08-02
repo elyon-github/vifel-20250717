@@ -1,4 +1,4 @@
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 import logging
 
@@ -136,14 +136,38 @@ class SelectQuantWizard(models.TransientModel):
         # --- Identify packages to work with ---
         # Get currently selected packages in this wizard
         selected_packages = self.quant_ids_picked.mapped('package_id')
-        
+
         # Get previously selected packages from the stock move
         previous_packages = this_stock_move.quant_ids_picked.mapped('package_id')
-        
+
         # Identify packages to remove (those that were previously selected but aren't anymore)
         packages_to_remove = previous_packages - selected_packages
         packages_to_add = selected_packages - previous_packages
         packages_unchanged = selected_packages & previous_packages
+
+        # MERGE PALLET = partial withdrawal allowed. A normal pallet is withdrawn
+        # whole (selecting any of its quants pulls ALL its quants); a merge pallet
+        # (pinned Fixed pallet or a merged-onto pallet) may be withdrawn in part,
+        # so its move must mirror the user's EXACT quant selection. Same predicate
+        # the verifier (SA#333) and the Incomplete Package notice use.
+        Quant = self.env['stock.quant']
+        all_packages = selected_packages | previous_packages
+        partial_pkg_ids = {
+            p.id for p in all_packages
+            if p and Quant._vifel_package_allows_partial_withdrawal(p.id)}
+        selected_quant_ids = set(self.quant_ids_picked.ids)
+        # a NORMAL pallet where the user dropped some (but not all) of its quants:
+        # the rule will re-add them; remember so we can inform the user (Part C).
+        readded_full_normal = self.env['stock.quant']
+        for pkg in packages_unchanged:
+            if pkg.id in partial_pkg_ids:
+                continue
+            pkg_selected = self.quant_ids_picked.filtered(
+                lambda q: q.package_id == pkg)
+            pkg_all = Quant.search([('package_id', '=', pkg.id),
+                                    ('quantity', '>', 0), ('lot_id', '!=', False)])
+            if len(pkg_selected) < len(pkg_all):
+                readded_full_normal |= pkg
 
 
         # Check if quant_ids_picked has changed from original
@@ -168,11 +192,38 @@ class SelectQuantWizard(models.TransientModel):
                 )
                 if move_lines_to_remove:
                     move_lines_to_remove.unlink()
-        
+
+        # --- Step 1b: partial removal WITHIN a still-selected merge pallet ---
+        # For a partial-withdrawal package the user may drop SOME of its quants
+        # while keeping others. Unlink the picked quants / move lines for exactly
+        # those dropped quants (a normal package skips this — it's all-or-nothing).
+        # Move lines are matched to the kept quants by IDENTITY
+        # (product / lot / package), because existing lines often have no quant_id
+        # set — matching on quant_id alone would miss them and the dropped lot
+        # would still be withdrawn.
+        if partial_pkg_ids:
+            selected_ident = {
+                (q.product_id.id, q.lot_id.id, q.package_id.id)
+                for q in self.quant_ids_picked
+                if q.package_id.id in partial_pkg_ids}
+            for move in transfer_id.move_ids:
+                drop_q = move.quant_ids_picked.filtered(
+                    lambda q: q.package_id.id in partial_pkg_ids
+                    and q.id not in selected_quant_ids)
+                if drop_q:
+                    move.write({'quant_ids_picked':
+                                [(3, q.id) for q in drop_q]})
+                drop_lines = move.move_line_ids.filtered(
+                    lambda ml: ml.package_id.id in partial_pkg_ids
+                    and (ml.product_id.id, ml.lot_id.id, ml.package_id.id)
+                    not in selected_ident)
+                if drop_lines:
+                    drop_lines.unlink()
+
         # --- Step 2: Process packages to add or keep ---
         if packages_to_add or packages_unchanged:
             packages_to_process = packages_to_add | packages_unchanged
-            
+
             # Get all quants from these packages with positive quantity and valid lot
             all_package_quants = self.env['stock.quant'].search([
                 ('package_id', 'in', packages_to_process.ids),
@@ -180,8 +231,15 @@ class SelectQuantWizard(models.TransientModel):
                 ('quantity', '>', 0),
                 ('owner_id', '=', self.owner_id.id if self.owner_id else False)
             ])
-            
+
             all_package_quants = all_package_quants.filtered(lambda q: q.available_quantity > 0)
+
+            # MERGE PALLET: only add the quants the user actually selected; a
+            # normal pallet still pulls its whole set (all-or-nothing).
+            if partial_pkg_ids:
+                all_package_quants = all_package_quants.filtered(
+                    lambda q: q.package_id.id not in partial_pkg_ids
+                    or q.id in selected_quant_ids)
 
 
             # Group quants by product for processing - critically important to separate by product
@@ -338,7 +396,28 @@ class SelectQuantWizard(models.TransientModel):
         counter += 1
         if counter < 2:
             self.action_confirm(counter=counter)
-            
+
+        # Part C — INFORM (don't silently revert): a NORMAL pallet is withdrawn
+        # as a whole, so quants the user dropped from it were re-added. Tell them
+        # on the outermost call. (Merge pallets kept the user's selection, so
+        # they are never in this set.)
+        if counter == 1 and readded_full_normal:
+            names = ', '.join(readded_full_normal.mapped('name'))
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Whole pallet withdrawn'),
+                    'message': _(
+                        'Pallet(s) %s are withdrawn as a whole — the stock you '
+                        'removed was added back. Un-merge or use a merge pallet '
+                        'to withdraw part of a pallet.') % names,
+                    'type': 'info',
+                    'sticky': False,
+                    'next': {'type': 'ir.actions.act_window_close'},
+                },
+            }
+
     def auto_adjust_line_values(record):
         """Automatically adjust values based on availability"""
         # Get the move lines from the current record and from other transfers
