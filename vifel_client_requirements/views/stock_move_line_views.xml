@@ -75,7 +75,7 @@
                      stock, OR sharing a pallet with other lines of this same
                      receipt. One physical pallet, counted once. -->
                 <field name="vifel_on_merged_pallet" string="Merged" optional="show"
-                       column_invisible="picking_code == 'outgoing'"/>
+                       column_invisible="picking_code == 'outgoing' or context.get('vifel_is_blast_freeze')"/>
                 <field name="vifel_show_merge_button" column_invisible="1"/>
                 <!-- The buttons key on the SAME "Merged" marker as the column,
                      so they always agree: every line on a merged/shared pallet

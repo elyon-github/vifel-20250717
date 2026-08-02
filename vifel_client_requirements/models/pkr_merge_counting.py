@@ -41,3 +41,22 @@ class PkrMergeCounting(models.Model):
             return super()._vifel_merge_free_domain()
         return super()._vifel_merge_free_domain() + [
             ('is_pallet_merge', '!=', True)]
+
+
+class StockPickingMergeCounting(models.Model):
+    """The SAME +0-merge rule for the printed RR/WR pallet count and the
+    on-picking Transacted Pallet Count.
+
+    Core's report counters (``get_pallet_count_for_page`` /
+    ``preprocess_stock_move_data``) and ``_compute_transacted_pallet_count`` ask
+    ``stock.picking._vifel_line_originates_pallet(line)`` per line. Without this
+    override the printout counted a merged pallet as received (+1), disagreeing
+    with the PKR ledger (e.g. M/RR/05298 printed 4 vs ledger 3). Here a merged
+    line answers False, so the printout and Transacted count match the ledger.
+    """
+    _inherit = 'stock.picking'
+
+    def _vifel_line_originates_pallet(self, line):
+        if getattr(line, 'is_pallet_merge', False):
+            return False
+        return super()._vifel_line_originates_pallet(line)

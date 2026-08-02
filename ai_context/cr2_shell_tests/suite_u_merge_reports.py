@@ -143,6 +143,91 @@ try:
     print('   Conclusion: billing reads the merge-aware ledger; occupancy '
           'counts one-PSI-per-pallet, which merge guarantees. Both agree.')
 
+    # =============================================================
+    # RR/WR printed pallet count + Transacted Pallet Count are now
+    # MERGE-AWARE (match the PKR ledger) via the _vifel_line_originates_pallet
+    # hook. A merged (+0) receiving line must NOT inflate the printout.
+    # =============================================================
+    Picking = env['stock.picking']
+    # base hook is a neutral no-op (plug-and-play)
+    p0 = Picking.search([], limit=1)
+    l0 = env['stock.move.line'].search([('is_pallet_merge', '=', False)], limit=1)
+    check('UR1 base _vifel_line_originates_pallet is True for a normal line',
+          p0._vifel_line_originates_pallet(l0))
+    # ... and False for a merged line (the add-on override)
+    lm = env['stock.move.line'].search([('is_pallet_merge', '=', True)], limit=1)
+    if lm:
+        check('UR2 the override returns False for a merged line',
+              not p0._vifel_line_originates_pallet(lm))
+    else:
+        check('UR2 the override returns False for a merged line', True, '(no merged line)')
+
+    # FUNCTIONAL: an incoming RR whose printed count == PKR received, with a
+    # merged line present. Build one on a merge-enabled client.
+    owner = env['res.partner'].browse(428)
+    owner.write({'vifel_can_merge_pallets': True,
+                 'vifel_multiple_pallet_support': True,
+                 'vifel_include_regular_pallets': True})
+    env.flush_all()
+    rr = Picking.search([('picking_type_id.code', '=', 'incoming'),
+                         ('state', '=', 'done'),
+                         ('x_studio_is_a_blast_freezer', '=', False),
+                         ('partner_id', '=', owner.id)], limit=200).filtered(
+        lambda p: len(p.move_line_ids.filtered('result_package_id')) >= 2)[:1]
+    if rr:
+        def printed(p):
+            res = p.get_grouped_move_lines_for_report()
+            proc = res[0] if isinstance(res, (list, tuple)) else res
+            return p.get_pallet_count_for_page(proc, 0, len(proc))
+        base_print = printed(rr)
+        base_trans = rr._compute_transacted_pallet_count() or rr.transacted_pallet_count
+        rr._compute_transacted_pallet_count(); base_trans = rr.transacted_pallet_count
+        # flag one line that shares a pallet with another (so the pallet stays
+        # represented by the unflagged sibling) -> printed count drops by 0;
+        # flag a SOLO-pallet line -> printed count drops by 1.
+        lines = rr.move_line_ids.filtered('result_package_id')
+        from collections import Counter
+        cnt = Counter(lines.mapped('result_package_id').ids)
+        solo = next((l for l in lines
+                     if cnt[l.result_package_id.id] == 1), False)
+        if solo:
+            solo.with_context(skip_pallet_series_sync=True).write(
+                {'is_pallet_merge': True})
+            env.invalidate_all()
+            after_print = printed(rr)
+            rr._compute_transacted_pallet_count()
+            after_trans = rr.transacted_pallet_count
+            check('UR3 flagging a solo line drops the PRINTED RR count by 1 '
+                  '(%d -> %d)' % (base_print, after_print),
+                  after_print == base_print - 1, after_print)
+            check('UR4 ... and the Transacted Pallet Count by 1 (%d -> %d)'
+                  % (base_trans, after_trans),
+                  after_trans == base_trans - 1, after_trans)
+            # matches the PKR ledger recompute
+            row = env['pallet_kilos_record_model.pallet_kilos_record_model'].search(
+                [('record_reference', '=', rr.id), ('active', '=', True)], limit=1)
+            if row:
+                row._populate_operations_data()
+                check('UR5 printed count == PKR received (both merge-aware)',
+                      after_print == int(row.pallets_received),
+                      (after_print, row.pallets_received))
+            solo.with_context(skip_pallet_series_sync=True).write(
+                {'is_pallet_merge': False})
+        else:
+            check('UR3 flagging a solo line drops the PRINTED RR count by 1', True, '(no solo line)')
+            check('UR4 ... and the Transacted Pallet Count by 1', True, '(n/a)')
+            check('UR5 printed count == PKR received', True, '(n/a)')
+    else:
+        check('UR3 flagging a solo line drops the PRINTED RR count by 1', True, '(no RR)')
+
+    # WR is unaffected: outgoing lines are never is_pallet_merge, so the hook is
+    # True for them and the emptying gate still governs the WR count.
+    wl = env['stock.move.line'].search([
+        ('picking_id.picking_type_id.code', '=', 'outgoing'),
+        ('package_id', '!=', False)], limit=1)
+    check('UR6 a WR (outgoing) line still originates a pallet (hook True)',
+          p0._vifel_line_originates_pallet(wl) if wl else True)
+
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

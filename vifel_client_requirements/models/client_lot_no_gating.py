@@ -45,9 +45,13 @@ class StockPickingClientLotNo(models.Model):
         """
         res = super().action_detailed_operations()
         if isinstance(res, dict) and isinstance(res.get('context'), dict):
-            res['context'] = dict(res['context'],
-                                  show_client_lot_no=self.show_client_lot_no,
-                                  show_batch_no=self.show_batch_no)
+            res['context'] = dict(
+                res['context'],
+                show_client_lot_no=self.show_client_lot_no,
+                show_batch_no=self.show_batch_no,
+                # Blast freezer has no Merge Pallet feature (no package/PSI), so
+                # the Pallet Breakdown hides the "Merged" column there.
+                vifel_is_blast_freeze=bool(self.x_studio_is_a_blast_freezer))
         return res
 
     def button_validate(self):
