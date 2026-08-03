@@ -110,6 +110,14 @@ class FastEncodeLineMerge(models.TransientModel):
         original-Pallet-Series restore — runs in FastEncodeRR.action_confirm via
         _vifel_apply_staged_unmerge, so nothing in the Pallet Breakdown moves
         before the encoder commits (matching how Merge defers its write-back)."""
+        if self.vifel_pending_merge:
+            # The row shows Merged only because a merge is STAGED but not yet
+            # committed — the real line was never touched. Treat Un-merge as
+            # "cancel that staged merge": clear the markers and restore the row's
+            # own identity from the real line. The drawn create-special series (if
+            # any) is left as a harmless gap — same accepted trade-off.
+            self._vifel_cancel_staged_merge()
+            return self._reopen_fast_encode_list()
         ml = self._real_line()
         if not ml.vifel_on_merged_pallet:
             raise UserError(_('This line is not a merged pallet.'))
@@ -120,6 +128,27 @@ class FastEncodeLineMerge(models.TransientModel):
         # staged-unmerge hook applies the real detach.
         self.write({'vifel_pending_unmerge': True})
         return self._reopen_fast_encode_list()
+
+    def _vifel_cancel_staged_merge(self):
+        """Undo a staged (not-yet-committed) merge on this row: clear the pending
+        markers and restore the row's display from the untouched real line."""
+        self.ensure_one()
+        ml = self._real_line()
+        series = ml.x_studio_pallet_series_id or ''
+        self.write({'result_package_id': ml.result_package_id.id})
+        self.write({
+            'pallet_series_id': series,
+            'pre_wizard_pallet_series_id': series,
+            'location_dest_id': ml.location_dest_id.id,
+            'is_pallet_merge': ml.is_pallet_merge,
+            'vifel_premerge_captured': ml.vifel_premerge_captured,
+            'vifel_pending_merge': False,
+            'vifel_pending_merge_kind': False,
+            'vifel_pending_merge_psi_type_id': False,
+            # keep the line's existing series if it has one (do NOT let Confirm
+            # draw a fresh number); only a truly series-less line needs a new one.
+            'needs_new_pallet_series': not bool(series),
+        })
 
     def _vifel_sync_from_move_line(self, move_line, reset_original=False):
         """Copy the real line's pallet identity onto this transient row.
@@ -157,6 +186,44 @@ class FastEncodeLineMerge(models.TransientModel):
             # put a number back that another line may already have taken.
             vals['original_pallet_series_id'] = series
         self.write(vals)
+
+    def _vifel_stage_merge(self, decision):
+        """Record a resolved merge decision on THIS transient row for display,
+        WITHOUT touching the real move line — the merge is applied at the Magic
+        Wizard's Confirm (_vifel_apply_staged_merge).
+
+        Same TWO-STEP write as _vifel_sync_from_move_line: write the package
+        first (the row's own override re-derives series/location — discarded),
+        then the merge identity in a second write with NO result_package_id so
+        the override passes it straight through.
+
+        decision = {'kind', 'target', 'adopted', 'location', 'psi_type'}.
+        Markers mirror the real apply: only a +0 'merge' flags is_pallet_merge;
+        every kind captures so the row shows Merged + Un-merge and can revert.
+        For 'first_stock' the merge sets no location (empty), so the row KEEPS
+        its current one."""
+        self.ensure_one()
+        kind = decision['kind']
+        adopted = decision['adopted'] or ''
+        location = decision['location']
+        psi_type = decision.get('psi_type')
+        keep_location = self.location_dest_id
+        self.write({'result_package_id': decision['target'].id})
+        self.write({
+            'pallet_series_id': adopted,
+            'pre_wizard_pallet_series_id': adopted,
+            'location_dest_id': location.id if location else keep_location.id,
+            'is_pallet_merge': (kind == 'merge'),
+            'vifel_premerge_captured': (kind != 'merge'),
+            'vifel_pending_unmerge': False,
+            'vifel_pending_merge': True,
+            'vifel_pending_merge_kind': kind,
+            'vifel_pending_merge_psi_type_id': psi_type.id if psi_type else False,
+            # step 1 (a fresh target pallet) may have flagged needs_new — clear
+            # it so Confirm's "resolve NEW series" pass does not overwrite the
+            # staged series before _vifel_apply_staged_merge runs.
+            'needs_new_pallet_series': False,
+        })
 
     def _reopen_fast_encode_list(self):
         """Rebuild the Magic Wizard list action for this row's wizard, so the
@@ -214,6 +281,24 @@ class FastEncodeLineMergeFields(models.TransientModel):
     # before the encoder commits.
     vifel_pending_unmerge = fields.Boolean(
         string='Pending Un-merge', default=False)
+
+    # Set when the encoder confirms a Merge INSIDE the Magic Wizard. The row
+    # shows the merged pallet/series at once, but the real move line is left
+    # untouched — the merge is applied only on the wizard's Confirm (see
+    # _vifel_apply_staged_merge), so nothing in the Pallet Breakdown moves before
+    # the encoder commits, mirroring the staged un-merge. The row's own
+    # result_package_id / pallet_series_id / location_dest_id already carry the
+    # decision's target / series / location; these three record HOW to re-apply.
+    vifel_pending_merge = fields.Boolean(
+        string='Pending Merge', default=False)
+    vifel_pending_merge_kind = fields.Selection(
+        [('merge', 'Merge onto stocked (+0)'),
+         ('same_receipt', 'Join a same-receipt pallet'),
+         ('first_stock', 'First stock on the pinned pallet'),
+         ('create_special', 'Start a new special pallet')],
+        string='Pending Merge Kind')
+    vifel_pending_merge_psi_type_id = fields.Many2one(
+        'vifel.psi.type', string='Pending Merge PSI Type')
 
     # Same user-facing marker as on stock.move.line: checked whenever a row is
     # part of a merged pallet, INCLUDING the HOST of a same-receipt merge (its
@@ -313,8 +398,15 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
         A row with a STAGED un-merge is kept out of the same passes: its real
         detach happens in the staged-unmerge pass, so the recycle machinery must
         treat it as a no-op (and, for a joiner leaving a shared pallet, exclude
-        it from the remaining siblings' winner election)."""
-        if line.is_pallet_merge or line.vifel_pending_unmerge:
+        it from the remaining siblings' winner election).
+
+        A STAGED merge (vifel_pending_merge) is locked too: its real apply runs in
+        the staged-merge pass, so it must stay out of the winner-grouping /
+        series-recycle passes — otherwise a staged birth / same-receipt /
+        create-special row (whose own is_pallet_merge is False) could perturb
+        another pallet's series election before its merge is applied."""
+        if (line.is_pallet_merge or line.vifel_pending_unmerge
+                or line.vifel_pending_merge):
             return True
         return super()._vifel_line_is_merge_locked(line)
 
@@ -328,6 +420,59 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
             return super()._vifel_apply_staged_unmerge(line, move_line)
         if move_line.exists() and move_line.vifel_on_merged_pallet:
             move_line.action_unmerge_pallet_line()
+        return True
+
+    def _vifel_apply_staged_merge(self, line, move_line):
+        """A row the encoder merged inside the Magic Wizard: apply the REAL merge
+        NOW, at Confirm (it was deferred so the Pallet Breakdown did not change
+        mid-session). Re-runs the SAME low-level apply the Pallet Breakdown uses,
+        dispatched on the staged kind, then writes the row's cargo. Returns True
+        so the standard write is skipped for this row."""
+        if not line.vifel_pending_merge:
+            return super()._vifel_apply_staged_merge(line, move_line)
+        if not (move_line.exists() and line.result_package_id):
+            return True
+        Wizard = self.env['pallet.merge.wizard']
+        wiz = Wizard.with_context(vifel_skip_candidates=True).create({
+            'move_line_id': move_line.id,
+            'move_line_ids': [(6, 0, [move_line.id])],
+        })
+        target = line.result_package_id
+        adopted = line.pallet_series_id or ''
+        location = line.location_dest_id
+        kind = line.vifel_pending_merge_kind
+        if kind == 'create_special':
+            wiz.psi_type_id = line.vifel_pending_merge_psi_type_id
+            wiz.new_package_id = target
+            wiz.new_location_id = location
+            wiz._apply_create_special(preassigned_series=adopted)
+        elif kind == 'same_receipt':
+            wiz._apply_same_receipt_one(move_line, target, adopted, location)
+        else:
+            # 'merge' / 'first_stock' both land on a stocked-or-pinned pallet.
+            # Re-run the FULL _apply_merge with the target forced, so it
+            # re-resolves +0-vs-first-stock (with the pinned-pallet lock) exactly
+            # as the Pallet Breakdown does — robust to a concurrent birth between
+            # stage and Confirm. Its returned notification action is ignored here.
+            wiz.manual_package_id = target
+            wiz._apply_merge()
+        # cargo (weight / qty / container / dates / lot / batch) onto the real
+        # line — the merge apply only set pallet / series / location / flags.
+        move_line.with_context(skip_pallet_series_sync=True).write({
+            'bf_pallet_char': line.bf_pallet_char,
+            'x_studio_2nd_uom': line.quantity,
+            'x_studio_total_units': line.min_uom_unit,
+            'quantity': line.kilogram,
+            'x_studio_container_number': line.container_number or '',
+            'client_lot_no': line.client_lot_no or False,
+            'batch_no': line.batch_no or False,
+            'x_studio_production_date': line.production_date,
+            'x_studio_expiration_date': line.expiration_date,
+            'x_studio_quantity_uom':
+                line.quantity_uom.id if line.quantity_uom else False,
+            'x_studio_min_quantity_uom':
+                line.packs_uom.id if line.packs_uom else False,
+        })
         return True
 
     def _vifel_apply_merge_locked_line(self, line, move_line):

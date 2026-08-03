@@ -29,6 +29,7 @@
                      two rows of this transfer that share one pallet (where
                      is_pallet_merge stays false). -->
                 <field name="vifel_on_merged_pallet" column_invisible="1"/>
+                <field name="vifel_pending_merge" column_invisible="1"/>
                 <field name="vifel_merge_locked_package_ids" column_invisible="1"/>
                 <field name="show_merge_button" column_invisible="1"/>
             </field>

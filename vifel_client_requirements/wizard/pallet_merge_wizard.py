@@ -115,14 +115,22 @@ class PalletMergeWizard(models.TransientModel):
     multi_weight = fields.Float(compute='_compute_multi', digits=(12, 3))
     multi_quantity = fields.Float(compute='_compute_multi')
 
-    @api.depends('move_line_ids')
+    @api.depends('move_line_ids', 'fast_encode_line_ids')
     def _compute_multi(self):
+        # When opened from the Magic Wizard, the encoder's edited-but-unconfirmed
+        # weight/quantity live on the transient ROWS, not the real move lines —
+        # sum those so the dialog reflects what they will actually withdraw.
         for wizard in self:
             lines = wizard.move_line_ids
             wizard.is_multi = len(lines) > 1
             wizard.multi_count = len(lines)
-            wizard.multi_weight = sum(lines.mapped('quantity'))
-            wizard.multi_quantity = sum(lines.mapped('x_studio_2nd_uom'))
+            rows = wizard.fast_encode_line_ids
+            if rows:
+                wizard.multi_weight = sum(rows.mapped('kilogram'))
+                wizard.multi_quantity = sum(rows.mapped('quantity'))
+            else:
+                wizard.multi_weight = sum(lines.mapped('quantity'))
+                wizard.multi_quantity = sum(lines.mapped('x_studio_2nd_uom'))
 
     picking_id = fields.Many2one(related='move_line_id.picking_id')
     partner_id = fields.Many2one(
@@ -136,12 +144,30 @@ class PalletMergeWizard(models.TransientModel):
     line_psi = fields.Char(
         related='move_line_id.x_studio_pallet_series_id',
         string='Current Series')
+    # Computed (not related) so a merge opened from the Magic Wizard shows the
+    # encoder's edited-but-unconfirmed weight / quantity from the transient ROW,
+    # not the stale real-line values. Falls back to the real line otherwise.
     line_weight = fields.Float(
-        related='move_line_id.quantity', string='Line Weight (KG)')
+        compute='_compute_line_cargo', string='Line Weight (KG)')
     line_quantity = fields.Float(
-        related='move_line_id.x_studio_2nd_uom', string='Line Quantity')
+        compute='_compute_line_cargo', string='Line Quantity')
     line_quantity_uom = fields.Many2one(
         related='move_line_id.x_studio_quantity_uom', string='Quantity UOM')
+
+    @api.depends('move_line_id', 'fast_encode_line_id', 'fast_encode_line_ids')
+    def _compute_line_cargo(self):
+        FeLine = self.env['stock.move.line.fast_encode_rr.line']
+        for wizard in self:
+            row = FeLine.browse(wizard.fast_encode_line_id) \
+                if wizard.fast_encode_line_id else FeLine
+            if not row.exists() and wizard.fast_encode_line_ids:
+                row = wizard.fast_encode_line_ids[:1]
+            if row.exists():
+                wizard.line_weight = row.kilogram
+                wizard.line_quantity = row.quantity
+            else:
+                wizard.line_weight = wizard.move_line_id.quantity
+                wizard.line_quantity = wizard.move_line_id.x_studio_2nd_uom
 
     # What is standing on the currently-selected target, shown INLINE so the
     # dialog never closes (a target='new' window would replace this wizard).
@@ -331,12 +357,17 @@ class PalletMergeWizard(models.TransientModel):
     @api.model_create_multi
     def create(self, vals_list):
         wizards = super().create(vals_list)
+        # vifel_skip_candidates: a throwaway wizard built only to RE-APPLY an
+        # already-resolved decision (the Magic Wizard's staged-merge Confirm) —
+        # it never shows the candidate table, so skip the (costly) materialise.
+        skip = self.env.context.get('vifel_skip_candidates')
         for wizard in wizards:
             # a per-line open sets move_line_id only; keep move_line_ids the
             # single source of truth for "which lines are we merging"
             if not wizard.move_line_ids and wizard.move_line_id:
                 wizard.move_line_ids = wizard.move_line_id
-            wizard._populate_candidates()
+            if not skip:
+                wizard._populate_candidates()
         return wizards
 
     def _stocked_quants(self, package):
@@ -605,35 +636,41 @@ class PalletMergeWizard(models.TransientModel):
     def action_confirm(self):
         self.ensure_one()
         if self._fast_encode_rows():
-            # Inside the Magic Wizard the dialog offers the SAME two actions
-            # as it does from the Pallet Breakdown. Either way it is applied
-            # to the REAL line(s) first, then the transient row(s) are synced
-            # so the Magic Wizard's deferred confirm keeps the result, and the
-            # list is reopened.
-            if self.mode == 'new':
-                self._apply_create_special()
-                # A drawn series becomes the line's OWN identity: the series
-                # it arrived with has just gone back to the pool, so the
-                # wizard's restore machinery must not resurrect it.
-                return self._sync_fast_encode_and_reopen(reset_original=True)
-            self._apply_merge()
-            return self._sync_fast_encode_and_reopen()
+            # Inside the Magic Wizard the merge is DEFERRED: resolve the decision
+            # here, but STAGE it onto the transient row(s) and leave the REAL
+            # move line untouched. It is applied to the real line only at the
+            # Magic Wizard's own Confirm (FastEncodeRR.action_confirm ->
+            # _vifel_apply_staged_merge), so closing the Magic Wizard without
+            # confirming never persists the merge — mirroring the staged
+            # un-merge. NOTHING is written to stock.move.line here.
+            return self._stage_merge_on_fast_encode()
         if self.mode == 'new':
             return self._apply_create_special()
         return self._apply_merge()
 
-    def _sync_fast_encode_and_reopen(self, reset_original=False):
-        """Push what was just applied onto every Magic Wizard transient row
-        and reopen the list, so the two representations never diverge."""
-        fe_lines = self._fast_encode_rows()
-        if not fe_lines:
-            return {'type': 'ir.actions.act_window_close'}
-        MoveLine = self.env['stock.move.line']
-        for fe in fe_lines:
-            ml = MoveLine.browse(fe.stock_move_line)
-            if ml.exists():
-                fe._vifel_sync_from_move_line(ml, reset_original=reset_original)
-        return fe_lines[0]._reopen_fast_encode_list()
+    # ------------------------------------------------------------------
+    # Magic Wizard: STAGE the merge onto the transient rows (deferred write)
+    # ------------------------------------------------------------------
+    def _stage_merge_on_fast_encode(self):
+        """Resolve the merge decision and record it on the Magic Wizard rows,
+        WITHOUT touching the real move line(s)."""
+        if self.mode == 'new':
+            # validate the pickers exactly as the real apply will, then draw the
+            # series NOW so the row can show it and Confirm reuses it (a wasted
+            # number only if the wizard is cancelled — an accepted trade-off).
+            self._check_create_special()
+            series = self.psi_type_id.draw_number()
+            decision = {'kind': 'create_special',
+                        'target': self.new_package_id,
+                        'adopted': series,
+                        'location': self.new_location_id,
+                        'psi_type': self.psi_type_id}
+        else:
+            resolved, eligible, skipped = self._resolve_merge()
+            decision = dict(resolved, psi_type=self.env['vifel.psi.type'])
+        for fe in self._fast_encode_rows():
+            fe._vifel_stage_merge(decision)
+        return self._fast_encode_rows()[0]._reopen_fast_encode_list()
 
     # ------------------------------------------------------------------
     # merge onto a stocked pallet
@@ -693,7 +730,13 @@ class PalletMergeWizard(models.TransientModel):
             '#%s (%s)' % (line.x_studio_ or '?', reason)
             for line, reason in skipped)
 
-    def _apply_merge(self):
+    def _resolve_merge(self):
+        """Resolve the merge decision WITHOUT applying it — the single source of
+        truth shared by _apply_merge (Pallet Breakdown) and the Magic Wizard's
+        staged merge. Returns (decision, eligible, skipped), where decision is
+        {'kind', 'target', 'adopted', 'location'} with kind one of
+        'same_receipt' / 'first_stock' / 'merge'. Read-only apart from the
+        pinned-pallet row lock (a concurrency guard, safe to take here)."""
         partner = self.partner_id
         target, candidate = self._resolve_merge_target()
         lines = self.move_line_ids or self.move_line_id
@@ -713,11 +756,9 @@ class PalletMergeWizard(models.TransientModel):
             if not adopted:
                 raise UserError(_(
                     'That pallet has no Pallet Series yet on this receipt.'))
-            for line in eligible:
-                self._apply_same_receipt_one(
-                    line, target, adopted, candidate.location_id)
-            return self._merge_done(eligible, skipped, target, adopted,
-                                    kind='same_receipt')
+            return ({'kind': 'same_receipt', 'target': target,
+                     'adopted': adopted, 'location': candidate.location_id},
+                    eligible, skipped)
 
         quants = self._stocked_quants(target)
         psis = sorted({q.x_studio_pallet_series_id
@@ -753,12 +794,25 @@ class PalletMergeWizard(models.TransientModel):
             # the birth), but flagged +0 — the birthing receipt owns the +1
             target_location = self.env['stock.location']
 
+        return ({'kind': 'first_stock' if first_stock else 'merge',
+                 'target': target, 'adopted': adopted,
+                 'location': target_location}, eligible, skipped)
+
+    def _apply_merge(self):
+        decision, eligible, skipped = self._resolve_merge()
+        kind = decision['kind']
+        target = decision['target']
+        adopted = decision['adopted']
+        location = decision['location']
+        if kind == 'same_receipt':
+            for line in eligible:
+                self._apply_same_receipt_one(line, target, adopted, location)
+            return self._merge_done(eligible, skipped, target, adopted,
+                                    kind='same_receipt')
         for line in eligible:
-            self._apply_merge_one(
-                line, target, adopted, target_location, first_stock)
-        return self._merge_done(
-            eligible, skipped, target, adopted,
-            kind='first_stock' if first_stock else 'merge')
+            self._apply_merge_one(line, target, adopted, location,
+                                  first_stock=(kind == 'first_stock'))
+        return self._merge_done(eligible, skipped, target, adopted, kind=kind)
 
     def _free_displaced(self, line, old_series, adopted, old_package_id,
                         old_location_id, target):
@@ -878,9 +932,11 @@ class PalletMergeWizard(models.TransientModel):
         text = body % {'n': n, 'pallet': target.name, 'psi': adopted}
         return self._done_notification(text + self._skipped_note(skipped))
 
-    def _apply_create_special(self):
-        line = self.move_line_id
-        picking = line.picking_id
+    def _check_create_special(self):
+        """Server-side validation for 'Start a new special pallet' — shared by
+        the Pallet Breakdown apply and the Magic Wizard's stage, so both refuse
+        the same bad pickers up front. Read-only (raises on invalid)."""
+        picking = self.move_line_id.picking_id
         partner = self.partner_id
         if not partner.vifel_multiple_pallet_support:
             raise UserError(_('This client does not use PSI types.'))
@@ -940,7 +996,16 @@ class PalletMergeWizard(models.TransientModel):
                         'pkg': self.new_package_id.name,
                         'other': pkg_wh.name, 'here': warehouse.name})
 
-        series = self.psi_type_id.draw_number()
+    def _apply_create_special(self, preassigned_series=None):
+        """Start a new special pallet. ``preassigned_series`` lets the Magic
+        Wizard's staged-merge Confirm reuse the series ALREADY drawn at stage
+        time (so it is not drawn twice); the Pallet Breakdown path passes None
+        and draws fresh here as before."""
+        line = self.move_line_id
+        picking = line.picking_id
+        self._check_create_special()
+
+        series = preassigned_series or self.psi_type_id.draw_number()
         target = self.new_package_id
 
         # one series, one new pallet — every selected line lands on it (one

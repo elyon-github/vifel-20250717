@@ -45,6 +45,12 @@ class FastEncodeRRWizard(models.TransientModel):
         was staged."""
         return False
 
+    def _vifel_apply_staged_merge(self, line, move_line):
+        """Apply a row's staged merge to its real move line and return True when
+        handled, so the standard write is skipped for it. Default: nothing was
+        staged."""
+        return False
+
     def _validate_result_package_availability(self):
         """Refuse to confirm if any selected Pallet # is either:
           - already reserved by ANOTHER picking via x_studio_receiving_report_id, or
@@ -294,6 +300,11 @@ class FastEncodeRRWizard(models.TransientModel):
         for line in self.line_ids:
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
+
+                # A row merged inside the Magic Wizard: apply the deferred merge
+                # to the real line now, then skip the normal write.
+                if self._vifel_apply_staged_merge(line, move_line):
+                    continue
 
                 # A row un-merged inside the Magic Wizard: apply the deferred
                 # detach to the real line now, then skip the normal write.
