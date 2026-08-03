@@ -235,22 +235,23 @@ class FastEncodeLineMergeFields(models.TransientModel):
             if line.vifel_pending_unmerge:
                 line.vifel_on_merged_pallet = False
                 continue
-            # A +0 merge is always on a merged pallet.
-            if line.is_pallet_merge:
+            # OWN marker: a +0 merge OR an explicit merge-button placement
+            # (captured — same-receipt join or first-stock birth). Shows Merged +
+            # Un-merge so it can be reverted, even as the sole row on the pallet.
+            if line.is_pallet_merge or line.vifel_premerge_captured:
                 line.vifel_on_merged_pallet = True
                 continue
-            # Same-receipt consolidation: the pallet must be SHARED by more than
-            # one row AND at least one carry a merge marker — merely sharing a
-            # pallet (ordinary multi-line encoding) is NOT a merge, and the lone
-            # row left after the others peel off is plain again.
+            # HOST symmetry: an unmarked row that shares its pallet with a marked
+            # sibling. Sharing with an UNMARKED row is NOT a merge (ordinary
+            # multi-line encoding).
             pkg = line.result_package_id
             if not pkg:
                 line.vifel_on_merged_pallet = False
                 continue
-            group = line.wizard_id.line_ids.filtered(
-                lambda l: l.result_package_id == pkg)
-            line.vifel_on_merged_pallet = len(group) > 1 and any(
-                (l.is_pallet_merge or l.vifel_premerge_captured) for l in group)
+            line.vifel_on_merged_pallet = any(
+                (sib.is_pallet_merge or sib.vifel_premerge_captured)
+                for sib in (line.wizard_id.line_ids - line)
+                if sib.result_package_id == pkg)
 
     # Pallets another line of this transfer has MERGED onto. They must not be
     # offered in the RR Pallet # dropdown: a merge target is reached through

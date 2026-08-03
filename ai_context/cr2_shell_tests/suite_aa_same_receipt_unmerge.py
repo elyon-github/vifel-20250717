@@ -157,17 +157,22 @@ try:
     # "merged" -> it cannot be un-merged (there is nothing to peel it off from;
     # it IS the pallet now). This is why a pallet can never be emptied by
     # un-merging: the last line just becomes its normal owner, still +1.
-    check('AA16 the sole remaining line is a plain line (marker off)',
-          not l2.vifel_on_merged_pallet, l2.vifel_on_merged_pallet)
-    try:
-        l2.action_unmerge_pallet_line()
-        check('AA17 the sole line refuses Un-merge (it IS the pallet, +1)',
-              False, 'no error')
-    except UserError:
-        check('AA17 the sole line refuses Un-merge (it IS the pallet, +1)',
-              True)
-    check('AA18 the pallet is STILL counted +1 (its lone owner holds it)',
-          host_pkg.id in received_pkgs(), sorted(received_pkgs()))
+    # A line placed with the Merge button can always be REVERTED — even as the
+    # sole line left on the pallet. (Previously the sole line read as plain and
+    # refused Un-merge; the encoder asked to be able to revert line #1 the first
+    # time it merges, so a captured line stays un-mergeable while alone.)
+    check('AA16 the sole remaining JOINER still shows Merged (it was placed '
+          'with the Merge button, so it can be reverted even alone)',
+          l2.vifel_on_merged_pallet, l2.vifel_on_merged_pallet)
+    l2.action_unmerge_pallet_line()
+    env.flush_all()
+    check('AA17 un-merging the sole captured line reverts it (leaves the '
+          'pallet, marker cleared)',
+          not l2.result_package_id and not l2.vifel_premerge_captured
+          and not l2.vifel_on_merged_pallet,
+          (l2.result_package_id.name, l2.vifel_premerge_captured))
+    check('AA18 the revert emptied the pallet — its only remaining line left it',
+          host_pkg.id not in received_pkgs(), sorted(received_pkgs()))
 
 except Exception:
     print('UNEXPECTED ERROR:')

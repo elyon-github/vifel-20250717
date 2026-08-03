@@ -111,17 +111,20 @@ try:
         # ---- peel the SECOND: line 1 is now the sole owner -> plain line ----
         l2.action_unmerge_pallet_line()
         env.flush_all()
-        check('AG9 with only line 1 left, it reads as a PLAIN sole-owner line '
-              '(not merged) — nothing to peel it off from',
-              not l1.vifel_on_merged_pallet, l1.vifel_on_merged_pallet)
-        check('AG10 the lone line still holds the Fixed pallet (+1 preserved)',
+        check('AG9 with only line 1 left it STILL shows Merged — a birth line '
+              'placed with the Merge button can be reverted even alone (the '
+              'reported request)',
+              l1.vifel_on_merged_pallet, l1.vifel_on_merged_pallet)
+        check('AG10 the lone line holds the Fixed pallet (+1) until reverted',
               l1.result_package_id == empty_fixed
               and empty_fixed.id in received_pkgs())
-        try:
-            l1.action_unmerge_pallet_line()
-            check('AG11 the sole line refuses Un-merge', False, 'no error')
-        except UserError:
-            check('AG11 the sole line refuses Un-merge', True)
+        l1.action_unmerge_pallet_line()
+        env.flush_all()
+        check('AG11 un-merging the lone birth line REVERTS it off the Fixed '
+              'pallet (marker cleared) — the first-merge revert works',
+              not l1.result_package_id and not l1.vifel_premerge_captured
+              and not l1.vifel_on_merged_pallet,
+              (l1.result_package_id.name, l1.vifel_premerge_captured))
     else:
         for n in ('AG1', 'AG2', 'AG3', 'AG4', 'AG5', 'AG6', 'AG7', 'AG8',
                   'AG9', 'AG10', 'AG11'):

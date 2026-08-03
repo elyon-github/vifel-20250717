@@ -36,27 +36,30 @@ class StockMoveLineMergeEntry(models.Model):
                  'picking_id.move_line_ids.vifel_premerge_captured')
     def _compute_vifel_on_merged_pallet(self):
         for line in self:
-            # A +0 merge is always on a merged pallet (it sits on another
-            # receipt's stock — no same-receipt sibling to share with).
-            if line.is_pallet_merge:
+            # OWN marker: a +0 merge (is_pallet_merge) OR an explicit
+            # merge-button placement (vifel_premerge_captured — a same-receipt
+            # join OR a first-stock birth). Any line you merged with the button
+            # shows "Merged" and offers Un-merge so it can be REVERTED — even as
+            # the SOLE line on the pallet (e.g. line #1 the first time it merges
+            # onto a Fixed pallet). Un-merge clears the marker, so a reverted
+            # line goes back to plain.
+            if line.is_pallet_merge or line.vifel_premerge_captured:
                 line.vifel_on_merged_pallet = True
                 continue
-            # Otherwise it is merged only as a same-receipt consolidation: the
-            # pallet must be SHARED by more than one line of this receipt AND at
-            # least one of them must carry a merge marker (a captured joiner, or
-            # a +0). That second test is what tells a genuine merge from ordinary
-            # multi-line-on-one-pallet encoding (two SKUs stacked on one pallet
-            # share a pallet too, but carry no marker). Requiring sharing also
-            # means the lone line left after the others peel off is plain again —
-            # there is nothing left to un-merge it from.
+            # HOST symmetry: an UNMARKED line that shares its pallet with a
+            # marked sibling also reads as merged. Merely sharing a pallet with
+            # another UNMARKED line is NOT a merge — that is ordinary
+            # multi-line-on-one-pallet encoding (M/RR/05299), which must stay
+            # unchecked. When the marked sibling leaves, the host is alone and
+            # unmarked again → plain.
             pkg = line.result_package_id
             if not pkg:
                 line.vifel_on_merged_pallet = False
                 continue
-            group = line.picking_id.move_line_ids.filtered(
-                lambda l: l.result_package_id == pkg)
-            line.vifel_on_merged_pallet = len(group) > 1 and any(
-                (l.is_pallet_merge or l.vifel_premerge_captured) for l in group)
+            line.vifel_on_merged_pallet = any(
+                (sib.is_pallet_merge or sib.vifel_premerge_captured)
+                for sib in (line.picking_id.move_line_ids - line)
+                if sib.result_package_id == pkg)
 
     @api.depends('picking_id.partner_id', 'picking_id.state',
                  'picking_id.picking_type_id')
