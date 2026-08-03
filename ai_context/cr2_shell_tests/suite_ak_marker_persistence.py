@@ -41,8 +41,9 @@ try:
     src = env['stock.location'].search([('usage', '=', 'supplier')], limit=1)
     dst = env['stock.location'].search([('usage', '=', 'internal')], limit=1)
 
-    def merged_pkg(flag='captured'):
-        """A fresh empty package carrying ONE merged receiving line."""
+    def merged_pkg(flag='captured', with_stock=True):
+        """A fresh package carrying ONE merged receiving line, optionally holding
+        stock (a quant) so it is a real, currently-merged pallet."""
         pkg = env['stock.quant.package'].create({})
         pick = env['stock.picking'].create({
             'picking_type_id': itype.id, 'partner_id': owner.id,
@@ -57,38 +58,45 @@ try:
             'result_package_id': pkg.id,
             'is_pallet_merge': (flag == 'flag'),
             'vifel_premerge_captured': (flag == 'captured')})
+        if with_stock:
+            env['stock.quant'].with_context(inventory_mode=True).create({
+                'product_id': prod.id, 'location_id': dst.id, 'package_id': pkg.id,
+                'owner_id': owner.id, 'quantity': 100.0})
         return pkg, pick, mv, ml
 
     # ============ A1: reset/clean must not erase merge identity ============
-    pkg, pick, mv, ml = merged_pkg('captured')
+    # A pallet that HOLDS its merged stock stays a merge pallet even if the
+    # receiving line that recorded the merge is deleted (reset/clean SA).
+    pkg, pick, mv, ml = merged_pkg('captured', with_stock=True)
     env.flush_all()
-    check('AK0 a freshly-merged pallet allows partial withdrawal (baseline)',
-          allows(pkg), 'setup sanity')
+    check('AK0 a freshly-merged pallet (holding stock) allows partial '
+          'withdrawal (baseline)', allows(pkg), 'setup sanity')
 
     # simulate the reset/clean SA: unlink the receiving move line(s)
     ml.unlink()
     env.flush_all()
     check('AK1 after the receiving line is reset/cleaned, the pallet STILL '
-          'allows partial withdrawal (durable identity)',
+          'allows partial withdrawal (durable identity survives line deletion)',
           allows(pkg),
-          'TODAY returns %s (identity lost when the marker line is deleted)'
-          % allows(pkg))
+          'returns %s' % allows(pkg))
 
     env.cr.rollback()
 
-    # ============ A2: a recycled package must NOT false-positive ============
-    pkg, pick, mv, ml = merged_pkg('flag')
+    # ============ A2: an emptied/recycled package must NOT false-positive =====
+    # A pallet once merged onto, now EMPTIED (its goods withdrawn), must not
+    # allow partial withdrawal - even though the durable flag is still set.
+    pkg, pick, mv, ml = merged_pkg('flag', with_stock=True)
     env.flush_all()
-    check('AK2 the merged pallet allows partial withdrawal (baseline)', allows(pkg))
-    # recycle: the pallet is emptied and freed (today: only unreserved)
-    env['stock.move.line']._free_pallet_if_unused(pick.id, pkg.id)
-    # ...and there is NO current merge stock on it (the line is historical/done-like)
+    check('AK2 the merged pallet (holding stock) allows partial withdrawal '
+          '(baseline)', allows(pkg))
+    # empty it: withdraw all its stock (quantity -> 0)
+    pkg.quant_ids.filtered(lambda q: q.quantity > 0).write({'quantity': 0.0})
     env.flush_all()
-    check('AK3 once emptied/freed and NOT currently a merge pallet, it must NOT '
-          'allow partial withdrawal (no recycled-package false positive)',
+    check('AK3 once EMPTIED it must NOT allow partial withdrawal (no recycled/'
+          'empty-package false positive), even with the flag still set',
           not allows(pkg),
-          'TODAY returns %s (old marker line still matches the global search)'
-          % allows(pkg))
+          'flag=%s holds_stock=%s -> allows=%s'
+          % (pkg.vifel_is_merge_pallet, pkg.vifel_holds_stock(), allows(pkg)))
 
 except Exception:
     print('UNEXPECTED ERROR:')

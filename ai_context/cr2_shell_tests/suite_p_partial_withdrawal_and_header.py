@@ -41,37 +41,54 @@ try:
     env.flush_all()
     check('W2 a pinned Fixed Merge Pallet allows partial withdrawal',
           Q._vifel_package_allows_partial_withdrawal(normal.id))
+    # DURABLE IDENTITY: un-pinning a Fixed pallet that STILL HOLDS its merged
+    # stock KEEPS partial withdrawal (freed only once emptied) - the user's rule.
     owner.write({'vifel_fixed_package_id':False,'vifel_fixed_psi':False}); env.flush_all()
-    check('W3 ... and stops allowing it once un-pinned',
+    check('W3 un-pinned while still holding stock, it KEEPS partial withdrawal '
+          '(durable; freed only once emptied)',
+          Q._vifel_package_allows_partial_withdrawal(normal.id))
+    # empty it -> now it stops
+    normal.quant_ids.filtered(lambda q: q.quantity>0).write({'quantity':0.0})
+    env.flush_all()
+    check('W3b ... and stops once the pallet is emptied (fully withdrawn)',
           not Q._vifel_package_allows_partial_withdrawal(normal.id))
 
-    # a pallet something was merged onto allows it
-    ml=env['stock.move.line'].search([('result_package_id','!=',False)],limit=1)
-    ml.with_context(skip_pallet_series_sync=True).write({'is_pallet_merge':True})
-    env.flush_all()
-    check('W4 a pallet with merged stock allows partial withdrawal',
-          Q._vifel_package_allows_partial_withdrawal(ml.result_package_id.id),
-          ml.result_package_id.name)
+    # helper: a fresh package holding stock, marked via a move line
+    prod=env['product.product'].search([('type','=','product')],limit=1)
+    dst=env['stock.location'].search([('usage','=','internal')],limit=1)
+    src=env['stock.location'].search([('usage','=','supplier')],limit=1)
+    itype=env['stock.picking.type'].search([('code','=','incoming')],limit=1)
+    def marked_pkg_with_stock(flagkey):
+        pkg=env['stock.quant.package'].create({})
+        pk=env['stock.picking'].create({'picking_type_id':itype.id,'partner_id':owner.id,
+            'location_id':src.id,'location_dest_id':dst.id})
+        mv=env['stock.move'].create({'name':prod.name,'picking_id':pk.id,'product_id':prod.id,
+            'product_uom':prod.uom_id.id,'product_uom_qty':1,'location_id':src.id,'location_dest_id':dst.id})
+        line=env['stock.move.line'].with_context(skip_pallet_series_sync=True).create({
+            'picking_id':pk.id,'move_id':mv.id,'product_id':prod.id,'location_id':src.id,
+            'location_dest_id':dst.id,'result_package_id':pkg.id,
+            'is_pallet_merge':(flagkey=='flag'),'vifel_premerge_captured':(flagkey=='captured')})
+        env['stock.quant'].with_context(inventory_mode=True).create({'product_id':prod.id,
+            'location_id':dst.id,'package_id':pkg.id,'owner_id':owner.id,'quantity':100.0})
+        return pkg,line
 
-    # M/WR/08420: a Multiple-mode condition/special pallet (MDGM-/DUO-) is placed
-    # via the Merge button as a same-receipt join / first-stock birth /
-    # create-special - is_pallet_merge stays False but vifel_premerge_captured is
-    # True. It MUST allow partial withdrawal too (it was being blocked by the
-    # Incomplete Package notice).
-    ml2=env['stock.move.line'].search([('result_package_id','!=',False),
-        ('is_pallet_merge','=',False),('vifel_premerge_captured','=',False)],limit=1)
-    ml2.with_context(skip_pallet_series_sync=True).write(
-        {'is_pallet_merge':False,'vifel_premerge_captured':True})
-    env.flush_all()
+    # a +0 merge pallet holding stock allows partial withdrawal
+    pkg4,ml=marked_pkg_with_stock('flag'); env.flush_all()
+    check('W4 a +0 merge pallet (holding stock) allows partial withdrawal',
+          Q._vifel_package_allows_partial_withdrawal(pkg4.id), pkg4.name)
+
+    # M/WR/08420: a Multiple-mode condition/special pallet placed via the Merge
+    # button (is_pallet_merge False, vifel_premerge_captured True) also allows it.
+    pkg4b,ml2=marked_pkg_with_stock('captured'); env.flush_all()
     check('W4b a CAPTURED (merge-button-placed, unflagged) condition pallet '
-          'allows partial withdrawal',
-          Q._vifel_package_allows_partial_withdrawal(ml2.result_package_id.id),
-          ml2.result_package_id.name)
-    ml2.with_context(skip_pallet_series_sync=True).write(
-        {'vifel_premerge_captured':False}); env.flush_all()
-    check('W4c ... and stops once that capture marker is cleared (un-merged)',
-          not Q._vifel_package_allows_partial_withdrawal(ml2.result_package_id.id)
-          if ml2.result_package_id != ml.result_package_id else True)
+          'allows partial withdrawal', Q._vifel_package_allows_partial_withdrawal(pkg4b.id))
+    # DURABLE: clearing the LINE marker does NOT drop the PACKAGE identity - it is
+    # freed only when the pallet is emptied/unpinned, not when a line is edited.
+    ml2.with_context(skip_pallet_series_sync=True).write({'vifel_premerge_captured':False})
+    env.flush_all()
+    check('W4c clearing the line marker does NOT drop partial withdrawal '
+          '(durable package identity survives line edits)',
+          Q._vifel_package_allows_partial_withdrawal(pkg4b.id))
 
     # the core hook is a neutral no-op
     import os

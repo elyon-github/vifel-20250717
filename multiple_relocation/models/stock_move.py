@@ -997,6 +997,16 @@ class stock_move_line_Override(models.Model):
                     'x_studio_is_reserved': False,
                     'x_studio_receiving_report_id': False,
                 })
+                # Extension hook (vifel_client_requirements): a freed pallet may
+                # need its durable merge identity released if it is now idle.
+                # No-op here; overridden for the merge feature.
+                self._vifel_on_pallet_freed(pallet)
+
+    def _vifel_on_pallet_freed(self, pallet):
+        """Hook: a pallet has just been freed (unreserved). Default: nothing.
+        vifel_client_requirements clears the durable merge identity when the
+        pallet is idle (emptied and not pinned)."""
+        return
 
     def _free_location_if_unused(self, picking_id, location_id, exclude_ids=None):
         """Free (unreserve) a location if no lines in the RR still use it."""

@@ -77,6 +77,16 @@ class StockMoveLineMergeEntry(models.Model):
                 and not picking.x_studio_is_a_blast_freezer
                 and picking.partner_id.vifel_can_merge_pallets)
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Durably stamp the merge identity on the package of any line CREATED
+        already carrying a merge marker (e.g. an import, or the fast-encode
+        write-back). Keeps package.vifel_is_merge_pallet tracking the markers
+        without patching every producer."""
+        lines = super().create(vals_list)
+        lines._vifel_mark_package_merge_identity()
+        return lines
+
     def write(self, vals):
         """Guard merged lines, and detect an un-merge.
 
@@ -109,7 +119,33 @@ class StockMoveLineMergeEntry(models.Model):
             # refuses a series that is live on the floor.
             super(StockMoveLineMergeEntry, unmerged).write(
                 {'is_pallet_merge': False})
+
+        # Durable identity: if this write set a merge marker or moved a marked
+        # line onto a package, stamp that package. (Un-merge above clears the
+        # LINE flag, but the PACKAGE identity is only freed when the pallet is
+        # emptied-and-unpinned — a shared pallet stays a merge pallet.)
+        if ('is_pallet_merge' in vals or 'vifel_premerge_captured' in vals
+                or 'result_package_id' in vals):
+            self._vifel_mark_package_merge_identity()
         return res
+
+    def _vifel_mark_package_merge_identity(self):
+        """Stamp vifel_is_merge_pallet on the package of every line here that
+        currently carries a merge marker — the single, path-agnostic set-point
+        for the durable identity."""
+        pkgs = self.filtered(
+            lambda l: l.result_package_id
+            and (l.is_pallet_merge or l.vifel_premerge_captured)
+        ).mapped('result_package_id')
+        if pkgs:
+            pkgs.vifel_mark_merge_identity()
+
+    def _vifel_on_pallet_freed(self, pallet):
+        """When a receiving displacement frees a pallet, release its durable
+        merge identity if it is now idle (emptied and not pinned) — the A2 fix
+        so a recycled package starts clean."""
+        pallet.vifel_free_merge_identity_if_idle()
+        return super()._vifel_on_pallet_freed(pallet)
 
     def _vifel_guard_merged_line_edit(self, vals):
         """Refuse a silent edit of a merged line's location or series.

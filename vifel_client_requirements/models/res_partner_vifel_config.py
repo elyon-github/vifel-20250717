@@ -114,6 +114,10 @@ class ResPartnerVifelConfig(models.Model):
         todo = packages.filtered(lambda p: not p.x_studio_is_reserved)
         if todo:
             todo.write({'x_studio_is_reserved': True})
+        # A pinned Fixed pallet IS a merge pallet — stamp the durable identity so
+        # it carries on the Pallet # too (and survives even while empty, since
+        # the release path below only frees it once it stops being pinned).
+        packages.vifel_mark_merge_identity()
 
     def _vifel_release_fixed_package(self, packages):
         """Let a pallet go when it stops being anyone's pinned pallet."""
@@ -126,6 +130,11 @@ class ResPartnerVifelConfig(models.Model):
             and not p.quant_ids.filtered(lambda q: q.quantity > 0))
         if free:
             free.write({'x_studio_is_reserved': False})
+        # Free the durable merge identity on any un-pinned pallet that is now
+        # idle: emptied AND no longer pinned (user's rule). An un-pinned pallet
+        # that STILL holds its merged stock keeps the identity until that stock
+        # is withdrawn — vifel_free_merge_identity_if_idle enforces exactly that.
+        orphaned.vifel_free_merge_identity_if_idle()
 
     # ------------------------------------------------------------------
     # seeding — in create/write, NOT onchange, so it also covers imports
