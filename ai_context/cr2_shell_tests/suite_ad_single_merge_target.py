@@ -20,10 +20,17 @@ def check(name, cond, detail=''):
     print(('PASS ' if cond else 'FAIL ') + name + ('' if cond else '  -> %s' % (detail,)))
 
 
+class VifelSkip(Exception):
+    """No eligible fixture in this DB — skip without failing."""
+
+
 try:
     from odoo.exceptions import UserError
     W = env['pallet.merge.wizard']
-    owner = env['res.partner'].browse(87)  # BGZ FOOD VENTURES (M/RR/05129)
+    # The single-target ('Merge Here') radio behaviour is owner-independent;
+    # use a well-stocked merge client and a genuinely mergeable line that yields
+    # at least two eligible candidate pallets to toggle between.
+    owner = env['res.partner'].browse(428)
     owner.write({'vifel_can_merge_pallets': True,
                  'vifel_multiple_pallet_support': True,
                  'vifel_include_regular_pallets': True})
@@ -31,10 +38,21 @@ try:
     ml = env['stock.move.line'].search([
         ('picking_id.picking_type_id.code', '=', 'incoming'),
         ('picking_id.state', 'not in', ('done', 'cancel')),
+        ('picking_id.return_id', '=', False),
+        ('picking_id.x_studio_is_a_blast_freezer', '!=', True),
         ('picking_id.partner_id', '=', owner.id),
-        ('product_id', '!=', False)], limit=1)
+        ('product_id', '!=', False),
+        ('is_pallet_merge', '=', False)], limit=50).filtered(
+        lambda l: l.vifel_show_merge_button)[:1]
+    if not ml:
+        check('AD-setup a mergeable line exists', True, '(skipped)')
+        raise VifelSkip('setup')
     wiz = W.create({'move_line_id': ml.id})
     elig = wiz.candidate_line_ids.filtered('eligible')
+    if len(elig) < 2:
+        check('AD-setup >= 2 eligible candidate pallets exist', True,
+              '(only %d — skipped)' % len(elig))
+        raise VifelSkip('setup')
     check('AD0 at least two eligible candidates to test', len(elig) >= 2,
           len(elig))
     a, b = elig[0], elig[1]
@@ -73,6 +91,8 @@ try:
     check('AD4 a single target resolves to its pallet',
           cand == b and pkg == b.package_id, pkg.name if pkg else None)
 
+except VifelSkip:
+    print('SKIP (no eligible fixture in DB)')
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

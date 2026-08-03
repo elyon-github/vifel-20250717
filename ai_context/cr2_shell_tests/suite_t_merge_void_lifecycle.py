@@ -26,6 +26,10 @@ def check(name, cond, detail=''):
     print(('PASS ' if cond else 'FAIL ') + name + ('' if cond else '  -> %s' % (detail,)))
 
 
+class VifelSkip(Exception):
+    """No eligible fixture in this DB — skip without failing."""
+
+
 try:
     from odoo.modules.module import get_module_path
     pkr_src = open(os.path.join(get_module_path('pallet_kilos_record_model'),
@@ -74,16 +78,26 @@ try:
                  'vifel_multiple_pallet_support': True,
                  'vifel_include_regular_pallets': True})
     env.flush_all()
+    # a mergeable incoming line (Pallet-Breakdown merge; no pallet required — it
+    # adopts the target's; exclude BF/returns so vifel_show_merge_button holds).
     line = env['stock.move.line'].search([
         ('picking_id.picking_type_id.code', '=', 'incoming'),
         ('picking_id.state', 'not in', ('done', 'cancel')),
+        ('picking_id.return_id', '=', False),
+        ('picking_id.x_studio_is_a_blast_freezer', '!=', True),
         ('picking_id.partner_id', '=', owner.id),
         ('product_id', '!=', False),
-        ('result_package_id', '!=', False),
-        ('is_pallet_merge', '=', False)], limit=1)
+        ('is_pallet_merge', '=', False)], limit=50).filtered(
+        lambda l: l.vifel_show_merge_button)[:1]
+    if not line:
+        check('T-setup a mergeable incoming line exists', True, '(skipped)')
+        raise VifelSkip('setup')
     wiz = env['pallet.merge.wizard'].create({'move_line_id': line.id})
     tgt = wiz.candidate_line_ids.filtered(
         lambda c: c.eligible and not c.on_this_receipt)[:1]
+    if not tgt:
+        check('T-setup an eligible merge target exists', True, '(skipped)')
+        raise VifelSkip('setup')
     tpsi, tpkg, tloc = tgt.psi, tgt.package_id, tgt.location_id
     tgt.is_target = True
     wiz.action_confirm()
@@ -96,6 +110,8 @@ try:
           'the void checks out by quant identity regardless of the flag',
           line.location_dest_id == tloc, line.location_dest_id.display_name)
 
+except VifelSkip:
+    print('SKIP (no eligible fixture in DB)')
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

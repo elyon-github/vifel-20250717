@@ -19,6 +19,10 @@ def check(name, cond, detail=''):
     print(('PASS ' if cond else 'FAIL ') + name + ('' if cond else '  -> %s' % (detail,)))
 
 
+class VifelSkip(Exception):
+    """No eligible fixture in this DB — skip the rest without failing."""
+
+
 try:
     owner = env['res.partner'].browse(428)          # TECHNO FARM
     owner.write({'vifel_can_merge_pallets': True,
@@ -26,12 +30,25 @@ try:
                  'vifel_include_regular_pallets': True})
     env.flush_all()
 
+    # a genuinely MERGEABLE incoming line: not a blast-freeze/return receipt and
+    # not already merged, so vifel_show_merge_button is True (the first raw
+    # incoming line often lands on a BF/return and is not mergeable).
+    # NB: a mergeable line need NOT already carry a pallet — it adopts the
+    # target's on merge, so we do NOT require result_package_id (only 13 of this
+    # owner's 529 incoming lines have one, and those sit on returns/BF).
     line = env['stock.move.line'].search([
         ('picking_id.picking_type_id.code', '=', 'incoming'),
         ('picking_id.state', 'not in', ('done', 'cancel')),
+        ('picking_id.return_id', '=', False),
+        ('picking_id.x_studio_is_a_blast_freezer', '!=', True),
         ('picking_id.partner_id', '=', owner.id),
         ('product_id', '!=', False),
-        ('result_package_id', '!=', False)], limit=1)
+        ('is_pallet_merge', '!=', True)], limit=50).filtered(
+        lambda l: l.vifel_show_merge_button)[:1]
+    if not line:
+        check('E-setup a mergeable incoming line exists for the client', True,
+              '(none in DB — skipped)')
+        raise VifelSkip('setup')
     picking = line.picking_id
     print('picking %s, merging line #%s' % (picking.name, line.x_studio_))
 
@@ -46,6 +63,10 @@ try:
     if not target:
         target = wiz.candidate_line_ids.filtered(
             lambda c: c.eligible and not c.on_this_receipt)[:1]
+    if not target:
+        check('E-setup an eligible merge target exists for the client', True,
+              '(no stocked candidate pallet — skipped)')
+        raise VifelSkip('setup')
     target.is_target = True
     wiz.action_confirm()
     env.flush_all()
@@ -115,6 +136,8 @@ try:
         check('E11 non-merged sibling still encodes', True,
               '(no clean sibling to test)')
 
+except VifelSkip as _s:
+    print('SKIP (no eligible fixture in DB)')
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

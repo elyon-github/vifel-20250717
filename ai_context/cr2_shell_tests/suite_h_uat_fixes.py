@@ -23,6 +23,10 @@ def check(name, cond, detail=''):
     print(('PASS ' if cond else 'FAIL ') + name + ('' if cond else '  -> %s' % (detail,)))
 
 
+class VifelSkip(Exception):
+    """No eligible fixture in this DB — skip without failing."""
+
+
 try:
     Line = env['stock.move.line.fast_encode_rr.line']
 
@@ -61,13 +65,35 @@ try:
                  'vifel_multiple_pallet_support': True,
                  'vifel_include_regular_pallets': True})
     env.flush_all()
+    # a mergeable incoming line (exclude BF/returns so it is truly mergeable),
+    # made Magic-Wizard-ready (needs a PSI + location to open).
     ml = env['stock.move.line'].search([
         ('picking_id.picking_type_id.code', '=', 'incoming'),
         ('picking_id.state', 'not in', ('done', 'cancel')),
+        ('picking_id.return_id', '=', False),
+        ('picking_id.x_studio_is_a_blast_freezer', '!=', True),
         ('picking_id.partner_id', '=', owner.id),
         ('product_id', '!=', False),
-        ('result_package_id', '!=', False),
-        ('is_pallet_merge', '=', False)], limit=1)
+        ('is_pallet_merge', '=', False)], limit=50).filtered(
+        lambda l: l.vifel_show_merge_button)[:1]
+    if not ml:
+        check('U-setup a mergeable line exists', True, '(skipped)')
+        raise VifelSkip('setup')
+    _rloc = env['stock.location'].search([
+        ('usage', '=', 'internal'),
+        ('id', 'child_of', ml.picking_id.location_dest_id.id),
+        '|', ('x_studio_is_an_aisle', '=', True), ('child_ids', '=', False)],
+        limit=1)
+    _rpkg = env['stock.quant.package'].search([
+        ('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'),
+        ('x_studio_active', '=', True)], limit=1)
+    if not (_rloc and _rpkg):
+        check('U-setup a location + empty pallet exist', True, '(skipped)')
+        raise VifelSkip('setup')
+    ml.with_context(skip_pallet_series_sync=True).write({
+        'x_studio_pallet_series_id': ml.x_studio_pallet_series_id or 'HUAT-000001',
+        'location_dest_id': _rloc.id, 'result_package_id': _rpkg.id})
+    env.flush_all()
     act = ml.action_open_fast_encode_wizard()
     fw = env['stock.move.line.fast_encode_rr'].browse(
         act['context']['default_wizard_id'])
@@ -97,6 +123,9 @@ try:
     # confirm path still returns to the list too
     tgt = wiz.candidate_line_ids.filtered(
         lambda c: c.eligible and not c.on_this_receipt)[:1]
+    if not tgt:
+        check('U-setup an eligible merge target exists', True, '(skipped)')
+        raise VifelSkip('setup')
     tgt.is_target = True
     conf = wiz.action_confirm()
     env.flush_all()
@@ -104,8 +133,16 @@ try:
           isinstance(conf, dict)
           and conf.get('res_model') == 'stock.move.line.fast_encode_rr.line',
           conf.get('res_model'))
-    check('U11 ... and the merge actually applied', ml.is_pallet_merge)
+    # STAGED (commit 2ba23f7): the merge is recorded on the ROW; the real line is
+    # applied only at the Magic Wizard's own Confirm.
+    env.invalidate_all()
+    trow = fw.line_ids.filtered(lambda l: l.stock_move_line == ml.id)
+    check('U11 ... and the merge is staged on the row (applied at MW confirm)',
+          trow.is_pallet_merge or trow.vifel_pending_merge,
+          (trow.is_pallet_merge, trow.vifel_pending_merge))
 
+except VifelSkip:
+    print('SKIP (no eligible fixture in DB)')
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

@@ -80,17 +80,23 @@ try:
           and isinstance(MoveLine.search_count(
               [('is_pallet_merge', '!=', True)]), int))
 
-    # ---- the exclusions must be a NO-OP on unflagged (real) data -----
-    # This is the load-bearing safety property: no live row is flagged, so
-    # every merge-free domain must match exactly what it matched before the
-    # feature existed. If these counts ever diverge, the clause is silently
-    # dropping rows (e.g. NULL handling) and the ledger is at risk.
+    # ---- the exclusions must drop ONLY genuinely-flagged rows --------
+    # The load-bearing safety property (DB-state INDEPENDENT): the
+    # ('is_pallet_merge', '!=', True) clause must keep every NULL/False
+    # (unflagged) row and drop ONLY the rows genuinely flagged True. If it ever
+    # silently dropped NULLs (a SQL NULL-handling risk), the ledger would lose
+    # real received pallets. So: n_free must equal n_all minus n_true, on ANY
+    # data — whether or not real merges exist (originally this asserted
+    # n_all==n_free, which only held while NO row was flagged; that premise is
+    # stale now that live merges exist, so it is expressed against n_true).
     base_dom = [('state', '=', 'done'), ('result_package_id', '!=', False),
                 ('picking_id.picking_type_id.code', '=', 'incoming')]
     n_all = MoveLine.search_count(base_dom)
     n_free = MoveLine.search_count(base_dom + [('is_pallet_merge', '!=', True)])
-    check('C9 merge-free domain is a no-op on unflagged data (%d rows)'
-          % n_all, n_all == n_free, (n_all, n_free))
+    n_true = MoveLine.search_count(base_dom + [('is_pallet_merge', '=', True)])
+    check('C9 merge-free domain keeps all unflagged rows, drops only the %d '
+          'flagged (NULL/False are not silently dropped; %d rows total)'
+          % (n_true, n_all), n_free == n_all - n_true, (n_all, n_free, n_true))
 
     # ---- full-owner Re-sync: IDEMPOTENT ------------------------------
     # (runs BEFORE the copy test: a copied line cannot be unlinked from a
