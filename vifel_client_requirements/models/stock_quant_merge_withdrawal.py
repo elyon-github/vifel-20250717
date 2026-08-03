@@ -23,12 +23,18 @@ class StockQuantMergeWithdrawal(models.Model):
     def _vifel_package_allows_partial_withdrawal(self, package_id):
         """A merge pallet may be withdrawn from partially.
 
-        Two kinds qualify, and both are genuinely multi-batch:
+        These kinds qualify, and all are genuinely multi-batch:
 
         * a pallet pinned as some client's Fixed Merge Pallet - dedicated,
           receiving goods from many documents over its life;
-        * any pallet something has actually been merged onto, which is how a
-          Multiple-mode client's condition pallets accumulate.
+        * any pallet something has actually been merged onto - either a +0 merge
+          (``is_pallet_merge``) OR any explicit Merge-button placement
+          (``vifel_premerge_captured``: a same-receipt join, a first-stock birth,
+          or a new special pallet). Both are how a Multiple-mode client's
+          condition/special pallets (e.g. MDGM-, DUO-) accumulate goods across
+          receipts. ``is_pallet_merge`` alone missed those unflagged placements,
+          so a genuine condition pallet was nagged by the Incomplete Package
+          notice and blocked from a legitimate partial withdrawal.
         """
         if not package_id:
             return super()._vifel_package_allows_partial_withdrawal(package_id)
@@ -39,7 +45,9 @@ class StockQuantMergeWithdrawal(models.Model):
 
         if self.env['stock.move.line'].search_count([
                 ('result_package_id', '=', package_id),
-                ('is_pallet_merge', '=', True)]):
+                '|',
+                ('is_pallet_merge', '=', True),
+                ('vifel_premerge_captured', '=', True)]):
             return True
 
         return super()._vifel_package_allows_partial_withdrawal(package_id)

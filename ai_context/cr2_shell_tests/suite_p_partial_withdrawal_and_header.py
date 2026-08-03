@@ -53,6 +53,26 @@ try:
           Q._vifel_package_allows_partial_withdrawal(ml.result_package_id.id),
           ml.result_package_id.name)
 
+    # M/WR/08420: a Multiple-mode condition/special pallet (MDGM-/DUO-) is placed
+    # via the Merge button as a same-receipt join / first-stock birth /
+    # create-special - is_pallet_merge stays False but vifel_premerge_captured is
+    # True. It MUST allow partial withdrawal too (it was being blocked by the
+    # Incomplete Package notice).
+    ml2=env['stock.move.line'].search([('result_package_id','!=',False),
+        ('is_pallet_merge','=',False),('vifel_premerge_captured','=',False)],limit=1)
+    ml2.with_context(skip_pallet_series_sync=True).write(
+        {'is_pallet_merge':False,'vifel_premerge_captured':True})
+    env.flush_all()
+    check('W4b a CAPTURED (merge-button-placed, unflagged) condition pallet '
+          'allows partial withdrawal',
+          Q._vifel_package_allows_partial_withdrawal(ml2.result_package_id.id),
+          ml2.result_package_id.name)
+    ml2.with_context(skip_pallet_series_sync=True).write(
+        {'vifel_premerge_captured':False}); env.flush_all()
+    check('W4c ... and stops once that capture marker is cleared (un-merged)',
+          not Q._vifel_package_allows_partial_withdrawal(ml2.result_package_id.id)
+          if ml2.result_package_id != ml.result_package_id else True)
+
     # the core hook is a neutral no-op
     import os
     from odoo.modules.module import get_module_path
