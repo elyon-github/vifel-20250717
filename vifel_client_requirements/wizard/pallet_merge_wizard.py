@@ -279,6 +279,13 @@ class PalletMergeWizard(models.TransientModel):
     # reusing a sibling line's pallet would mix two Pallet Series on it, and
     # reusing its (non-aisle) location would stack two pallets in one bin. Both
     # are refused at validation, but the pickers should not offer them at all.
+    #
+    # "Claimed" spans BOTH surfaces:
+    #  * the Pallet Breakdown — the REAL move lines of the receipt; and
+    #  * the Magic Wizard — the sibling transient rows of the SAME Fast-Encode
+    #    session whose Pallet # / Location the encoder has picked but not yet
+    #    confirmed to the real lines. Without this the wizard would offer a
+    #    pallet/location another Magic Wizard row already took.
     vifel_receipt_used_package_ids = fields.Many2many(
         'stock.quant.package', 'vifel_merge_wizard_used_pkg_rel',
         compute='_compute_vifel_receipt_used')
@@ -288,18 +295,32 @@ class PalletMergeWizard(models.TransientModel):
 
     @api.depends('move_line_id', 'move_line_ids',
                  'move_line_id.picking_id.move_line_ids.result_package_id',
-                 'move_line_id.picking_id.move_line_ids.location_dest_id')
+                 'move_line_id.picking_id.move_line_ids.location_dest_id',
+                 'fast_encode_line_id', 'fast_encode_line_ids')
     def _compute_vifel_receipt_used(self):
         for wizard in self:
             picking = wizard.move_line_id.picking_id
             own = wizard.move_line_ids | wizard.move_line_id
             others = picking.move_line_ids - own
-            wizard.vifel_receipt_used_package_ids = others.mapped(
-                'result_package_id')
-            wizard.vifel_receipt_used_location_ids = others.filtered(
+            used_pkgs = others.mapped('result_package_id')
+            used_locs = others.filtered(
                 lambda l: l.location_dest_id
                 and not l.location_dest_id.x_studio_is_an_aisle
             ).mapped('location_dest_id')
+
+            # ALSO exclude what the OTHER rows of the same Magic Wizard session
+            # have picked but not yet written to the real move lines.
+            fe_rows = wizard._fast_encode_rows()
+            if fe_rows:
+                sibling_fe = fe_rows[0].wizard_id.line_ids - fe_rows
+                used_pkgs |= sibling_fe.mapped('result_package_id')
+                used_locs |= sibling_fe.filtered(
+                    lambda r: r.location_dest_id
+                    and not r.location_dest_id.x_studio_is_an_aisle
+                ).mapped('location_dest_id')
+
+            wizard.vifel_receipt_used_package_ids = used_pkgs
+            wizard.vifel_receipt_used_location_ids = used_locs
 
     new_package_id = fields.Many2one(
         'stock.quant.package', string='New Empty Pallet',
@@ -984,20 +1005,17 @@ class PalletMergeWizard(models.TransientModel):
 
         # A new special pallet cannot reuse a pallet or (non-aisle) location that
         # another line of THIS receipt already claimed — that would put two
-        # Pallet Series on one pallet, or two pallets in one bin.
-        own = self.move_line_ids | self.move_line_id
-        others = picking.move_line_ids - own
-        if self.new_package_id in others.mapped('result_package_id'):
+        # Pallet Series on one pallet, or two pallets in one bin. Read the SAME
+        # computed sets the pickers exclude, so a stale form / RPC cannot reuse a
+        # pallet/location taken either on the Pallet Breakdown OR in a sibling
+        # Magic Wizard row (domains are UI-only; this is the server backstop).
+        if self.new_package_id in self.vifel_receipt_used_package_ids:
             raise UserError(_(
                 'Pallet %s is already used by another line of this receipt. '
                 'A new special pallet needs a fresh, empty pallet — or use '
                 'Merge Pallet to place this line on it instead.')
                 % self.new_package_id.name)
-        used_locs = others.filtered(
-            lambda l: l.location_dest_id
-            and not l.location_dest_id.x_studio_is_an_aisle
-        ).mapped('location_dest_id')
-        if self.new_location_id in used_locs:
+        if self.new_location_id in self.vifel_receipt_used_location_ids:
             raise UserError(_(
                 'Location %s already holds another pallet from this receipt. '
                 'Pick a free location for the new pallet.')
