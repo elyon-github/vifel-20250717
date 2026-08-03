@@ -103,10 +103,14 @@ try:
     # CRITICAL COUNTING: pallet is STILL counted +1 (host remains on it)
     check('AA10b the pallet STILL counts +1 after the joiner left',
           join_pkg.id in received_pkgs(), sorted(received_pkgs()))
-    # the host is now the sole line -> no longer "shared" -> marker off, and it
-    # goes back to offering Merge Pallet. Consistent.
-    check('AA10c the HOST is now a plain line again (marker off, can Merge)',
-          not l1.vifel_on_merged_pallet)
+    # The host STARTED this pallet with the Merge button (create-special), so it
+    # carries its OWN capture marker and stays Merged + Un-merge even now that it
+    # is the sole line — it can revert its own create-special. (A host that had
+    # merely SHARED an unmarked pallet would go plain here; this one is marked.)
+    check('AA10c the HOST (a create-special line) still shows Merged so it can '
+          'revert its own first merge',
+          l1.vifel_on_merged_pallet and l1.vifel_premerge_captured,
+          (l1.vifel_on_merged_pallet, l1.vifel_premerge_captured))
     # the stored display series is cleared too (no stale PSI)
     if 'x_studio_pallet_series_display' in l2._fields:
         check('AA11 the stored display series was cleared (no stale PSI)',

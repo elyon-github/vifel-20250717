@@ -966,12 +966,21 @@ class PalletMergeWizard(models.TransientModel):
             old_series = line.x_studio_pallet_series_id or ''
             old_package_id = line.result_package_id.id
             old_location_id = line.location_dest_id.id
-            # a plain line: a new pallet on the floor, counted +1
+            # A new pallet on the floor, counted +1 (is_pallet_merge stays
+            # False). But it was placed with the Merge Pallet button, so CAPTURE
+            # its pre-merge state — exactly like a first-stock birth — so it
+            # shows "Merged" and offers Un-merge and can be REVERTED, even as the
+            # sole line on the pallet. Un-merge restores this original series
+            # if still free and frees the new pallet; the drawn special series
+            # is never recycled (the detach's recycle guard).
             line.with_context(skip_pallet_series_sync=True).write({
                 'result_package_id': target.id,
                 'x_studio_pallet_series_id': series,
                 'location_dest_id': self.new_location_id.id,
                 'is_pallet_merge': False,
+                'vifel_premerge_captured': True,
+                'vifel_premerge_series': old_series or False,
+                'vifel_premerge_location_id': old_location_id or False,
             })
             self._free_displaced(line, old_series, series, old_package_id,
                                  old_location_id, target)
