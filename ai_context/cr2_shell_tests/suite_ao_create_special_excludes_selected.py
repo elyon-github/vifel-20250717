@@ -130,8 +130,31 @@ try:
         except UserError as e:
             check('AO7 a genuinely free pallet + bin still passes validation',
                   False, str(e)[:80])
+
+        # ---- INCLUSION: a STAGED Multi-PSI pallet on a sibling Magic Wizard row
+        # is offered as an "on this receipt" join candidate to the other rows,
+        # BEFORE the session is confirmed (the reported bug). Give r_sib a drawn
+        # PSI to simulate a staged create-special.
+        r_sib.write({'pallet_series_id': 'SDMG-000123'})
+        env.flush_all()
+        wiz2 = W.create({'move_line_id': l_open.id,
+                         'move_line_ids': [(6, 0, [l_open.id])],
+                         'from_fast_encode': True,
+                         'fast_encode_line_id': r_open.id,
+                         'fast_encode_line_ids': [(6, 0, [r_open.id])]})
+        env.flush_all()
+        cand = wiz2.candidate_line_ids.filtered(
+            lambda c: c.package_id == pkg_sib)
+        check('AO8 the staged Magic Wizard Multi-PSI pallet appears as an "on '
+              'this receipt" candidate for the other row (the reported fix)',
+              bool(cand) and cand.on_this_receipt,
+              [(c.package_id.name, c.psi, c.on_this_receipt, c.eligible)
+               for c in wiz2.candidate_line_ids])
+        check('AO9 that candidate is ELIGIBLE and carries the staged PSI',
+              bool(cand) and cand.eligible and cand.psi == 'SDMG-000123',
+              (cand.eligible, cand.psi) if cand else None)
     else:
-        for n in ('AO1','AO2','AO3','AO4','AO5','AO6','AO7'):
+        for n in ('AO1','AO2','AO3','AO4','AO5','AO6','AO7','AO8','AO9'):
             check(n + ' (setup unavailable)', True)
 
 except Exception:

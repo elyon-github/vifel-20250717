@@ -598,6 +598,35 @@ class PalletMergeWizard(models.TransientModel):
             grp['weight'] += sib.quantity or 0.0
             grp['quantity'] += sib.x_studio_2nd_uom or 0.0
 
+        # ALSO: pallets started on OTHER rows of the SAME Magic Wizard session
+        # that are NOT yet written to the real move lines (a STAGED create-special
+        # / merge — applied only on the session's Confirm). Without this, a
+        # Multi-PSI pallet just created inside the Magic Wizard would not appear
+        # as a join target for the other rows until the whole session confirmed.
+        # Skip any pallet already carried by a real move line (handled above) so
+        # its figures are not double-counted.
+        if partner.vifel_multiple_pallet_support:
+            fe_rows = self._fast_encode_rows()
+            if fe_rows:
+                real_pkg_ids = set(
+                    self.picking_id.move_line_ids.mapped('result_package_id').ids)
+                for row in (fe_rows[0].wizard_id.line_ids - fe_rows):
+                    pkg = row.result_package_id
+                    if (not pkg or pkg.id in seen_pkgs
+                            or pkg.id in real_pkg_ids):
+                        continue
+                    grp = siblings.setdefault(pkg.id, {
+                        'package': pkg, 'psis': set(), 'products': [],
+                        'product_ids': set(), 'location': row.location_dest_id,
+                        'weight': 0.0, 'quantity': 0.0})
+                    if row.pallet_series_id:
+                        grp['psis'].add(row.pallet_series_id)
+                    if row.product_id and row.product_id.id not in grp['product_ids']:
+                        grp['product_ids'].add(row.product_id.id)
+                        grp['products'].append(row.product_id.display_name)
+                    grp['weight'] += row.kilogram or 0.0
+                    grp['quantity'] += row.quantity or 0.0
+
         for pkg_id, grp in siblings.items():
             psis = sorted(grp['psis'])
             # Respect the client's regular-pallet policy: a Multiple client that
