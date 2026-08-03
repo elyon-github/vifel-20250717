@@ -293,6 +293,13 @@ class PalletMergeWizard(models.TransientModel):
         'stock.location', 'vifel_merge_wizard_used_loc_rel',
         compute='_compute_vifel_receipt_used')
 
+    def _non_aisle_locs(self, records):
+        """The non-aisle destination locations of the given move lines / rows."""
+        return records.filtered(
+            lambda r: r.location_dest_id
+            and not r.location_dest_id.x_studio_is_an_aisle
+        ).mapped('location_dest_id')
+
     @api.depends('move_line_id', 'move_line_ids',
                  'move_line_id.picking_id.move_line_ids.result_package_id',
                  'move_line_id.picking_id.move_line_ids.location_dest_id',
@@ -301,23 +308,33 @@ class PalletMergeWizard(models.TransientModel):
         for wizard in self:
             picking = wizard.move_line_id.picking_id
             own = wizard.move_line_ids | wizard.move_line_id
-            others = picking.move_line_ids - own
-            used_pkgs = others.mapped('result_package_id')
-            used_locs = others.filtered(
-                lambda l: l.location_dest_id
-                and not l.location_dest_id.x_studio_is_an_aisle
-            ).mapped('location_dest_id')
-
-            # ALSO exclude what the OTHER rows of the same Magic Wizard session
-            # have picked but not yet written to the real move lines.
             fe_rows = wizard._fast_encode_rows()
+
             if fe_rows:
-                sibling_fe = fe_rows[0].wizard_id.line_ids - fe_rows
-                used_pkgs |= sibling_fe.mapped('result_package_id')
-                used_locs |= sibling_fe.filtered(
-                    lambda r: r.location_dest_id
-                    and not r.location_dest_id.x_studio_is_an_aisle
-                ).mapped('location_dest_id')
+                # Opened from the Magic Wizard: it is a deferred-write WORKING
+                # copy, so "used" must reflect the ROWS' CURRENT selections, not
+                # the still-unconfirmed real move lines. A line that the encoder
+                # reassigned in the Magic Wizard (e.g. moved onto a new special
+                # pallet) frees its OLD pallet even though the real line still
+                # carries it — using the real line here would wrongly keep that
+                # pallet "used" (the "00172 B already used" false positive).
+                # Each line WITH a row uses the row's state; a line with NO row
+                # falls back to its real move line.
+                session_rows = fe_rows[0].wizard_id.line_ids
+                session_ml_ids = set(session_rows.mapped('stock_move_line'))
+                sibling_rows = session_rows - fe_rows
+                real_others = (picking.move_line_ids - own).filtered(
+                    lambda l: l.id not in session_ml_ids)
+                used_pkgs = (real_others.mapped('result_package_id')
+                             | sibling_rows.mapped('result_package_id'))
+                used_locs = (wizard._non_aisle_locs(real_others)
+                             | wizard._non_aisle_locs(sibling_rows))
+            else:
+                # Opened from the Pallet Breakdown: the real move lines ARE the
+                # source of truth.
+                others = picking.move_line_ids - own
+                used_pkgs = others.mapped('result_package_id')
+                used_locs = wizard._non_aisle_locs(others)
 
             wizard.vifel_receipt_used_package_ids = used_pkgs
             wizard.vifel_receipt_used_location_ids = used_locs

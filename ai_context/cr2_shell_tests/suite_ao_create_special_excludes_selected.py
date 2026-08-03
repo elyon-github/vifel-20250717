@@ -153,8 +153,32 @@ try:
         check('AO9 that candidate is ELIGIBLE and carries the staged PSI',
               bool(cand) and cand.eligible and cand.psi == 'SDMG-000123',
               (cand.eligible, cand.psi) if cand else None)
+
+        # ---- REASSIGNED-IN-MAGIC-WIZARD frees the old pallet (the reported
+        # "Pallet 00172 B is already used" false positive). l_break's REAL line
+        # is on pkg_break; give it a ROW reassigned to a different pallet -> the
+        # working copy no longer uses pkg_break, so a create-special may take it.
+        r_break = Line.create({'wizard_id': fw.id, 'stock_move_line': l_break.id,
+                               'x_studio_': l_break.x_studio_ or 0,
+                               'product_id': l_break.product_id.id,
+                               'result_package_id': pkg_free.id,
+                               'pallet_series_id': 'SDMG-000999'})
+        env.flush_all()
+        wiz3 = W.create({'move_line_id': l_open.id,
+                         'move_line_ids': [(6, 0, [l_open.id])],
+                         'from_fast_encode': True,
+                         'fast_encode_line_id': r_open.id,
+                         'fast_encode_line_ids': [(6, 0, [r_open.id])]})
+        env.flush_all()
+        check('AO10 a pallet freed by a Magic-Wizard row reassignment is no '
+              'longer "used" (fixes the false "already used" error)',
+              pkg_break not in wiz3.vifel_receipt_used_package_ids,
+              wiz3.vifel_receipt_used_package_ids.mapped('name'))
+        check('AO11 the reassigned row\'s NEW pallet is used instead',
+              pkg_free in wiz3.vifel_receipt_used_package_ids)
     else:
-        for n in ('AO1','AO2','AO3','AO4','AO5','AO6','AO7','AO8','AO9'):
+        for n in ('AO1','AO2','AO3','AO4','AO5','AO6','AO7','AO8','AO9',
+                  'AO10','AO11'):
             check(n + ' (setup unavailable)', True)
 
 except Exception:
