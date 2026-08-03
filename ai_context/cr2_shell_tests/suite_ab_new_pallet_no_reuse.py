@@ -117,6 +117,43 @@ try:
           and l3.location_dest_id == other_loc,
           (l3.result_package_id.name, l3.location_dest_id.complete_name))
 
+    # ====================================================================
+    # "On this receipt" candidates respect the include_regular policy.
+    # Reported on M/RR/05309: a Multiple client with include_regular=OFF was
+    # offered its sibling lines' ORDINARY receiving pallets as merge targets.
+    # Now only SPECIAL-type sibling pallets are offered; regular ones are not.
+    # (l1 sits on a fresh SDMG special pallet from AB1; l3 on another SDMG one.)
+    # ====================================================================
+    owner.write({'vifel_include_regular_pallets': False})
+    env.flush_all()
+    # a 4th line whose OWN pallet is a REGULAR (client-code) pallet
+    l_reg = None
+    for l in lines:
+        psi = l.x_studio_pallet_series_id or ''
+        if l not in (l1, l3) and psi and not psi.startswith('SDMG'):
+            l_reg = l
+            break
+    wf = W.create({'move_line_id': (l_reg or lines[1]).id})
+    on_receipt = wf.candidate_line_ids.filtered('on_this_receipt')
+    check('AB7 with include_regular OFF, the SDMG special sibling pallet(s) '
+          'are still offered',
+          any((c.psi or '').startswith('SDMG') for c in on_receipt),
+          [(c.package_id.name, c.psi) for c in on_receipt])
+    check('AB8 with include_regular OFF, NO regular (non-SDMG) sibling pallet '
+          'is offered as an on-this-receipt candidate',
+          all((c.psi or '').startswith('SDMG') for c in on_receipt),
+          [(c.package_id.name, c.psi) for c in on_receipt])
+    # flip include_regular back ON: a regular sibling MAY now be offered
+    owner.write({'vifel_include_regular_pallets': True})
+    env.flush_all()
+    wf2 = W.create({'move_line_id': (l_reg or lines[1]).id})
+    check('AB9 with include_regular ON, regular siblings are offered again '
+          '(filter is policy-driven, not a blanket ban)',
+          len(wf2.candidate_line_ids.filtered('on_this_receipt'))
+          >= len(on_receipt),
+          (len(wf2.candidate_line_ids.filtered('on_this_receipt')),
+           len(on_receipt)))
+
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

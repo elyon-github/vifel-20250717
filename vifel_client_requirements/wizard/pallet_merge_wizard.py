@@ -476,6 +476,12 @@ class PalletMergeWizard(models.TransientModel):
         partner = self.partner_id
         packages = self._candidate_packages() - self._own_packages()
         prefixes = set(partner.vifel_psi_type_ids.mapped('prefix'))
+        # Same regular-pallet policy the stocked candidates use
+        # (_candidate_packages): a client that does NOT include regular pallets
+        # is offered ONLY its special-type pallets. Applied to the
+        # "on this receipt" siblings below too, so a Multiple client is never
+        # offered a sibling line's ORDINARY receiving pallet as a merge target.
+        include_regular = partner.vifel_include_regular_pallets or not prefixes
         line_product_id = self.line_product_id.id
 
         # one read of every stocked internal quant on the candidate pallets
@@ -573,6 +579,16 @@ class PalletMergeWizard(models.TransientModel):
 
         for pkg_id, grp in siblings.items():
             psis = sorted(grp['psis'])
+            # Respect the client's regular-pallet policy: a Multiple client that
+            # does not include regular pallets must not be offered a sibling
+            # line's ORDINARY receiving pallet (its PSI prefix is the client code,
+            # not a special type). Only special-type sibling pallets — the ones a
+            # second line actually wants to JOIN — are kept. A pallet with no
+            # series yet on this receipt (prefix '') is likewise dropped rather
+            # than shown as an ineligible row.
+            prefix = psis[0].rpartition('-')[0] if psis else ''
+            if not (include_regular or prefix in prefixes):
+                continue
             eligible, reason = True, False
             if len(psis) > 1:
                 eligible = False
