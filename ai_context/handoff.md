@@ -457,7 +457,37 @@ A round of fixes from clicking the feature on `vifel_07_28_2026_2`. All in
    Studio compute for `x_studio_pallet_series_display` — it only assigns when the source
    has a value, so clearing a PSI anywhere leaves a stale one displayed (not merge-specific).
 8. No new SA/AR beyond the two pastes above — PSI→quant stamping remains a DB automation
-   and flows automatically.
+   and flows automatically. **(SUPERSEDED by §7.9 — partial-withdrawal SA#333/SA#377 and
+   the one-time backfill SA were added after this line was written. Use §7.9's list.)**
+
+### 7.9 Durable merge identity + QA certification (2026-08-04)
+
+Two things landed since §7.8: (1) merge identity is now **durable on the package**
+(`stock.quant.package.vifel_is_merge_pallet`, stored) instead of inferred from
+historical move-line markers — fixes the reset-SA/recycled-package fragility (A1/A2/D2);
+and (2) a **senior-QA certification pass** — 44 rolled-back shell suites, **488 checks
+passed / 0 failed / 0 skip-branches used** on `vifel_08_03_2026`, and the UAT script
+(v1.1, 24 scenarios) is **24/24 traced to a passing automated check**. Report:
+`ai_context/Merge_Pallet_QA_Certification.md`. New suite `suite_ap_uat_traceability.py`
+closes the last 3 UAT gaps (MP-B10 column order, MP-D3 stock-view columns, MP-C5
+multi-truck emptied-rule). No product defect found; certification changed tests only.
+
+**Complete DB-side AR/SA set for the merge deploy** (replaces §7.5.3/§7.5.6-8):
+
+| # | Object | File to paste | Mandatory? | Why |
+|---|---|---|---|---|
+| SA#348 | Server Action "X_Verifier Check on Receipt" (stock.picking) | `sa348_verifier_exempt_merged_lines.py` | **YES** | Duplicate-PSI-in-stock + already-reserved guards refuse a merged line (it adopts an in-stock series / a reserved pinned pallet). Breaks from the 2nd merge onward without it. |
+| SA#333 | Server Action "Execute Code" (stock.picking) | `sa333_partial_withdraw_merge_pallet.py` | **YES** (if any client withdraws) | Withdrawal guard refuses a WR that leaves stock on the source pallet; a merge pallet deliberately carries several products, so partial withdrawal is legitimate. Exempts via `_vifel_package_allows_partial_withdrawal`. |
+| SA#377 / **AR#29** | Server Action for Automation Rule #29 "Stock Move Assign Quants Picked" (stock.move, on create/write) | `sa377_assign_quants_merge_aware.py` | **YES** (if any client withdraws) | The AR overwrites `quant_ids_picked` with the whole pallet on every save, re-adding quants the user removed — blocks partial withdrawal of a merge pallet. |
+| NEW SA | Server Action "Backfill Merge-Pallet Identity" (stock.quant.package, Execute Code) — CREATE it | `sa_backfill_merge_pallet_flag.py` | **YES, one-time** | Stamps `vifel_is_merge_pallet` on pallets that are ALREADY merge/condition pallets (pinned Fixed OR stocked-and-marked) so partial withdrawal works the moment the module upgrades. Run ONCE in the upgrade window. Idempotent; no trailing raise. |
+| Studio compute | `stock.move.line` field `x_studio_pallet_series_display` compute | `studio_psi_display_clear_FIX.py` | Recommended (not merge-only) | Compute only assigns when source has a value → clearing a PSI (un-merge, Clean reset) strands a stale series in the display column. |
+
+Ordering at go-live: upgrade `vifel_client_requirements` (+ `multiple_relocation`,
+`pallet_kilos_record_model`) → run the backfill SA once → paste SA#348 / SA#333 / SA#377
+→ (recommended) the PSI-display compute fix. Existing 4 manifest versions stay pinned.
+Optional: add Lot No. / Batch # / Prodcode columns to the Studio "Inventory Overview"
+action (the module already adds them to the quant views; only needed if a Studio action
+overrides that view).
 
 <!-- MERGED FROM client-trial (base-module counting/ownership fixes brought into CR2-test) -->
 
