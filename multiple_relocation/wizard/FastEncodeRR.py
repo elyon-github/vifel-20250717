@@ -13,6 +13,44 @@ class FastEncodeRRWizard(models.TransientModel):
         'stock.move.line.fast_encode_rr.line', 'wizard_id', string="Pallet Lines", readonly=False
     )
     
+    # ------------------------------------------------------------------
+    # Extension hooks (vifel_client_requirements)
+    #
+    # These three no-ops are the ONLY footprint the pallet-merge feature
+    # keeps in this module. They exist because the behaviour they gate sits
+    # inside action_confirm (~300 lines) and _validate_result_package_
+    # availability, which an add-on cannot re-implement without duplicating
+    # them and drifting from this file. Defaults here are "nothing special";
+    # vifel_client_requirements overrides them for merged lines.
+    # ------------------------------------------------------------------
+    def _vifel_line_is_merge_locked(self, line):
+        """True when the line's pallet / series / location are owned by
+        another document and must not be re-derived here: it skips pallet
+        availability validation and the winner grouping."""
+        return False
+
+    def _vifel_apply_merge_locked_line(self, line, move_line):
+        """Write a merge-locked line and return True when it was fully
+        handled, so the standard pallet / series / location processing is
+        skipped for it."""
+        return False
+
+    def _vifel_line_write_vals(self, line):
+        """Extra values to write for a normal line."""
+        return {}
+
+    def _vifel_apply_staged_unmerge(self, line, move_line):
+        """Apply a row's staged un-merge to its real move line and return True
+        when handled, so the standard write is skipped for it. Default: nothing
+        was staged."""
+        return False
+
+    def _vifel_apply_staged_merge(self, line, move_line):
+        """Apply a row's staged merge to its real move line and return True when
+        handled, so the standard write is skipped for it. Default: nothing was
+        staged."""
+        return False
+
     def _validate_result_package_availability(self):
         """Refuse to confirm if any selected Pallet # is either:
           - already reserved by ANOTHER picking via x_studio_receiving_report_id, or
@@ -30,6 +68,8 @@ class FastEncodeRRWizard(models.TransientModel):
         errors = []
         seen = set()
         for line in self.line_ids:
+            if self._vifel_line_is_merge_locked(line):
+                continue
             pkg = line.result_package_id
             if not pkg or pkg.id in seen:
                 continue
@@ -125,6 +165,8 @@ class FastEncodeRRWizard(models.TransientModel):
             if line.result_package_id:
                 pallet_id = line.result_package_id.id
                 current_pallets.add(pallet_id)
+                if self._vifel_line_is_merge_locked(line):
+                    continue
                 pallet_lines.setdefault(pallet_id, []).append(line)
             
             if line.location_dest_id:
@@ -258,7 +300,20 @@ class FastEncodeRRWizard(models.TransientModel):
         for line in self.line_ids:
             if line.stock_move_line:
                 move_line = self.env['stock.move.line'].browse(line.stock_move_line)
-                
+
+                # A row merged inside the Magic Wizard: apply the deferred merge
+                # to the real line now, then skip the normal write.
+                if self._vifel_apply_staged_merge(line, move_line):
+                    continue
+
+                # A row un-merged inside the Magic Wizard: apply the deferred
+                # detach to the real line now, then skip the normal write.
+                if self._vifel_apply_staged_unmerge(line, move_line):
+                    continue
+
+                if self._vifel_apply_merge_locked_line(line, move_line):
+                    continue
+
                 # Determine which pallet_series_id and location_dest_id to use
                 pallet_series_to_use = line.pallet_series_id
                 location_dest_to_use = line.location_dest_id.id if line.location_dest_id else False
@@ -283,6 +338,8 @@ class FastEncodeRRWizard(models.TransientModel):
                     'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
                 }
                 
+                write_vals.update(self._vifel_line_write_vals(line))
+
                 # Only write location_dest_id if we have a valid value
                 if location_dest_to_use:
                     write_vals['location_dest_id'] = location_dest_to_use

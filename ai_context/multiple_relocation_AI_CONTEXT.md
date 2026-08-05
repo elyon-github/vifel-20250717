@@ -337,6 +337,28 @@ All on branch client-trial (tip `d6591bf`); details + test coverage in `handoff.
   (anchored at first appearance).
 - **Return wizard**: `_find_existing_return` excludes void returns unless `voided` context;
   PSI-remainder-first landing for void/manual partial returns (`_find_psi_remainder_quant`).
-- **PLANNED (awaiting go — full spec in handoff.md §7)**: per-client pallet merge (Fixed /
-  Multiple PSI types with own numbering + pools), `client_lot_no`, `is_pallet_merge`,
-  pallet.merge.wizard, prefix-aware pool routing in `push_unused_pallet`.
+## Update 2026-07-23 — Client-Specific Requirement Enhancement is fully OUT
+
+The per-client pallet-merge feature lives entirely in **`vifel_client_requirements`**
+(see `vifel_client_requirements_AI_CONTEXT.md`). This module carries **no fields, no
+views and no logic** for it — only three generic extension hooks in
+`wizard/FastEncodeRR.py`:
+
+| Hook | Returns here | Why it cannot live in the add-on |
+|---|---|---|
+| `_vifel_line_is_merge_locked(line)` | `False` | called inside two loops of `action_confirm` and of `_validate_result_package_availability` |
+| `_vifel_apply_merge_locked_line(line, ml)` | `False` | called inside `action_confirm`'s main write loop (~300-line method) |
+| `_vifel_line_write_vals(line)` | `{}` | extra values on the normal write path |
+
+An add-on cannot reach into the middle of a loop, and duplicating `action_confirm` to
+change three lines would drift from this file silently. The hooks are permanent and
+stable: they name a concept, not a feature, and nothing here should ever need to change
+them again.
+
+`pallet_kilos_record_model` carries the same arrangement with two hooks
+(`_vifel_line_originates_pallet`, `_vifel_merge_free_domain`).
+
+**Do not add feature-specific code back into this module.**
+`ai_context/cr2_shell_tests/suite_f_plug_and_play.py` asserts that core source contains
+zero references to `is_pallet_merge`, `client_lot_no`, `vifel_premerge` or
+`pallet.merge.wizard`, and fails loudly if any reappears.

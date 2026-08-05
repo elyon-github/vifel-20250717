@@ -552,6 +552,14 @@ class transfer_locations(models.Model):
         'move_line_ids.result_package_id',
         'move_line_ids.bf_pallet_char',
     )
+    def _vifel_line_originates_pallet(self, line):
+        """Hook: does this move line ORIGINATE a pallet for report / transacted
+        counts? True in base. The Merge-Pallet add-on overrides this to return
+        False for a merged (+0) line, so the printed RR/WR pallet count and the
+        Transacted Pallet Count match the PKR ledger (which already excludes
+        merged lines). Neutral no-op when the add-on is not installed."""
+        return True
+
     def _compute_transacted_pallet_count(self):
         # Count unique pallets transacted on this picking. Only validated
         # ('done') pickings contribute; mirrors the dedupe logic in
@@ -573,7 +581,10 @@ class transfer_locations(models.Model):
                     if ml.package_id and ml.reserved_quantity_on_validation == 0:
                         pallets.add(ml.package_id.id)
                 else:
-                    if ml.result_package_id:
+                    # a merged (+0) line adds no pallet — it joined one already
+                    # standing on the floor, counted on its originating receipt
+                    if ml.result_package_id \
+                            and record._vifel_line_originates_pallet(ml):
                         pallets.add(ml.result_package_id.id)
 
             record.transacted_pallet_count = len(pallets)
@@ -1751,8 +1762,61 @@ class transfer_locations(models.Model):
                 raise UserError(
                     _("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
+    def _vifel_pending_multitruck_siblings(self):
+        """For a Partial-Withdraw return, the pending outgoing withdrawals that
+        still reserve stock on the SAME pallet this return re-adds to — i.e. the
+        multi-truck siblings that must empty the pallet BEFORE the return puts
+        stock back. Scoped by (package, owner, PSI) so a shared physical pallet
+        holding other owners'/series' stock never cross-blocks.
+
+        Returns the blocking outgoing pickings (recordset)."""
+        self.ensure_one()
+        MoveLine = self.env['stock.move.line']
+        blockers = self.env['stock.picking']
+        for line in self.move_line_ids:
+            pkg = line.result_package_id
+            if not pkg:
+                continue
+            siblings = MoveLine.search([
+                ('package_id', '=', pkg.id),
+                ('owner_id', '=', line.owner_id.id),
+                ('x_studio_pallet_series_id', '=',
+                 line.x_studio_pallet_series_id or False),
+                ('picking_id.picking_type_id.code', '=', 'outgoing'),
+                ('picking_id.state', 'not in', ('done', 'cancel')),
+                ('picking_id', '!=', self.id),
+            ])
+            blockers |= siblings.mapped('picking_id')
+        return blockers
+
     def button_validate(self):
         """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
+        # SEQUENCE PARTIAL-WITHDRAW RETURNS BEHIND THEIR MULTI-TRUCK SIBLINGS.
+        # In a multi-truck withdrawal, one truck's partial-withdraw return must
+        # NOT be validated until the partner truck(s) have emptied the pallet —
+        # otherwise the return re-adds stock before the partner validates, so
+        # the partner reads reserved_quantity_on_validation > 0 and fails to
+        # count the pallet (it should), and the return mints an unreconciled +1
+        # received pallet (a phantom). Blocking here forces the correct order;
+        # the existing resv-based count then produces the right numbers with no
+        # counting-logic change. Void / Wrong-Details / Others returns and
+        # normal single-truck partials are unaffected (no pending sibling).
+        if not self.env.context.get('skip_partial_return_sequence_guard'):
+            for record in self:
+                if (record.return_id
+                        and record.return_reason == 'Partial Withdraw'):
+                    blockers = record._vifel_pending_multitruck_siblings()
+                    if blockers:
+                        raise UserError(_(
+                            "This Partial-Withdraw return cannot be validated "
+                            "yet.\n\nThe pallet(s) it returns stock to are still "
+                            "being withdrawn by: %(wrs)s.\n\nValidate that/those "
+                            "Withdrawal Report(s) FIRST so the pallet is emptied "
+                            "and counted, then validate this return. Validating "
+                            "now would re-add stock before the pallet is emptied "
+                            "and mis-count the withdrawal.") % {
+                                'wrs': ', '.join(blockers.mapped('name'))})
+
         result = super(transfer_locations, self).button_validate()
 
         # After validation, check if any of these pickings are void WRs or void returns
@@ -2204,6 +2268,12 @@ class transfer_locations(models.Model):
             line = line_data['original_line']
             pallet_id = None
 
+            # a merged (+0) line never anchors a pallet's first occurrence — the
+            # pallet is counted on a non-merged line (or not at all, if every
+            # line on it is merged), matching the PKR ledger.
+            if not self._vifel_line_originates_pallet(line):
+                continue
+
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = self._pdf_pallet_count_key('package', line.package_id.id, line)
             elif line.result_package_id and not line.picking_id.x_studio_is_a_blast_freezer:
@@ -2401,6 +2471,13 @@ class transfer_locations(models.Model):
                     counts_as_pallet = (
                         move_line.reserved_quantity_on_validation == 0)
 
+                # A merged (+0) line does not originate a pallet: it is excluded
+                # from the count AND from the dedupe set, so it neither counts
+                # nor blocks a non-merged line on the same pallet from counting.
+                # Matches the PKR ledger (the printed count then equals the
+                # received/withdrawn pallets billed).
+                originates = self._vifel_line_originates_pallet(move_line)
+
                 # Track unique pallets for the count. The dedupe key is
                 # (pallet, PSI), not the bare pallet: opening-balance
                 # imports parked several PSIs on one physical pallet #,
@@ -2411,7 +2488,7 @@ class transfer_locations(models.Model):
                         move_line.package_id.id)
                     count_key = self._pdf_pallet_count_key(
                         'package', move_line.package_id.id, move_line)
-                    if count_key not in package_ids:
+                    if originates and count_key not in package_ids:
                         package_ids.add(count_key)
                         grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
@@ -2419,7 +2496,7 @@ class transfer_locations(models.Model):
 
                     grouped_moves[key]['package_ids'].add(
                         move_line.bf_pallet_char)
-                    if move_line.bf_pallet_char not in package_ids:
+                    if originates and move_line.bf_pallet_char not in package_ids:
                         package_ids.add(move_line.bf_pallet_char)
                         grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 
@@ -2428,7 +2505,7 @@ class transfer_locations(models.Model):
                         move_line.result_package_id.id)
                     count_key = self._pdf_pallet_count_key(
                         'result_package', move_line.result_package_id.id, move_line)
-                    if count_key not in package_ids:
+                    if originates and count_key not in package_ids:
                         package_ids.add(count_key)
                         grouped_moves[key]['pallet_count'] += 1 if counts_as_pallet else 0
 

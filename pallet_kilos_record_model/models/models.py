@@ -122,6 +122,25 @@ class PalletKilosRecordModel(models.Model):
             return building_record.x_name
         return "MAIN"
 
+    # ------------------------------------------------------------------
+    # Extension hooks (vifel_client_requirements)
+    #
+    # The only footprint the pallet-merge feature keeps in this module. The
+    # counting they gate sits inside _populate_operations_data and
+    # action_resync_pallet_counts (~150 and ~990 lines), which an add-on
+    # cannot re-implement without duplicating them. Defaults here are
+    # "count everything"; vifel_client_requirements excludes merged lines,
+    # which join a pallet already on the floor and so originate none.
+    # ------------------------------------------------------------------
+    def _vifel_line_originates_pallet(self, move_line):
+        """False when this line joined an existing pallet rather than
+        bringing one in, so it must not add to the received count."""
+        return True
+
+    def _vifel_merge_free_domain(self):
+        """Extra domain leaves excluding lines that originate no pallet."""
+        return []
+
     def _populate_operations_data(self):
         """Populate operation data from effective document - called explicitly, not computed"""
         for record in self:
@@ -224,7 +243,9 @@ class PalletKilosRecordModel(models.Model):
                             pallets.add(move_line.bf_pallet_char)
                             building_operations[building_name]['pallets'].add(move_line.bf_pallet_char)
                     else:
-                        if move_line.result_package_id and move_line.result_package_id.id not in pallets:
+                        if not self._vifel_line_originates_pallet(move_line):
+                            pass
+                        elif move_line.result_package_id and move_line.result_package_id.id not in pallets:
                             pallet_count += 1
                             pallets.add(move_line.result_package_id.id)
                             building_operations[building_name]['pallets'].add(move_line.result_package_id.id)
@@ -1178,7 +1199,8 @@ class PalletKilosRecordModel(models.Model):
                         ('state', '=', 'done'),
                         ('result_package_id', 'in', list(dead_pkgs)),
                         ('owner_id', '=', owner.id),
-                        ('picking_id.picking_type_id.code', '=', 'incoming')],
+                        ('picking_id.picking_type_id.code', '=', 'incoming')]
+                        + self._vifel_merge_free_domain(),
                         order='date asc'):
                     rr_by_pkg.setdefault(line.result_package_id.id,
                                          line.picking_id)
@@ -1619,7 +1641,8 @@ class PalletKilosRecordModel(models.Model):
                                  ('owner_id', '=', owner.id),
                                  ('result_package_id', '!=', False),
                                  ('picking_id.picking_type_id.code', '=',
-                                  'incoming')],
+                                  'incoming')]
+                                + self._vifel_merge_free_domain(),
                                 ['picking_id', 'result_package_id'])}:
                         rc_n[pkg_p] = rc_n.get(pkg_p, 0) + 1
                     wc_n = {}

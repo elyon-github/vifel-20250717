@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Client Lot No. as an optional column on the stock views, so it can be
+         looked up alongside the pallet it was stamped onto. Optional-hidden:
+         only clients using the feature will turn it on. -->
+
+    <record id="view_stock_quant_tree_custom_2_lot_no" model="ir.ui.view">
+        <field name="name">stock.quant.tree.custom.2.client.lot.no</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id"
+               ref="multiple_relocation.view_stock_quant_tree_custom_2"/>
+        <field name="arch" type="xml">
+            <field name="x_studio_container_number" position="before">
+                <field name="client_lot_no" string="Lot No." optional="hide"
+                       readonly="id"/>
+                <field name="batch_no" string="Batch #" optional="hide"
+                       readonly="id"/>
+                <field name="prodcode" string="Prodcode" optional="hide"
+                       readonly="id"/>
+            </field>
+        </field>
+    </record>
+
+    <record id="view_stock_quant_tree_highlighting_lot_no" model="ir.ui.view">
+        <field name="name">stock.quant.tree.highlighting.client.lot.no</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id"
+               ref="multiple_relocation.view_stock_quant_tree_highlighting"/>
+        <field name="arch" type="xml">
+            <field name="x_studio_pallet_series_id" position="after">
+                <field name="client_lot_no" string="Lot No." optional="hide"/>
+                <field name="batch_no" string="Batch #" optional="hide"/>
+                <field name="prodcode" string="Prodcode" optional="hide"/>
+            </field>
+        </field>
+    </record>
+
+</odoo>
