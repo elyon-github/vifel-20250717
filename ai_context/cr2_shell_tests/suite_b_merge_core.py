@@ -127,7 +127,11 @@ try:
     empty_pkg = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=1)
+        ('x_studio_active', '=', True)], limit=400).filtered(
+        lambda p: not env['stock.move.line'].search_count([
+            ('result_package_id', '=', p.id),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
     empty_loc = env['stock.location'].search([
         ('usage', '=', 'internal'),
         ('id', 'child_of', line2.picking_id.location_dest_id.id),
@@ -221,7 +225,11 @@ try:
     empty_fixed = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=1)
+        ('x_studio_active', '=', True)], limit=400).filtered(
+        lambda p: not env['stock.move.line'].search_count([
+            ('result_package_id', '=', p.id),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
     owner.write({'vifel_fixed_package_id': empty_fixed.id,
                  'vifel_fixed_psi': 'WMF-000230'})
     env.flush_all()

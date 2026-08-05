@@ -874,8 +874,18 @@ class PalletMergeWizard(models.TransientModel):
                     'adopt. Merging needs a stocked pallet.') % target.name)
             adopted = partner.vifel_fixed_psi.strip()
             # a claimed-but-empty pinned pallet: adopt the profile PSI (same as
-            # the birth), but flagged +0 — the birthing receipt owns the +1
-            target_location = self.env['stock.location']
+            # the birth), but flagged +0 - the birthing receipt owns the +1.
+            #
+            # The empty Fixed pallet has no floor location yet, so every line
+            # merged onto it must share ONE location, otherwise the same pallet
+            # and PSI end up at different locations across lines (M/RR/05323).
+            # If a line on THIS receipt already sits on the Fixed pallet, adopt
+            # its location; otherwise the first line being merged (index 0) sets
+            # the winning location for the whole pallet.
+            pallet_lines = self.picking_id.move_line_ids.filtered(
+                lambda l: l.location_dest_id and (
+                    l.result_package_id == target or l.id in eligible.ids))
+            target_location = pallet_lines[:1].location_dest_id
 
         return ({'kind': 'first_stock' if first_stock else 'merge',
                  'target': target, 'adopted': adopted,
