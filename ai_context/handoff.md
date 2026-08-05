@@ -195,15 +195,36 @@ Odoo.sh auto-updating on merge builds.
    Studio archives #502/#394/#395 (±#506 hardcoded 2280); SA#513 + vifel_multi_warehouse
    install (Tagoloan phase); health-check B6 "stuck 2nd UOM signature" (v1.1 after
    baseline tuning); the 94 split-PSI merge campaign (after deploy + Re-sync).
-6. **Client-Specific Requirement Enhancement — fully planned, AWAITING GO SIGNAL (§7)**.
+6. **Client-Specific Requirement Enhancement — BUILT as its own module on `CR2-test`,
+   105/105 verified (§7). Next: human UAT click-through, then deploy (§7.5).**
 
-## 7. READY-TO-BUILD: Client-Specific Requirement Enhancement
+## 7. BUILT: Client-Specific Requirement Enhancement (`vifel_client_requirements`)
 
-_Design settled interactively 2026-07-16/17 with the user; client-facing design page +
-PDF delivered (artifact `ef072cc7…`, `Downloads/Vifel-Pallet-Merge-Enhancement.pdf`).
-Client timeline: dev starts Mon Jul 20, Internal Testing Mon Jul 27, UAT Tue Jul 28,
-go-live Wed Jul 29 (committed latest Fri Jul 31). Estimate: avg 8.60 mandays.
-**DO NOT implement until the user explicitly says go.** Update this section per phase._
+_Design settled interactively 2026-07-16/17; client-facing design page + PDF delivered
+(artifact `ef072cc7…`, `Downloads/Vifel-Pallet-Merge-Enhancement.pdf`). Client timeline:
+Internal Testing Mon Jul 27, UAT Tue Jul 28, go-live Wed Jul 29 (committed latest Fri
+Jul 31). Estimate: avg 8.60 mandays._
+
+**Status 2026-07-21 — v2 BUILT on `CR2-test`, 105/105 shell checks green on
+`vifel_07_12_2026_2`.** v1 (Jul 20, 73 checks) was functionally correct but its UX
+failed in use: an unlabelled `fa-compress` icon at the far right of an
+already-scrolling tree, and a dialog stacking two unrelated jobs behind an "… or"
+heading, asking "does this fit?" while withholding the line's own Weight/Quantity and
+reporting every mistake as a post-click `UserError`. The user asked for a UI/UX
+judgment, then for the feature to live in its own installable/removable module.
+
+CR2-test was **re-cut from client-trial `00b6f2b`** (v1 preserved at tag
+`cr2-v1-ux-superseded` = `25a29a0` and on `origin/CR2-test`); verified files were
+**ported, not retyped**. NOTE: local CR2-test has deliberately diverged from its remote
+— **pushing needs an explicit force-push decision from the user.**
+
+Commits: `6e36a47` (A: module extraction) → `a9a6cbf` (B: merge core) →
+`a6eb578` (C: UI) → `dbdff50` (D: Magic Wizard initiation) → E (tests + docs).
+
+**Counting refinement (user ruling 2026-07-23):** merge is +0 ONLY when the target pallet
+already holds stock. FIRST stock on the empty pinned Fixed pallet is a plain, unflagged
++1 line — otherwise the WR that later empties the pallet (−1 on exhaustion) walks the
+ledger negative each empty→fill cycle. Flag decided by stock state at merge time.
 
 ### 7.1 Feature summary (all decisions final)
 - **Client Profile** — new "VIFEL Configuration" notebook tab on partner form (extend
@@ -244,43 +265,233 @@ go-live Wed Jul 29 (committed latest Fri Jul 31). Estimate: avg 8.60 mandays.
 - **PKR counting** — merged lines: pallets +0; Weight/Quantity/Heads still count
   (sums at `pallet_kilos_record_model/models/models.py:145-152` untouched).
 
-### 7.2 Code anchors (explored, verified)
-- Pool logic `multiple_relocation/models/models.py:17-113` (push_unused_pallet :23,
-  get_smallest :45, generate_new :64, get_by_id :77); audit wrapper in
-  `pallet_series_audit/models/res_partner.py` (super() chain must stay intact).
-- Prior merge art: `stock_move.py:706-943` write override; `FastEncodeRR.py:624-663`
-  `_sync_pallet_series_and_location`.
-- Guards to relax ONLY for flagged lines: `FastEncodeRR.py:16-66`
-  `_validate_result_package_availability`. Empty-pallet dropdown domains (`views.xml:992`,
-  `FastEncodeRR.xml:40`) stay unchanged — merge has its own wizard.
-- Recycle paths (`FastEncodeRR.py:184-201`, `:344-374`, `stock_move.py:851-858`) all funnel
-  through `push_unused_pallet` → harden THERE: prefix-aware routing to type pools + global
-  guard "never recycle a PSI present on stocked quants". Same for `get_pallet_series_by_id`.
-- PKR: live received loop `models.py:214-217`; Re-sync counted_in `:1164-1173`; residual
-  rc_n `:1601-1611` → all three get `('is_pallet_merge','!=',True)` / skip. Withdrawn/
-  returns/OB/void unchanged (copy=False keeps void mirrors unflagged).
-- ACLs: add `vifel.psi.type` + `pallet.merge.wizard` to
-  `multiple_relocation/security/ir.model.access.csv`.
-- PSI→quant stamping is a DB automation — adopted PSI flows automatically. NO new SA/AR.
+### 7.2 As-built architecture — plug and play (revised 2026-07-23)
 
-### 7.3 Build phases
-- **A (Mon–Tue): profile + types + Lot No.** — partner fields/constraint; `models/vifel_psi_type.py`
-  (draw_number/take_number/give_back with stocked-guard); seeding hook; prefix-aware routing
-  in push_unused_pallet/get_pallet_series_by_id; Lot No. fields + stamping + columns;
-  VIFEL Configuration tab; ACLs.
-- **B (Wed–Thu, risk center): merge core** — is_pallet_merge field+column; PalletMergeWizard
-  (+view+button+availability compute); confirm logic; create-new-special path; guard
-  exemptions; FastEncodeRR locks flagged lines; un-merge handling.
-- **C (Thu–Fri): PKR** — skip flagged lines in the three counting spots; confirm void/return
-  paths unchanged.
-- **D (Fri + Mon Jul 27): tests + docs** — shell driver `merge_test.py` (commit-only-if-all-
-  pass): fixed/multiple merge e2e; seeding idempotent; pool-first draw; give_back routing
-  (deleted line/un-merge → own type pool, never normal; stocked never recycled, all 3 paths);
-  Include Regular widens; empty types fallback; cross-owner/BF/return blocked; un-merge
-  restore; Lot No. flow; void/unvoid merge RR; picklist contiguity; health checks
-  pallet_drift/kg_pack_drift/split_psi = 0; full 72-owner Re-sync sweep 0 regressions.
-  py_compile; local commits per phase (user authorship, NO push unless told; manifest
-  versions stay pinned — re-bump at deploy only).
+**Everything the feature owns lives in `vifel_client_requirements`.** Core keeps only
+five generic extension hooks. Installing the module adds the feature; core carries no
+trace of it. Guarded by `suite_f_plug_and_play.py` (25 checks).
+
+Core footprint, in full — 2 files, ~60 lines, mostly docstrings:
+
+| Module | Hook | Neutral default | Why it cannot live in the add-on |
+|---|---|---|---|
+| `multiple_relocation` `wizard/FastEncodeRR.py` | `_vifel_line_is_merge_locked(line)` | `False` | inside two loops (`action_confirm`, `_validate_result_package_availability`) |
+| | `_vifel_apply_merge_locked_line(line, ml)` | `False` | inside `action_confirm`'s main write loop (**299 lines**) |
+| | `_vifel_line_write_vals(line)` | `{}` | extra values on the normal write path |
+| `pallet_kilos_record_model` `models/models.py` | `_vifel_line_originates_pallet(ml)` | `True` | inside `_populate_operations_data` (**153 lines**) |
+| | `_vifel_merge_free_domain()` | `[]` | inside `action_resync_pallet_counts` (**990 lines**) |
+
+An add-on cannot reach into the middle of a loop, and duplicating a 299- or 990-line
+method to change three lines would drift from core silently — the thing that actually
+breaks a system later. Core asks a neutral question; the module answers it.
+
+**What moved out on 2026-07-23** (was ~230 lines across 8 files in 2 modules): the five
+fields (`is_pallet_merge`, `client_lot_no`, `vifel_premerge_*`), the `write()` guard and
+un-merge intercept, the Magic Wizard's merge columns and seeding, the Pallet Breakdown and
+quant-tree columns, and both context keys. The wizard seeding now backfills in the
+transient line's own `create()` rather than duplicating an 86-line method; the two context
+keys are injected by overriding the actions and mutating the returned dict.
+
+**Reversal note.** The fields lived in core so that uninstalling could not drop them and
+inflate historical pallet counts. The user ruled the module is installed once and **never
+uninstalled**, so that risk cannot occur. *If that ruling is ever reversed, move the
+fields back to core FIRST* — dropping `is_pallet_merge` silently inflates pallet counts.
+
+### 7.3 Findings that cost real time — do not relearn
+
+1. **MRO is ours-FIRST, not ours-last.** Measured order:
+   `vifel_client_requirements` → `pallet_series_audit` → `multiple_relocation`. The audit
+   wrapper logs *after* its `super()`, so our early returns (stocked refusal, special-type
+   routing) bypass it entirely — a special-type recycle would have vanished from the audit
+   trail. `_vifel_audit_type_recycle` logs it explicitly (suite A6).
+2. **The Magic Wizard's transient line needs a TWO-STEP write.** `FastEncodeRR.py:965`
+   intercepts any write containing `result_package_id` and RE-DERIVES the series from
+   pallet-group logic (winner election, sibling sync, restore-original). Right for a user
+   retyping a Pallet #, wrong for a merge: it discarded the adopted series. Write the
+   package first, then the merge identity in a second write with no `result_package_id`
+   key — see `_vifel_sync_from_move_line`. Caught by assertion, not inspection.
+3. **Candidate lists explode.** TECHNO FARM (Multiple + Include Regular) has 3,583 stocked
+   pallets; the naive per-package `.quant_ids.filtered` loop took 3.77s and produced an
+   unusable table. One grouped `search_read` → 0.81s, capped at `CANDIDATE_CAP=300` with
+   the true total surfaced and a manual Pallet # picker for anything beyond. No silent
+   truncation. Intended clients never hit this (Wonder Meats: 1 pallet).
+4. **Merge candidates are owner-scoped, not code-matched.** Matching `prefix == client_code`
+   wrongly excluded BGZ FOOD VENTURES' legacy `BGZ-` stock (their code is now `BG`).
+5. `stock.quant.copy()` is forbidden by core — build test fixtures with `create`, or use
+   the real mixed pallets (TECHNO FARM has 7 from opening balances).
+6. `pallet.series.audit.log_event` **silently skips** validated/cancelled/return pickings —
+   audit assertions are vacuous unless the test picking is still open.
+
+### 7.4 Verification — 207/207 on `vifel_07_12_2026_2`
+
+Suites live in `ai_context/cr2_shell_tests/suite_*.py`, all rollback-only; pipe each into
+`odoo-bin shell`. Re-run them before Internal Testing and after any merge into client-trial.
+
+| Suite | Covers | Checks |
+|---|---|---|
+| `suite_a_profile_routing` | profile cascade, PSI types, prefix routing, audit | 11 |
+| `suite_b_merge_core` | candidates, merge, un-merge, create-special, R6 cap, Fixed mode | 23 |
+| `suite_c_pkr_counting` | **+0 pallets / full amounts**, no-op domain, Re-sync idempotence, copy=False | 11 |
+| `suite_d_guards_edges` | BF/return/outgoing/validated never offer merge, owner isolation, Lot No. stamping, picklist | 16 |
+| `suite_e_ui_structure` | form + buttons registered, single-select, ineligible refused | 5 |
+| `suite_f_plug_and_play` | **core carries no trace of the feature**; hooks are neutral and overridden | 25 |
+| `suite_g1_fastencode_consumer` | a merge survives the Magic Wizard's deferred confirm | 11 |
+| `suite_g2_fastencode_initiation` | merge/un-merge started inside the Magic Wizard | 13 |
+
+Notes for whoever re-runs these: the **merge-free domain is provably a no-op** on real
+data (47,843 rows with and without the clause; zero lines flagged), so the counting
+changes cannot move a live ledger. A first Re-sync on this debug DB legitimately corrects
+one stale row — the suite therefore asserts **idempotence** (a second run changes nothing)
+rather than "zero change", which would be a false failure.
+
+### 7.6 Downstream lifecycle verified (2026-07-24) — returns, voids, reports
+
+The three downstream concerns raised in the post-build brainstorm were investigated in
+code and VERIFIED, not blindly patched. Finding: the enhancement rides two pre-existing
+PHYSICAL invariants, so all three are already correct — no merge-specific fix was needed.
+
+- **Billing + occupancy reports** (`suite_u_merge_reports.py`, 10 checks). Billing xlsx
+  (`pallet_kilos_billing_xlsx.py`) READS PKR fields verbatim — already merge-aware, a
+  merged line drops its printed received count by 1. Occupancy xlsx
+  (`stock_quant_history/occupancy_xlsx_report.py`) counts DISTINCT
+  `x_studio_pallet_series_id`; merge guarantees one PSI per pallet, so a merge pallet
+  counts once. Two independent bases, both see one pallet.
+- **Voids/unvoid** (`suite_t_merge_void_lifecycle.py`, 9). The void WR withdrawn count
+  keys on `reserved_quantity_on_validation` (physical emptying), NOT `is_pallet_merge`;
+  void WR/return rows are archived from PKR (`models.py:782`); void source uses the
+  building preset, not the pinned pallet's PACKAGE reservation. Merge is transparent.
+- **Returns** (`suite_s_merge_return_lifecycle.py`, 6). A return lands via
+  `_find_psi_remainder_quant`, keyed on (owner, PSI) — it cannot tell a merge pallet from
+  any pallet carrying that PSI. Return routing reads the LOCATION reserved flag, not our
+  PACKAGE reservation, so the pinned pallet does not misroute a return.
+- **Partial-Withdraw return accounting — TRACED, and it is CORRECT (not an over-count;
+  corrects an earlier note).** A Partial-Withdraw return carries its own active PKR row
+  counting `pallets_received` and lands on the remainder. I first flagged this as a
+  possible point-in-time over-count; a direct trace disproves that. Example
+  M/WR/00002 -> M/RR/00015: the WR counted 24 pallets withdrawn incl. the partially-
+  picked pallet NB 5456 (its WR line had `reserved_quantity_on_validation = 0`, i.e.
+  counted -1), and the return re-received exactly that 1 pallet (+1). Net -24 +1 = -23
+  pallets, matching the 23 that physically left. The return is proper double-entry: the
+  WR is encoded/counted for the full pallets, and the return brings back the portion that
+  stayed. Aggregate: 46/72 owners have ledger == physical exactly; the 26 with drift are
+  on this DEBUG DB's known unrelated anomalies (RO-006886 doubling, orphan voids), not
+  returns. Merge is unaffected either way.
+
+### 7.7 Concurrency / corrections / lifecycle verified (2026-07-24)
+
+Second downstream round. Only concurrency needed a fix; corrections and the lifecycle
+were already correct.
+
+- **#4 Concurrency FIXED** (`pallet_merge_wizard.py`, `suite_x_merge_concurrency.py`, 10).
+  Two receipts both merging onto the empty pinned Fixed pallet would both "first-stock"
+  it (+2 for one physical pallet; Re-sync would not self-heal). Now the birth happens
+  once: `_pinned_pallet_already_claimed` flags a later receipt as a merge (+0) if another
+  open receipt already put an unflagged line on the pinned pallet, and
+  `_lock_pinned_pallet` (SELECT ... FOR UPDATE, SA#297 pattern) serialises true
+  simultaneity. Because the flag persists, both live-count and Re-sync then count +1 once.
+  Single-document birth is unchanged (suites B/N still +1). Entirely in the module.
+- **KNOWN RARE EDGE, documented not fixed (user decision):** if the birthing line is
+  DELETED before validation while another receipt already merged onto the pinned pallet,
+  the pallet is left with only flagged lines and counts 0 despite physical stock. Extremely
+  rare; `pallet_drift` surfaces it; un-merging one line restores the birth. Revisit only if
+  the floor ever hits it.
+- **#5 Corrections — already merge-transparent** (`suite_v_merge_correction.py`, 7). The
+  correction wizard's pallet delta (`_package_change_pallet_delta`) is purely physical
+  (source/dest stock, owner-scoped), never reads `is_pallet_merge`. A merge pallet corrects
+  like any pallet; the flag on the RR line (history of its +0) is untouched.
+- **#7 Lifecycle nets to zero** (`suite_w_merge_lifecycle_resync.py`, 7). Driven through
+  the real counting engine: born +1, merges +0, partial WR -0 (remainder left), full WR
+  -1 (emptied) = 0. Full-owner Re-sync with a merge present is drift-free and idempotent.
+
+### 7.8 UAT-driven refinements (2026-07-28)
+
+A round of fixes from clicking the feature on `vifel_07_28_2026_2`. All in
+`vifel_client_requirements` (plug-and-play intact). Test set now **351 checks / 32 suites**.
+
+- **New Location scoped to the receipt building** (`suite_z`, 5). Starting a new special
+  pallet only offers locations `child_of picking.location_dest_id` (e.g. an M/EX receipt →
+  under M/EX), enforced in the domain AND `_apply_create_special`. Merging onto an existing
+  pallet in another building is unaffected (it adopts the pallet's real location).
+- **No pallet/location reuse across a receipt's lines** (`suite_ab`, 8). A new special
+  pallet can't reuse a sibling line's pallet (would mix PSIs) or non-aisle bin (two pallets
+  in one spot); aisles may still hold several.
+- **Batch # / Prodcode** (`suite_y` 11, `suite_y2` 5). New profile toggle
+  `vifel_show_batch_no`. Batch # typed on the RR line (Pallet Breakdown + Magic Wizard,
+  written back on Confirm) is set at validation into a Prodcode on the quant:
+  `DD`+UPPER-mon+`YYYY` (the **EXPIRATION** date, `x_studio_expiration_date`)
+  + Batch# + a fixed **M** (the building segment is hardcoded to 'M', not the
+  actual building; e.g. `18MAY202699M`; no expiration date means Batch# + M).
+  Shown read-only on the WR.
+- **Symmetric same-receipt Un-merge** (`suite_aa` 21, `suite_ac` 8). Same-receipt joins stay
+  `is_pallet_merge=False` (ledger untouched) but now CAPTURE pre-merge state, so any line on
+  a shared pallet shows "Merged" + Un-merge and can be peeled off; the pallet stays +1 until
+  a lone owner remains. The "Merged" marker = `is_pallet_merge OR shares-a-pallet`; buttons,
+  tint and location-lock all key on it, on BOTH the Pallet Breakdown and the Magic Wizard.
+- **Single 'Merge Here' target** (`suite_ad`, 5). Parent-level onchange re-asserts radio
+  behaviour so the web client re-renders de-selected rows; `_resolve_merge_target` refuses
+  an ambiguous (>1) pick server-side.
+- **UI declutter (JS)**: Print dropdown hidden on the Pallet Breakdown; redundant header
+  "Spawn Magic Wizard" hidden (the top-left JS Magic Wizard is the entry); the merge dialog's
+  X/Escape now re-spawns the Magic Wizard (`from_fast_encode`) instead of dropping the session.
+  *JS — confirm visually in a hard-refreshed browser.*
+- **Deliverable**: `ai_context/uat/VIFEL_Merge_Pallet_UAT_Test_Script.xlsx` — 15 scenario-based
+  UAT cases, Elyon → Vifel branded, status drop-downs + sign-off.
+
+### 7.5 Remaining before go-live
+1. **Browser confirmation of the JS bits** — Print hidden, Spawn hidden, merge-dialog X
+   re-spawns the Magic Wizard (headless upgrade is clean; visual not yet confirmed).
+2. **Human UAT click-through** — run the 15-case UAT script end to end.
+3. **SA#348 + SA#333 pastes** are mandatory at go-live (see `ai_context/sa348_*` and `sa333_*`).
+3. Prod profiles: Wonder Meats = Can Merge ON / Multiple OFF / pin `R 5666` + `WMF-00230`;
+   Consistent = Can Merge ON / Multiple ON (types auto-seed); Show Lot No. per client.
+4. Install `vifel_client_requirements`; upgrade `multiple_relocation` +
+   `pallet_kilos_record_model`. The new module is uninstalled in prod today, so its own
+   version string is free; **do NOT touch the 4 pinned manifest versions** (§5).
+5. Optional: add the Lot No. column to the Studio "Inventory Overview" action DB-side.
+6. **PASTE `ai_context/sa348_verifier_exempt_merged_lines.py` into Server Action #348
+   "X_Verifier Check on Receipt"** — three lines. WITHOUT IT MERGING IS BROKEN from the
+   second merge onto a pallet onwards: SA#348's duplicate-PSI-in-stock guard refuses the
+   receipt ("Pallet Series Already Exists in Stock"), because a merged line adopts a
+   series that is deliberately already in stock. The block already exempts return lines
+   for the same reason; merged lines need the identical exemption. The FIRST merge onto
+   an empty pinned pallet passes (no stock yet), which is why this only appears later.
+7. Optional but recommended: paste `ai_context/studio_psi_display_clear_FIX.py` into the
+   Studio compute for `x_studio_pallet_series_display` — it only assigns when the source
+   has a value, so clearing a PSI anywhere leaves a stale one displayed (not merge-specific).
+8. No new SA/AR beyond the two pastes above — PSI→quant stamping remains a DB automation
+   and flows automatically. **(SUPERSEDED by §7.9 — partial-withdrawal SA#333/SA#377 and
+   the one-time backfill SA were added after this line was written. Use §7.9's list.)**
+
+### 7.9 Durable merge identity + QA certification (2026-08-04)
+
+Two things landed since §7.8: (1) merge identity is now **durable on the package**
+(`stock.quant.package.vifel_is_merge_pallet`, stored) instead of inferred from
+historical move-line markers — fixes the reset-SA/recycled-package fragility (A1/A2/D2);
+and (2) a **senior-QA certification pass** — 44 rolled-back shell suites, **488 checks
+passed / 0 failed / 0 skip-branches used** on `vifel_08_03_2026`, and the UAT script
+(v1.1, 24 scenarios) is **24/24 traced to a passing automated check**. Report:
+`ai_context/Merge_Pallet_QA_Certification.md`. New suite `suite_ap_uat_traceability.py`
+closes the last 3 UAT gaps (MP-B10 column order, MP-D3 stock-view columns, MP-C5
+multi-truck emptied-rule). No product defect found; certification changed tests only.
+
+**Complete DB-side AR/SA set for the merge deploy** (replaces §7.5.3/§7.5.6-8):
+
+| # | Object | File to paste | Mandatory? | Why |
+|---|---|---|---|---|
+| SA#348 | Server Action "X_Verifier Check on Receipt" (stock.picking) | `sa348_verifier_exempt_merged_lines.py` | **YES** | Duplicate-PSI-in-stock + already-reserved guards refuse a merged line (it adopts an in-stock series / a reserved pinned pallet). Breaks from the 2nd merge onward without it. |
+| SA#333 | Server Action "Execute Code" (stock.picking) | `sa333_partial_withdraw_merge_pallet.py` | **YES** (if any client withdraws) | Withdrawal guard refuses a WR that leaves stock on the source pallet; a merge pallet deliberately carries several products, so partial withdrawal is legitimate. Exempts via `_vifel_package_allows_partial_withdrawal`. |
+| SA#377 / **AR#29** | Server Action for Automation Rule #29 "Stock Move Assign Quants Picked" (stock.move, on create/write) | `sa377_assign_quants_merge_aware.py` | **YES** (if any client withdraws) | The AR overwrites `quant_ids_picked` with the whole pallet on every save, re-adding quants the user removed — blocks partial withdrawal of a merge pallet. |
+| NEW SA | Server Action "Backfill Merge-Pallet Identity" (stock.quant.package, Execute Code) — CREATE it | `sa_backfill_merge_pallet_flag.py` | **YES, one-time** | Stamps `vifel_is_merge_pallet` on pallets that are ALREADY merge/condition pallets (pinned Fixed OR stocked-and-marked) so partial withdrawal works the moment the module upgrades. Run ONCE in the upgrade window. Idempotent; no trailing raise. |
+| Studio compute | `stock.move.line` field `x_studio_pallet_series_display` compute | `studio_psi_display_clear_FIX.py` | Recommended (not merge-only) | Compute only assigns when source has a value → clearing a PSI (un-merge, Clean reset) strands a stale series in the display column. |
+
+Ordering at go-live: upgrade `vifel_client_requirements` (+ `multiple_relocation`,
+`pallet_kilos_record_model`) → run the backfill SA once → paste SA#348 / SA#333 / SA#377
+→ (recommended) the PSI-display compute fix. Existing 4 manifest versions stay pinned.
+Optional: add Lot No. / Batch # / Prodcode columns to the Studio "Inventory Overview"
+action (the module already adds them to the quant views; only needed if a Studio action
+overrides that view).
+
+<!-- MERGED FROM client-trial (base-module counting/ownership fixes brought into CR2-test) -->
 
 ### 7.4 Deploy additions (on top of §6.4 checklist)
 - Upgrade multiple_relocation + pallet_kilos_record_model.

@@ -868,6 +868,21 @@ class OverrideStockQuant(models.Model):
     
         return action
         
+    # ------------------------------------------------------------------
+    # Extension hook (vifel_client_requirements) — see the note on the same
+    # pattern in wizard/FastEncodeRR.py. The check it gates sits inside
+    # create_transfer_stock_move (~220 lines).
+    # ------------------------------------------------------------------
+    def _vifel_package_allows_partial_withdrawal(self, package_id):
+        """True when this package may be withdrawn from partially, without
+        the rest of its contents being flagged as forgotten.
+
+        Normally one pallet holds one batch, so leftovers mean the checker
+        missed lines - which is what the Incomplete Package notice is for.
+        Some pallets hold several receipts' goods by design; this asks
+        whether this is one of them."""
+        return False
+
     def create_transfer_stock_move(self, picking_id, records):
         picking = self.env['stock.picking'].browse(picking_id)
         if not picking:
@@ -899,6 +914,11 @@ class OverrideStockQuant(models.Model):
             # an owner_id are excluded (no owner = no match).
             allowed_owner_ids = selected_owners_by_pkg.get(pkg_id, set())
             if not allowed_owner_ids:
+                continue
+
+            # A pallet that holds several receipts' goods on purpose: taking
+            # some and leaving the rest is normal there, not an oversight.
+            if self._vifel_package_allows_partial_withdrawal(pkg_id):
                 continue
 
             all_package_quants = Quant.search([

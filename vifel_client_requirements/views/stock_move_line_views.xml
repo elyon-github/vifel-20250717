@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Pallet Breakdown: merge columns and the Merge / Un-merge entry.
+
+         All of this used to be spread across multiple_relocation's own views;
+         it lives here so core carries no trace of the feature. This view
+         inherits the SAME base view core does, and loads after it, so the
+         anchors below (vifel_dest_location_name, location_dest_id) are the
+         ones core has already placed. -->
+    <record id="view_move_line_detailed_op_merge_button" model="ir.ui.view">
+        <field name="name">stock.move.line.detailed.op.merge.button</field>
+        <field name="model">stock.move.line</field>
+        <field name="inherit_id"
+               ref="stock.view_stock_move_line_detailed_operation_tree"/>
+        <field name="arch" type="xml">
+
+            <!-- Selection-bar button: tick several lines, merge them all onto
+                 one pallet in a single pass.
+                 APPEND to the EXISTING header (the Pallet Breakdown already
+                 has one, carrying Verify Transfer / Assign Pallet Series /
+                 Spawn Magic Wizard / … from multiple_relocation). Creating a
+                 SECOND <header> makes the list render only one and silently
+                 drops the other's buttons — never do that. -->
+            <xpath expr="//tree/header" position="inside">
+                <button name="action_open_pallet_merge_wizard_multi"
+                        type="object" string="Merge Selected"
+                        class="btn-primary" icon="fa-object-group"
+                        invisible="context.get('picking_code') != 'incoming' or context.get('state') == 'done' or not context.get('vifel_can_merge')"/>
+            </xpath>
+
+            <!-- Hide the header "Spawn Magic Wizard" button: it is redundant
+                 with the top-left JS Magic Wizard button (fa-magic, added by
+                 multiple_relocation's magic_wizard_list_view controller), which
+                 is the real entry point. We hide rather than delete so
+                 multiple_relocation stays untouched (plug-and-play). -->
+            <xpath expr="//tree/header/button[@name='action_open_fast_encode_wizard']"
+                   position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+
+            <!-- Lot No. / Batch # / Prodcode: placed right AFTER Container #,
+                 matching the Magic Wizard column order. Gated by the context
+                 flags supplied by action_detailed_operations. -->
+            <field name="x_studio_container_number" position="after">
+                <!-- Lot No.: TYPED + editable on the receipt (client_lot_no);
+                     on the withdrawal the same "Lot No." is READ BACK from the
+                     quant (vifel_lot_no_display), so a WR shows the value that
+                     was set at receiving. -->
+                <field name="client_lot_no" string="Lot No." optional="show"
+                       column_invisible="not context.get('show_client_lot_no') or picking_code == 'outgoing'"
+                       readonly="state == 'done'"/>
+                <field name="vifel_lot_no_display" string="Lot No." optional="show"
+                       column_invisible="not context.get('show_client_lot_no') or picking_code == 'incoming'"
+                       readonly="1"/>
+                <!-- Batch # is TYPED on the receipt (incoming); the Prodcode it
+                     becomes at validation is read back, read-only, on the
+                     withdrawal (outgoing). -->
+                <field name="batch_no" string="Batch #" optional="show"
+                       column_invisible="not context.get('show_batch_no') or picking_code == 'outgoing'"
+                       readonly="state == 'done'"/>
+                <field name="prodcode" string="Prodcode" optional="show"
+                       column_invisible="not context.get('show_batch_no') or picking_code == 'incoming'"
+                       readonly="1"/>
+            </field>
+
+            <field name="vifel_dest_location_name" position="after">
+                <!-- Raw ledger flag: kept only for the button + readonly logic
+                     below. NOT shown — on its own it leaves same-receipt joins
+                     (two lines sharing one pallet) unchecked, which reads as a
+                     bug to the floor. -->
+                <field name="is_pallet_merge" column_invisible="1"/>
+                <!-- User-facing "Merged" column: checked when the line is part
+                     of a merged pallet either way — a +0 merge onto existing
+                     stock, OR sharing a pallet with other lines of this same
+                     receipt. One physical pallet, counted once. Hidden for
+                     outgoing, blast-freeze, and non-merge clients. The
+                     non-merge test keys on the vifel_can_merge CONTEXT flag
+                     (set by action_detailed_operations) — column_invisible is
+                     evaluated without a record in scope, so a per-record FIELD
+                     cannot be referenced here, only context. -->
+                <field name="vifel_on_merged_pallet" string="Merged" optional="show"
+                       column_invisible="picking_code == 'outgoing' or context.get('vifel_is_blast_freeze') or not context.get('vifel_can_merge')"/>
+                <field name="vifel_show_merge_button" column_invisible="1"/>
+                <!-- The buttons key on the SAME "Merged" marker as the column,
+                     so they always agree: every line on a merged/shared pallet
+                     shows Un-merge (and can be peeled off), a plain line shows
+                     Merge Pallet. The whole column is dropped for a non-merge
+                     client (via the same context flag). -->
+                <button name="action_open_pallet_merge_wizard" type="object"
+                        string="Merge Pallet" class="btn-link"
+                        icon="fa-object-group"
+                        column_invisible="not context.get('vifel_can_merge')"
+                        invisible="not vifel_show_merge_button or vifel_on_merged_pallet"/>
+                <button name="action_unmerge_pallet_line" type="object"
+                        string="Un-merge" class="btn-link text-warning"
+                        icon="fa-chain-broken"
+                        column_invisible="not context.get('vifel_can_merge')"
+                        invisible="not vifel_show_merge_button or not vifel_on_merged_pallet"/>
+            </field>
+
+            <!-- Any line on a merged/shared pallet must stay where that pallet
+                 is standing. Un-merge first to move it. -->
+            <xpath expr="//tree//field[@name='location_dest_id'][2]"
+                   position="attributes">
+                <attribute name="readonly">state == 'done' or vifel_on_merged_pallet</attribute>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>
