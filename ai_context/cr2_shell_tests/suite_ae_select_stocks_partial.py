@@ -297,6 +297,90 @@ try:
         for n in ('AE17', 'AE18', 'AE19', 'AE20'):
             check(n + ' normal partial (no normal 2-SKU pallet in DB)', True)
 
+    # ====================================================================
+    # CO-STORED PRODUCT on a shared MERGE pallet (M/WR/08424 regression).
+    # A merge pallet legitimately holds MORE THAN ONE product, each on its own
+    # move under the SAME pallet #. Confirming Select Stocks for ONE product must
+    # NOT drop the OTHER product's already-selected quant/move on that pallet.
+    # Before the fix, Step 1b/Step 1 iterated every move in the transfer and
+    # unlinked any quant on the partial pallet not in THIS wizard's (one-product)
+    # selection — deleting the co-stored product's move entirely.
+    # ====================================================================
+    mpkg = None
+    # Target MERGE packages directly (flagged or pinned) — scanning raw quants
+    # can miss a valid pallet that sits past the scan window, which would skip the
+    # regression instead of running it. A merge pallet holding >=2 distinct
+    # products with positive internal stock is exactly the M/WR/08424 shape.
+    Pkg = env['stock.quant.package']
+    merge_pkgs = Pkg.search([('vifel_is_merge_pallet', '=', True)]) \
+        if 'vifel_is_merge_pallet' in Pkg._fields else Pkg.browse()
+    merge_pkgs |= env['res.partner']._vifel_fixed_merge_packages() \
+        if hasattr(env['res.partner'], '_vifel_fixed_merge_packages') else Pkg.browse()
+    for p in merge_pkgs:
+        if not Q._vifel_package_allows_partial_withdrawal(p.id):
+            continue
+        prods = Q.search([('package_id', '=', p.id), ('quantity', '>', 0),
+                          ('location_id.usage', '=', 'internal'),
+                          ('lot_id', '!=', False)]).mapped('product_id')
+        if len(prods) >= 2:
+            mpkg = p
+            break
+    if mpkg:
+        mq = Q.search([('package_id', '=', mpkg.id), ('quantity', '>', 0),
+                       ('location_id.usage', '=', 'internal'),
+                       ('lot_id', '!=', False)])
+        qa = mq[0]
+        qb = next((q for q in mq if q.product_id != qa.product_id), False)
+        powner = qa.owner_id or owner
+        wtype = env['stock.picking.type'].search([('code', '=', 'outgoing')], limit=1)
+        mwr = env['stock.picking'].create({
+            'picking_type_id': wtype.id, 'partner_id': powner.id,
+            'location_id': qa.location_id.id, 'location_dest_id': qa.location_id.id})
+
+        def _mk_move(q):
+            mv = env['stock.move'].create({
+                'name': q.product_id.name, 'picking_id': mwr.id,
+                'product_id': q.product_id.id, 'product_uom': q.product_id.uom_id.id,
+                'product_uom_qty': q.quantity,
+                'location_id': q.location_id.id, 'location_dest_id': q.location_id.id})
+            env['stock.move.line'].create({
+                'picking_id': mwr.id, 'move_id': mv.id, 'product_id': q.product_id.id,
+                'quantity': q.quantity, 'lot_id': q.lot_id.id, 'package_id': q.package_id.id,
+                'location_id': q.location_id.id, 'location_dest_id': q.location_id.id})
+            mv.quant_ids_picked = [(6, 0, [q.id])]
+            return mv
+
+        mva = _mk_move(qa)          # product A move (Select Stocks opened here)
+        mvb = _mk_move(qb)          # product B move (the "other" selection)
+        env.flush_all()
+        # Select Stocks on move A, its own quant selected (a partial withdrawal —
+        # the user only reduced qty, not the selection). MUST NOT touch move B.
+        wizc = env['select_quant.wizard'].create({
+            'stock_move_id': mva.id, 'transfer_id': mwr.id,
+            'product_id': mva.product_id.id, 'owner_id': powner.id,
+            'location_id': qa.location_id.id,
+            'quant_ids_picked': [(6, 0, [qa.id])],
+            'move_line_ids': [(6, 0, mva.move_line_ids.ids)]})
+        wizc.with_context(partial_confirmed=True).action_confirm()
+        env.flush_all()
+        env.invalidate_all()
+        mvb_now = env['stock.move'].browse(mvb.id)
+        check('AE21 the co-stored product move on the same merge pallet SURVIVES',
+              mvb_now.exists() and set(mvb_now.quant_ids_picked.ids) == {qb.id},
+              (mvb_now.exists(),
+               mvb_now.quant_ids_picked.ids if mvb_now.exists() else 'GONE'))
+        check('AE22 the co-stored product move line survives too',
+              mvb_now.exists() and len(mvb_now.move_line_ids) >= 1
+              and mvb_now.move_line_ids[0].product_id == qb.product_id,
+              len(mvb_now.move_line_ids) if mvb_now.exists() else 'GONE')
+        check('AE23 the opened move keeps its own quant (product A intact)',
+              env['stock.move'].browse(mva.id).exists()
+              and qa.id in env['stock.move'].browse(mva.id).quant_ids_picked.ids)
+    else:
+        for n in ('AE21', 'AE22', 'AE23'):
+            check(n + ' co-stored merge pallet (no 2-product merge pallet in DB)',
+                  True)
+
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

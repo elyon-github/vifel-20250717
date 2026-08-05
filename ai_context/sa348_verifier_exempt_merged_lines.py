@@ -51,14 +51,26 @@ for record in records:
         pallet_series_groups = {}
         for multiple_withdrawal_line in stock_moves.quant_ids_multiple_withdrawal:
             pallet_series = multiple_withdrawal_line.x_studio_pallet_series_id
-            
+
             # Skip if no pallet series
             if not pallet_series:
                 continue
-            
+
+            # >>> MERGE: group by (Pallet Series, LOT), not by Pallet Series alone.
+            # A MERGE pallet legitimately holds several LOTS under one PSI, and the
+            # available (max_quant / max_2nd_uom / max_total_units) is computed per
+            # product+owner+LOT. The old per-PSI grouping summed the PICKED amounts
+            # ACROSS every lot on the pallet but compared that sum to a SINGLE lot's
+            # available, so a valid multi-lot / multi-truck withdrawal of the whole
+            # pallet read as an over-pick (M/WR/08430: 1500 picked across 2 lots of
+            # 750 vs 750 available for one lot). Keying on the lot too checks each
+            # lot's picked against that lot's own available. A normal pallet (one
+            # lot per PSI) is unchanged — key just gains a constant second element.
+            group_key = (pallet_series, multiple_withdrawal_line.lot_id.id)
+
             # Initialize group if not exists
-            if pallet_series not in pallet_series_groups:
-                pallet_series_groups[pallet_series] = {
+            if group_key not in pallet_series_groups:
+                pallet_series_groups[group_key] = {
                     'pallet_series': pallet_series,
                     'lines': [],
                     'max_2nd_uom': multiple_withdrawal_line.x_studio_max_2nd_uom,
@@ -68,18 +80,18 @@ for record in records:
                     'total_max_units': 0,
                     'total_quantity': 0
                 }
-            
+
             # Add line to group
-            pallet_series_groups[pallet_series]['lines'].append(multiple_withdrawal_line)
-            
+            pallet_series_groups[group_key]['lines'].append(multiple_withdrawal_line)
+
             # Accumulate picked values
-            pallet_series_groups[pallet_series]['total_affected_2nd_uom'] += multiple_withdrawal_line.x_studio_affected_2nd_uom
-            pallet_series_groups[pallet_series]['total_max_units'] += multiple_withdrawal_line.x_studio_withdraw_units
-            pallet_series_groups[pallet_series]['total_quantity'] += multiple_withdrawal_line.quantity
+            pallet_series_groups[group_key]['total_affected_2nd_uom'] += multiple_withdrawal_line.x_studio_affected_2nd_uom
+            pallet_series_groups[group_key]['total_max_units'] += multiple_withdrawal_line.x_studio_withdraw_units
+            pallet_series_groups[group_key]['total_quantity'] += multiple_withdrawal_line.quantity
         
-        # Validate each pallet series group
+        # Validate each (pallet series, lot) group
         all_pallet_errors = []
-        for pallet_series, group_data in pallet_series_groups.items():
+        for group_key, group_data in pallet_series_groups.items():
             errors = []
             warnings = []
             
@@ -123,7 +135,7 @@ for record in records:
                     f"\n{'='*50}",
                     f"⚠️  PALLET VALIDATION ERROR",
                     f"{'='*50}",
-                    f"📦 Pallet Series: {pallet_series}",
+                    f"📦 Pallet Series: {group_data['pallet_series']}",
                     ""
                 ]
                 

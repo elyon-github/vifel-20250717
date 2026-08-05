@@ -103,51 +103,39 @@ class StockPickingClientLotNo(models.Model):
     _VIFEL_MONTHS = ('', 'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL',
                      'AUG', 'SEP', 'OCT', 'NOV', 'DEC')
 
-    def _vifel_format_prodcode(self, production_date, batch_no, building_short):
+    def _vifel_format_prodcode(self, expiration_date, batch_no, building_short):
         """DDMONYYYY + Batch# + building-shortname, e.g. 18MAY202699M.
 
-        The date segment is dropped when there is no production date (per the
-        client ruling): the code is then just Batch# + building shortname.
+        The date segment is the EXPIRATION date. It is dropped when there is no
+        expiration date (per the client ruling): the code is then just Batch# +
+        building shortname.
         """
         code = ''
-        if production_date:
+        if expiration_date:
             code += '%02d%s%04d' % (
-                production_date.day,
-                self._VIFEL_MONTHS[production_date.month],
-                production_date.year)
+                expiration_date.day,
+                self._VIFEL_MONTHS[expiration_date.month],
+                expiration_date.year)
         code += (batch_no or '').strip()
         code += (building_short or '').strip()
         return code
 
     def _vifel_building_short(self, line, quant):
-        """Building short-name for the Prodcode, reliably.
+        """Building segment for the Prodcode — always 'M' (client ruling).
 
-        Primary source is the quant's ``x_studio_building_dropped`` (the code
-        the user chose), BUT that field is stamped by a separate Studio
-        automation and is frequently empty when this runs (and its helper only
-        ever resolves M/A), so the Prodcode came out with no building suffix.
-        Fall back to the authoritative building record on the line's
-        destination location — ``x_studio_building.x_studio_short_name`` (M / A /
-        P2 …), which is always set at validation. This makes the suffix present
-        for every building, not just M/A, and matches x_studio_building_dropped
-        wherever that IS populated.
+        Per the client, the building portion of the Prodcode is fixed to 'M'
+        regardless of the quant's x_studio_building_dropped or the destination
+        building's short name. (line / quant are kept in the signature so the
+        caller is untouched.)
         """
-        dropped = (quant.x_studio_building_dropped or '').strip()
-        if dropped:
-            return dropped
-        loc = line.location_dest_id
-        building = getattr(loc, 'x_studio_building', False)
-        short = getattr(building, 'x_studio_short_name', '') if building else ''
-        return (short or '').strip()
+        return 'M'
 
     def _vifel_stamp_batch_prodcode(self):
         """Freeze each receiving line's Batch # into a Prodcode on its quants.
 
-        The building segment comes from ``_vifel_building_short`` (the quant's
-        x_studio_building_dropped, else the destination building's short name),
-        so the code reflects where the pallet physically landed. Quant match is
-        the same identity used for Lot No.; last write wins when several lines
-        share a quant.
+        The building segment comes from ``_vifel_building_short``, which is
+        fixed to 'M' (client ruling). Quant match is the same identity used for
+        Lot No.; last write wins when several lines share a quant.
         """
         Quant = self.env['stock.quant']
         for picking in self:
@@ -174,6 +162,6 @@ class StockPickingClientLotNo(models.Model):
                     quant.write({
                         'batch_no': batch,
                         'prodcode': self._vifel_format_prodcode(
-                            line.x_studio_production_date, batch,
+                            line.x_studio_expiration_date, batch,
                             self._vifel_building_short(line, quant)),
                     })

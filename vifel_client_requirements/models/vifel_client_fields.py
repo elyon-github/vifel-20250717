@@ -37,7 +37,7 @@ class StockMoveLineVifelClientFields(models.Model):
         string='Lot No.', copy=False,
         help="The client's own lot number for this pallet line.")
     # Batch # is the checker's raw input on the RECEIVING line. At validation it
-    # is baked, together with the production date and the building it was
+    # is baked, together with the expiration date and the building it was
     # dropped in, into a Prodcode stamped onto the quant (see the gating model).
     batch_no = fields.Char(
         string='Batch #', copy=False,

@@ -417,9 +417,11 @@ A round of fixes from clicking the feature on `vifel_07_28_2026_2`. All in
   in one spot); aisles may still hold several.
 - **Batch # / Prodcode** (`suite_y` 11, `suite_y2` 5). New profile toggle
   `vifel_show_batch_no`. Batch # typed on the RR line (Pallet Breakdown + Magic Wizard,
-  written back on Confirm) is frozen at validation into a Prodcode on the quant:
-  `DD`+UPPER-mon+`YYYY`+Batch#+`x_studio_building_dropped` (e.g. `18MAY202699M`; no prod
-  date → Batch#+building). Shown read-only on the WR.
+  written back on Confirm) is set at validation into a Prodcode on the quant:
+  `DD`+UPPER-mon+`YYYY` (the **EXPIRATION** date, `x_studio_expiration_date`)
+  + Batch# + a fixed **M** (the building segment is hardcoded to 'M', not the
+  actual building; e.g. `18MAY202699M`; no expiration date means Batch# + M).
+  Shown read-only on the WR.
 - **Symmetric same-receipt Un-merge** (`suite_aa` 21, `suite_ac` 8). Same-receipt joins stay
   `is_pallet_merge=False` (ledger untouched) but now CAPTURE pre-merge state, so any line on
   a shared pallet shows "Merged" + Un-merge and can be peeled off; the pallet stays +1 until

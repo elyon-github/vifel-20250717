@@ -183,20 +183,37 @@ class SelectQuantWizard(models.TransientModel):
         current_quant_ids = set(self.quant_ids_picked.ids)
         quants_changed = (original_quant_ids != current_quant_ids)
         
+        # The lots THIS wizard is responsible for. A MERGE pallet can hold other
+        # products (on other moves) under the SAME pallet #; confirming Select
+        # Stocks for one product must never touch another product's stock on that
+        # pallet. The wizard only ever works with its own move's lot(s), so every
+        # removal on a partial (merge) pallet is scoped to these lots. A NORMAL
+        # pallet is unaffected — it is still withdrawn whole (all SKUs on it).
+        scope_lot_ids = (
+            set(this_stock_move.quant_ids_picked.mapped('lot_id').ids)
+            | set(this_stock_move.move_line_ids.mapped('lot_id').ids)
+            | set(self.quant_ids_picked.mapped('lot_id').ids))
+
         # --- Step 1: Handle removals first ---
         if packages_to_remove:
             # Find all quants and move lines related to these packages in the entire transfer
             for move in transfer_id.move_ids:
-                # Remove quants for these packages
+                # Remove quants for these packages. For a partial (merge) pallet,
+                # stay within this wizard's lot scope so a co-stored product is
+                # kept; a normal pallet is removed whole (all SKUs).
                 quants_to_remove = move.quant_ids_picked.filtered(
                     lambda q: q.package_id in packages_to_remove
+                    and (q.package_id.id not in partial_pkg_ids
+                         or q.lot_id.id in scope_lot_ids)
                 )
                 if quants_to_remove:
                     move.write({'quant_ids_picked': [(3, quant.id) for quant in quants_to_remove]})
-                
-                # Remove move lines for these packages
+
+                # Remove move lines for these packages (same lot-scope guard)
                 move_lines_to_remove = move.move_line_ids.filtered(
                     lambda ml: ml.package_id in packages_to_remove
+                    and (ml.package_id.id not in partial_pkg_ids
+                         or ml.lot_id.id in scope_lot_ids)
                 )
                 if move_lines_to_remove:
                     move_lines_to_remove.unlink()
@@ -209,6 +226,12 @@ class SelectQuantWizard(models.TransientModel):
         # (product / lot / package), because existing lines often have no quant_id
         # set — matching on quant_id alone would miss them and the dropped lot
         # would still be withdrawn.
+        #
+        # CRITICAL: only ever act within scope_lot_ids. A merge pallet legitimately
+        # holds MORE THAN ONE product (each on its own move), all sharing the pallet
+        # #. Without the lot-scope guard, confirming Select Stocks for one product
+        # would see the OTHER product's quants on the same pallet as "not selected"
+        # and unlink them — dropping stock the user never touched.
         if partial_pkg_ids:
             selected_ident = {
                 (q.product_id.id, q.lot_id.id, q.package_id.id)
@@ -217,12 +240,14 @@ class SelectQuantWizard(models.TransientModel):
             for move in transfer_id.move_ids:
                 drop_q = move.quant_ids_picked.filtered(
                     lambda q: q.package_id.id in partial_pkg_ids
+                    and q.lot_id.id in scope_lot_ids
                     and q.id not in selected_quant_ids)
                 if drop_q:
                     move.write({'quant_ids_picked':
                                 [(3, q.id) for q in drop_q]})
                 drop_lines = move.move_line_ids.filtered(
                     lambda ml: ml.package_id.id in partial_pkg_ids
+                    and ml.lot_id.id in scope_lot_ids
                     and (ml.product_id.id, ml.lot_id.id, ml.package_id.id)
                     not in selected_ident)
                 if drop_lines:

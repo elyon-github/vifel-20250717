@@ -35,7 +35,7 @@ try:
           p._vifel_format_prodcode(datetime.date(2026, 1, 1), '7', 'P2')
           == '01JAN20267P2',
           p._vifel_format_prodcode(datetime.date(2026, 1, 1), '7', 'P2'))
-    check('Y3 formatter with NO production date -> Batch# + building only',
+    check('Y3 formatter with NO expiration date -> Batch# + building only',
           p._vifel_format_prodcode(False, '42', 'A') == '42A',
           p._vifel_format_prodcode(False, '42', 'A'))
 
@@ -78,11 +78,13 @@ try:
         ('location_id', '=', line.location_dest_id.id),
         ('product_id', '=', line.product_id.id),
         ('lot_id', '=', line.lot_id.id)], limit=1)
-    bld = q.x_studio_building_dropped
-    expect = p._vifel_format_prodcode(line.x_studio_production_date, '99', bld)
+    # Building segment is fixed to 'M' (client ruling), regardless of the
+    # quant's x_studio_building_dropped or the destination building.
+    bld = 'M'
+    expect = p._vifel_format_prodcode(line.x_studio_expiration_date, '99', bld)
     check('Y7 the quant got the raw Batch #', q.batch_no == '99', q.batch_no)
-    check('Y8 the quant got the frozen Prodcode (%s, bldg=%s)' % (expect, bld),
-          q.prodcode == expect and expect.endswith(bld) and '99' in expect,
+    check('Y8 the quant got the frozen Prodcode (%s, bldg fixed to M)' % expect,
+          q.prodcode == expect and expect.endswith('M') and '99' in expect,
           q.prodcode)
 
     # ---- 4. a withdrawal line reads the Prodcode back off that quant ---
