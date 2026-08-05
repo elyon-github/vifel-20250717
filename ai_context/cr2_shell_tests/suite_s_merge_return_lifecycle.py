@@ -97,6 +97,51 @@ try:
     check('S6 is_pallet_merge is copy=False (return/void mirrors start plain)',
           fld.copy is False, fld.copy)
 
+    # ---- 6. a return carries the withdrawn stock's Lot No. / Batch # -----
+    # On a withdrawal the client Lot No. / Batch # live on the QUANT (and the
+    # original receiving line), not the WR move line, so the return builder used
+    # to drop them and the re-received stock lost its Prodcode. The base return
+    # wizard now exposes neutral hooks that vifel_client_requirements fills:
+    # fetch from the original receiving line, then carry onto the return line.
+    Wiz = env['return.package.wizard']
+    Line = env['return.package.wizard.line']
+    check('S7a the base return wizard exposes the neutral hooks (plug-and-play)',
+          hasattr(Wiz, '_vifel_return_wizard_line_vals')
+          and hasattr(Wiz, '_vifel_return_move_line_vals'))
+    # find a WR (outgoing) line whose withdrawn stock was RECEIVED with a Lot No.,
+    # so the fetch has something to return (mirrors M/WR/08433).
+    wr_line = False
+    src_lot = src_batch = None
+    for cand in env['stock.move.line'].search([
+            ('picking_id.picking_type_id.code', '=', 'outgoing'),
+            ('lot_id', '!=', False), ('product_id', '!=', False)], limit=600):
+        rr = env['stock.move.line'].search([
+            ('product_id', '=', cand.product_id.id),
+            ('lot_id', '=', cand.lot_id.id),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.return_id', '=', False),
+            ('client_lot_no', '!=', False)], limit=1)
+        if rr:
+            wr_line, src_lot, src_batch = cand, rr.client_lot_no, (rr.batch_no or False)
+            break
+    if wr_line:
+        wiz = Wiz.new({'picking_id': wr_line.picking_id.id})
+        wl_vals = wiz._vifel_return_wizard_line_vals(wr_line)
+        check('S7 the return fetches the withdrawn stock Lot No. / Batch # from '
+              'the original receiving line',
+              wl_vals.get('client_lot_no') == src_lot
+              and wl_vals.get('batch_no') == src_batch, (wl_vals, src_lot, src_batch))
+        wline = Line.new({'client_lot_no': wl_vals.get('client_lot_no'),
+                          'batch_no': wl_vals.get('batch_no')})
+        ml_vals = wiz._vifel_return_move_line_vals(wline)
+        check('S8 the move-line hook carries them onto the return line (so '
+              'validation re-stamps them and regenerates the Prodcode)',
+              ml_vals.get('client_lot_no') == src_lot
+              and ml_vals.get('batch_no') == src_batch, ml_vals)
+    else:
+        check('S7 (no WR line whose received stock had a Lot No. in DB)', True)
+        check('S8 (no eligible WR line in DB)', True)
+
 except Exception:
     print('UNEXPECTED ERROR:')
     traceback.print_exc()

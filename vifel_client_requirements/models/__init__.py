@@ -9,3 +9,4 @@ from . import stock_move_line_merge
 from . import fast_encode_merge
 from . import pkr_merge_counting
 from . import stock_quant_merge_withdrawal
+from . import return_lot_batch
