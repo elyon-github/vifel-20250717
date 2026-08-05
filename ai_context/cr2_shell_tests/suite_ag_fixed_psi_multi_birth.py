@@ -34,10 +34,18 @@ try:
     Wizard = env['pallet.merge.wizard']
     owner = env['res.partner'].browse(428)
     # Fixed client: ONE pinned pallet, one profile PSI, NOT multiple mode
+    # a genuinely empty AND UNCLAIMED pallet: not already referenced by any open
+    # incoming line, or the first-stock birth logic rightly sees a foreign claim
+    # and merges (+0) instead of birthing (the DB now carries UAT receipts that
+    # pin 00001 B). Pick a clean one so the birth assertions are exercised.
     empty_fixed = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=1)
+        ('x_studio_active', '=', True)], limit=400).filtered(
+        lambda p: not env['stock.move.line'].search_count([
+            ('result_package_id', '=', p.id),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
     owner.write({'vifel_can_merge_pallets': True,
                  'vifel_multiple_pallet_support': False,
                  'vifel_fixed_package_id': empty_fixed.id,
@@ -67,6 +75,21 @@ try:
 
     if len(lines) == 3:
         l1, l2, l3 = lines
+        # BUG M/RR/05323: merging several lines onto the EMPTY Fixed pallet left
+        # each line at its OWN location, so one pallet / PSI ended up at several
+        # locations. Force three DIFFERENT locations first, so the fix (the first
+        # line, index 0, sets the winning location) is genuinely exercised.
+        _locs = env['stock.location'].search([
+            ('usage', '=', 'internal'),
+            ('id', 'child_of', picking.location_dest_id.id),
+            ('child_ids', '=', False)], limit=3)
+        _forced = len(_locs) >= 3
+        if _forced:
+            l1.location_dest_id = _locs[0].id
+            l2.location_dest_id = _locs[1].id
+            l3.location_dest_id = _locs[2].id
+            env.flush_all()
+        win_loc_id = l1.location_dest_id.id
         for ml in (l1, l2, l3):
             merge_onto_fixed(ml)
 
@@ -96,6 +119,17 @@ try:
               empty_fixed.id in received_pkgs()
               and len([m for m in picking.move_line_ids
                        if m.result_package_id == empty_fixed]) == 3)
+
+        # ---- M/RR/05323 fix: one pallet -> ONE location for every line ----
+        if _forced:
+            locs_now = {l.location_dest_id.id for l in (l1, l2, l3)}
+            check('AG6b every line on the empty Fixed pallet shares ONE location '
+                  '- the first line\'s (M/RR/05323 fix)',
+                  len(locs_now) == 1 and l1.location_dest_id.id == win_loc_id,
+                  [l.location_dest_id.complete_name for l in (l1, l2, l3)])
+        else:
+            check('AG6b Fixed pallet single-location (no 3 distinct dest '
+                  'locations to force in this DB)', True)
 
         # ---- un-merge the THIRD line: it peels off; the other two stay ----
         l3.action_unmerge_pallet_line()

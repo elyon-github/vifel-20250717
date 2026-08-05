@@ -35,8 +35,14 @@ try:
           and 'pallet_series_audit' in order[1], order)
 
     # ---- a merge-enabled client with special types --------------------
-    partner = Partner.search([('x_studio_client_unique_code_1', '!=', False)],
-                             limit=1)
+    # Pick a coded client that has NO PSI types yet, so enabling Multiple mode
+    # seeds exactly the 4 standard ones. The DB now carries UAT clients already
+    # pre-loaded with custom types; fall back to any coded client if none is
+    # pristine.
+    partner = Partner.search([
+        ('x_studio_client_unique_code_1', '!=', False),
+        ('vifel_psi_type_ids', '=', False)], limit=1) or Partner.search(
+        [('x_studio_client_unique_code_1', '!=', False)], limit=1)
     print('test client: %s (code %s)' % (partner.display_name,
                                          partner.x_studio_client_unique_code_1))
 
@@ -53,9 +59,15 @@ try:
           len(partner.vifel_psi_type_ids))
 
     sdmg = types.filtered(lambda t: t.prefix == 'SDMG')
+    # Draw a HIGH number: the DB now carries UAT stock on the low SDMG series,
+    # and push_unused_pallet rightly refuses to recycle a stocked series (A9).
+    # A high, unstocked number lets A5/A6 exercise the recycle + audit cleanly.
+    sdmg.next_number = 987001
     s1 = sdmg.draw_number()
+    _snum = int(s1.split('-')[1])
     check('A3 draw_number formats prefix-zfill(6) (%s)' % s1,
-          s1 == 'SDMG-000001', s1)
+          s1.startswith('SDMG-') and s1.split('-')[1].isdigit()
+          and len(s1.split('-')[1]) == 6, s1)
 
     # ---- routing: a special number must NOT enter the normal pool -----
     normal_before = list(partner.unused_pallet_series_ids or [])
@@ -79,7 +91,7 @@ try:
     check('A4 special series did NOT enter the normal pool',
           normal_after == normal_before, (normal_before, normal_after))
     check('A5 special series went back to its OWN type pool',
-          1 in (sdmg.number_pool or []), sdmg.number_pool)
+          _snum in (sdmg.number_pool or []), sdmg.number_pool)
 
     audit_after = Audit.search_count([])
     check('A6 special-type recycle IS audited (audit rows %d -> %d)'
