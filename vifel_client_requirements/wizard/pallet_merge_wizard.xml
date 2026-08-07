@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_pallet_merge_wizard_form" model="ir.ui.view">
+        <field name="name">pallet.merge.wizard.form</field>
+        <field name="model">pallet.merge.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Merge Pallet" js_class="pallet_merge_wizard_form">
+                <field name="move_line_id" invisible="1"/>
+                <field name="picking_id" invisible="1"/>
+                <field name="partner_id" invisible="1"/>
+                <field name="is_multiple_mode" invisible="1"/>
+                <field name="candidates_capped" invisible="1"/>
+                <field name="candidate_total" invisible="1"/>
+                <field name="candidate_package_ids" invisible="1"/>
+                <field name="from_fast_encode" invisible="1"/>
+                <field name="selected_first_stock" invisible="1"/>
+                <field name="vifel_pinned_package_ids" invisible="1"/>
+                <!-- referenced by the new pallet / new location domains -->
+                <field name="warehouse_id" invisible="1"/>
+                <field name="picking_dest_location_id" invisible="1"/>
+                <field name="vifel_receipt_used_package_ids" invisible="1"/>
+                <field name="vifel_receipt_used_location_ids" invisible="1"/>
+                <field name="is_multi" invisible="1"/>
+
+                <!-- Multi-select: a compact summary card instead of the
+                     single-line detail. -->
+                <div class="d-flex flex-wrap mb-3 p-3 rounded border bg-light"
+                     style="gap: 2rem 2.75rem;" invisible="not is_multi">
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-list me-1"/>Lines selected</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="multi_count" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-th-large me-1"/>Total Quantity</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="multi_quantity" readonly="1"
+                                   nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-balance-scale me-1"/>Total Weight (KG)</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="multi_weight" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div class="w-100 text-muted small">
+                        All selected lines will merge onto the one pallet you
+                        pick below.
+                    </div>
+                </div>
+
+                <!-- What is being merged. A card of labelled cells, each with
+                     an icon: the figures the fit judgment needs read at a
+                     glance, and each value is its own flex cell so nothing
+                     wraps mid-number the way the original field group did.
+                     Order matches the candidate table below (Quantity before
+                     Weight). font-weight is inline on purpose — this theme
+                     remaps Bootstrap's $font-weight-bold to 500. -->
+                <div class="d-flex flex-wrap mb-3 p-3 rounded border bg-light"
+                     style="gap: 2rem 2.75rem;" invisible="is_multi">
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-hashtag me-1"/>Line #</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_number" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div style="min-width: 14rem;">
+                        <div class="text-muted small">
+                            <i class="fa fa-cube me-1"/>Product</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_product_id" readonly="1"
+                                   nolabel="1" options="{'no_open': True}"/>
+                        </div>
+                    </div>
+                    <div invisible="not line_psi">
+                        <div class="text-muted small">
+                            <i class="fa fa-barcode me-1"/>Currently PSI On</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_psi" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-th-large me-1"/>Quantity</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_quantity" readonly="1"
+                                   nolabel="1"/>
+                        </div>
+                    </div>
+                    <div invisible="not line_quantity_uom">
+                        <div class="text-muted small">Quantity UOM</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_quantity_uom" readonly="1"
+                                   nolabel="1" options="{'no_open': True}"/>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-muted small">
+                            <i class="fa fa-balance-scale me-1"/>Weight (KG)</div>
+                        <div style="font-weight: 700; font-size: 1.15rem;">
+                            <field name="line_weight" readonly="1" nolabel="1"/>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- mode chooser: only Multiple clients can start a new
+                     special pallet; Fixed clients merge onto their one
+                     pinned pallet, so no chooser is shown. Offered from BOTH
+                     surfaces - the dialog behaves identically whether it was
+                     opened from the Pallet Breakdown or the Magic Wizard. -->
+                <field name="mode" widget="radio"
+                       invisible="not is_multiple_mode"/>
+
+                <!-- ============ MERGE ONTO A STOCKED PALLET ============ -->
+                <div invisible="mode != 'merge'">
+                    <field name="candidate_line_ids" nolabel="1">
+                        <tree editable="bottom" create="false" delete="false"
+                              decoration-success="is_target"
+                              decoration-muted="not eligible">
+                            <field name="eligible" column_invisible="1"/>
+                            <field name="is_target" widget="boolean_toggle"
+                                   string="Merge Here"
+                                   readonly="not eligible"/>
+                            <field name="on_this_receipt" column_invisible="1"/>
+                            <field name="psi" string="Pallet Series"
+                                   readonly="1"/>
+                            <!-- distinguishes a pallet already on the floor
+                                 from one this receipt is still creating -->
+                            <field name="source_label" string="Where"
+                                   readonly="1"/>
+                            <field name="product_summary" string="Product"
+                                   readonly="1"/>
+                            <field name="location_id" string="Location"
+                                   readonly="1"/>
+                            <!-- Quantity before Weight, matching the header
+                                 card above -->
+                            <field name="quantity" string="Quantity"
+                                   readonly="1"/>
+                            <field name="weight_kg" string="Weight (KG)"
+                                   readonly="1"/>
+                            <!-- kept out of sight but IN the view: the
+                                 single-select onchange reads it to explain
+                                 why an unavailable row cannot be picked, and
+                                 onchange only receives fields the view loads -->
+                            <field name="ineligible_reason" column_invisible="1"/>
+                        </tree>
+                    </field>
+
+                    <!-- Everything on the selected pallet, INLINE so nothing
+                         closes. The Product column above is a summary of the
+                         first few names; this is the full picture, with real
+                         weights, lots and locations. -->
+                    <group string="On the selected pallet"
+                           invisible="not selected_target_quant_ids">
+                        <field name="selected_target_quant_ids" nolabel="1"
+                               colspan="2" readonly="1">
+                            <tree create="false" delete="false" edit="false">
+                                <field name="x_studio_record_reference"
+                                       string="Receiving Record (RR)"
+                                       options="{'no_open': True}"/>
+                                <field name="product_id" string="Product"/>
+                                <field name="x_studio_pallet_series_id"
+                                       string="Pallet Series"/>
+                                <field name="location_id" string="Location"/>
+                                <field name="x_studio_2nd_uom"
+                                       string="Quantity" sum="Quantity"/>
+                                <field name="x_studio_quantity_uom"
+                                       string="Quantity UOM"
+                                       options="{'no_open': True}"/>
+                                <field name="quantity" string="Weight (KG)"
+                                       sum="Weight (KG)"/>
+                            </tree>
+                        </field>
+                    </group>
+
+                    <div class="oe_grey mt-2" invisible="not candidates_capped">
+                        Showing the first of <field name="candidate_total"
+                        class="oe_inline"/> eligible pallets. Not listed? Pick it
+                        by name below.
+                    </div>
+                    <group invisible="not candidates_capped">
+                        <field name="manual_package_id"
+                               options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                </div>
+
+                <!-- ============ START A NEW SPECIAL PALLET ============ -->
+                <group invisible="mode != 'new'"
+                       string="New special pallet — counts as a received pallet (+1)">
+                    <field name="psi_type_id"
+                           options="{'no_create': True, 'no_open': True}"/>
+                    <field name="new_package_id"
+                           options="{'no_create': True, 'no_open': True}"/>
+                    <field name="new_location_id"
+                           options="{'no_create': True, 'no_open': True}"/>
+                </group>
+
+                <!-- The one consequence that is NOT obvious from the screen,
+                     kept to a single grey line rather than a banner. The text
+                     switches with the selection: +0 only applies while the
+                     pallet already holds stock — the FIRST stock on the empty
+                     pinned pallet births it and counts +1. -->
+                <div class="oe_grey mt-3"
+                     invisible="mode != 'merge' or selected_first_stock">
+                    The line adopts the selected pallet's series and location.
+                    It is not counted as a new pallet — its weight and quantity
+                    still count in full.
+                </div>
+                <div class="oe_grey mt-3"
+                     invisible="mode != 'merge' or not selected_first_stock">
+                    This pallet is empty — this line puts the first stock on it
+                    and <b>is counted as a received pallet</b>. Later lines
+                    merging onto it, once it holds stock, will not be.
+                </div>
+
+                <footer>
+                    <button name="action_confirm" string="Confirm"
+                            type="object" class="btn-primary"
+                            data-hotkey="q"/>
+                    <!-- Opening this dialog REPLACED the Magic Wizard behind it
+                         (Odoo swaps dialogs on a target='new' action), so in that
+                         mode plain Cancel would throw away the encoding session.
+                         Go back to the list instead. -->
+                    <button name="action_back_to_fast_encode"
+                            string="Back to Magic Wizard" type="object"
+                            class="btn-secondary" data-hotkey="x"
+                            invisible="not from_fast_encode"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel" data-hotkey="x"
+                            invisible="from_fast_encode"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

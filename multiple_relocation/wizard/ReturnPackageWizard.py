@@ -307,6 +307,7 @@ class ReturnPackageWizard(models.TransientModel):
                             'stock_move_line': move_line.id,
                             'return_counter': move_line.x_studio_return_count,
                             'container_number': move_line.x_studio_container_number,
+                            **self._vifel_return_wizard_line_vals(move_line),
                             'pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                             'min_uom_unit': move_line.x_studio_withdraw_units,
                             'quantity': move_line.quantity,
@@ -340,6 +341,7 @@ class ReturnPackageWizard(models.TransientModel):
                                     'stock_move_line': move_line.id,
                                     'return_counter': move_line.x_studio_return_count,
                                     'container_number': move_line.x_studio_container_number,
+                                    **self._vifel_return_wizard_line_vals(move_line),
                                     'pack_uom_unit': move_line.x_studio_affected_2nd_uom - move_line.x_studio_actual_packaging,
                                     'min_uom_unit': move_line.x_studio_withdraw_units - move_line.x_studio_actual_min,
                                     'quantity': partial_quantity,
@@ -533,6 +535,17 @@ class ReturnPackageWizard(models.TransientModel):
             'x_studio_min_uom': move.x_studio_min_uom + min_uom_diff,
             'state': 'assigned',
         })
+
+    def _vifel_return_wizard_line_vals(self, move_line):
+        """Neutral hook: extra return WIZARD-LINE vals derived from the withdrawn
+        move line (e.g. the client's Lot No. / Batch #). Overridden by
+        vifel_client_requirements; returns {} in the base module."""
+        return {}
+
+    def _vifel_return_move_line_vals(self, package):
+        """Neutral hook: extra return MOVE-LINE vals derived from the wizard line.
+        Overridden by vifel_client_requirements; {} in the base module."""
+        return {}
 
     def action_process_return(self):
         selected_packages = self.package_line_ids.filtered(lambda line: line.select_package)
@@ -811,6 +824,7 @@ class ReturnPackageWizard(models.TransientModel):
                 move_line.write({
                     'is_return': True,
                     'picking_id': existing_return.id,
+                    **self._vifel_return_move_line_vals(package),
                     'x_studio_expiration_date': package.expiration_date,
                     'x_studio_building_dropped': package.x_studio_building_dropped,
                     'original_record_reference': package.original_record_reference,
@@ -974,6 +988,7 @@ class ReturnPackageWizard(models.TransientModel):
                 move_line.write({
                     'is_return': True,
                     'picking_id': new_picking.id,
+                    **self._vifel_return_move_line_vals(package),
                     'x_studio_expiration_date': package.expiration_date,
                     'x_studio_building_dropped': package.x_studio_building_dropped,
                     'original_record_reference': package.original_record_reference,

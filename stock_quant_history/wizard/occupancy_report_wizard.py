@@ -1,9 +1,14 @@
 import logging
+from datetime import timedelta
+
+from pytz import timezone, utc as pytz_utc
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
+MANILA_TZ = timezone('Asia/Manila')
 
 
 class OccupancyReportWizard(models.TransientModel):
@@ -42,13 +47,21 @@ class OccupancyReportWizard(models.TransientModel):
     date_to = fields.Date(
         string='End Date',
         required=True,
+        # Default to yesterday: the latest day with a complete scheduled snapshot
+        # (the daily cron stamps end-of-yesterday).
+        default=lambda self: fields.Date.context_today(self) - timedelta(days=1),
     )
 
     @api.constrains('date_from', 'date_to')
     def _check_dates(self):
+        today = fields.Date.context_today(self)
         for rec in self:
-            if rec.date_from > rec.date_to:
+            if rec.date_from and rec.date_to and rec.date_from > rec.date_to:
                 raise UserError(_("Start Date must be before End Date."))
+            if rec.date_to and rec.date_to > today:
+                raise UserError(_(
+                    "End Date cannot be in the future - you cannot report on a "
+                    "day that has not happened yet."))
 
     # ─── Snapshot method (auto-generate) ───────────────────────────────
     def _ensure_snapshots_for_range(self):
@@ -109,6 +122,25 @@ class OccupancyReportWizard(models.TransientModel):
             raise UserError(_(
                 "No generated snapshots found between %s and %s."
             ) % (self.date_from, self.date_to))
+
+        # Keep exactly ONE snapshot per Manila calendar day. A day can carry both
+        # a user-manual snapshot and the scheduled 23:59:59 one; feeding both to
+        # the report double/triple-counts that day's quants (the report buckets
+        # history rows by calendar date). Prefer the scheduled (cron) snapshot,
+        # then the latest inventory_date; a manual snapshot is used only when no
+        # scheduled one exists for that day.
+        best_per_day = {}
+        for snap in snapshots:
+            day = pytz_utc.localize(snap.inventory_date).astimezone(MANILA_TZ).date()
+            current = best_per_day.get(day)
+            if current is None or (
+                (snap.generated_by_cron and not current.generated_by_cron)
+                or (snap.generated_by_cron == current.generated_by_cron
+                    and snap.inventory_date > current.inventory_date)
+            ):
+                best_per_day[day] = snap
+        snapshots = self.env['stock.quant.history.snapshot'].browse(
+            [snap.id for snap in best_per_day.values()])
 
         history_domain = [
             ('snapshot_id', 'in', snapshots.ids),
