@@ -72,6 +72,10 @@ class InventorySummary(models.AbstractModel):
             moves = Quant.search([
                 ('owner_id', '=', owner.id),
                 ('location_id.usage', '=', 'internal'),
+                # Exclude Blast-Freeze stock: this summary is for regular
+                # cold-storage inventory only. x_studio_is_a_blast_freezer is the
+                # canonical (stored) BF flag on the location, used system-wide.
+                ('location_id.x_studio_is_a_blast_freezer', '=', False),
                 ('quantity', '!=', 0),
             ])
             if not moves:
