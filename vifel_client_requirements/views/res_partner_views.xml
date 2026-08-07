@@ -64,8 +64,11 @@
                         <field name="vifel_fixed_psi"
                                invisible="vifel_multiple_pallet_support"/>
 
-                        <!-- Multiple: widen the candidates -->
+                        <!-- Multiple: widen the candidates. Restricted to ERP
+                             managers - it is an advanced switch that lets merges
+                             also target ordinary (non-special) stock pallets. -->
                         <field name="vifel_include_regular_pallets"
+                               groups="base.group_erp_manager"
                                invisible="not vifel_multiple_pallet_support"/>
                     </group>
 

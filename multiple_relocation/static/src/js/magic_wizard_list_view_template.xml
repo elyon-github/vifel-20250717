@@ -11,5 +11,38 @@
                 </button>
             </t>
         </xpath>
+
+        <!-- Live pallet/quantity/weight counter. Rendered in the NAVIGATION
+             cluster (the one that holds the pager), NOT the search cluster, so
+             it never occupies the search bar's space. SCSS gives it order:-1 +
+             auto side-margins so it lands centered in the gap between the search
+             bar and the pager. Recomputes reactively via the vifelCounts getter
+             as lines are added/edited/merged. Read-only; mirrors the PKR /
+             RR-WR report counting rules. -->
+        <xpath expr="//Layout/t[@t-set-slot='control-panel-navigation-additional']" position="inside">
+            <t t-set="vc" t-value="vifelCounts"/>
+            <div class="o_vifel_pallet_counter" role="status" aria-label="Pallet breakdown totals">
+                <div class="o_vpc_row">
+                    <div class="o_vpc_item o_vpc_pallets">
+                        <span class="o_vpc_dot"/>
+                        <span class="o_vpc_label">No. of Pallets</span>
+                        <span class="o_vpc_value" t-esc="vc.pallets"/>
+                    </div>
+                    <div class="o_vpc_item o_vpc_qty">
+                        <span class="o_vpc_dot"/>
+                        <span class="o_vpc_label">Quantity</span>
+                        <span class="o_vpc_value" t-esc="vc.quantity"/>
+                    </div>
+                    <div class="o_vpc_item o_vpc_weight">
+                        <span class="o_vpc_dot"/>
+                        <span class="o_vpc_label">Weight (KG)</span>
+                        <span class="o_vpc_value" t-esc="vc.weight"/>
+                    </div>
+                </div>
+                <div t-if="vifelShowMultiWrNote" class="o_vpc_note">
+                    <i>Multi-truck withdrawal: this pallet count is not final. A shared pallet is counted on whichever transfer empties it last, so the total may change once the other transfers are validated.</i>
+                </div>
+            </div>
+        </xpath>
     </t>
 </templates>
