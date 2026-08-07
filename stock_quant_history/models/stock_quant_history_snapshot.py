@@ -80,6 +80,17 @@ class StockQuantHistorySnapshot(models.Model):
              "when all their lines belong to a single warehouse; empty only "
              "if a legacy snapshot genuinely mixes warehouses.",
     )
+    generated_by_cron = fields.Boolean(
+        string="Scheduled (auto-generated)",
+        default=False,
+        readonly=True,
+        copy=False,
+        index=True,
+        help="True when a scheduled action (daily generation or backfill) created "
+             "this snapshot, as opposed to a manual/on-demand one. The Occupancy "
+             "Report prefers the scheduled snapshot when more than one exists for "
+             "the same day; a manual snapshot is only used as a fallback.",
+    )
 
     @api.depends("inventory_date")
     def _compute_name(self):
@@ -95,6 +106,27 @@ class StockQuantHistorySnapshot(models.Model):
             local_inventory_date = pytz_utc.localize(rec.inventory_date).astimezone(self.MANILA_TZ)
 
             rec.name = _("Snapshot %s") % local_inventory_date.strftime(dt_format)
+
+    @api.constrains("inventory_date")
+    def _check_inventory_date_not_future(self):
+        """You cannot snapshot a day that has not happened yet. Compared on the
+        Manila CALENDAR date, so 'today 23:59:59' (the end-of-day timestamp used
+        throughout this module) is allowed while any future day is blocked. This
+        one backstop covers the manual snapshot form, the occupancy wizard's
+        auto-generation and the SQL-baseline path; the crons only ever create
+        yesterday/past dates, so they are unaffected."""
+        today_manila = datetime.now(self.MANILA_TZ).date()
+        for rec in self:
+            if not rec.inventory_date:
+                continue
+            inv_date_manila = pytz_utc.localize(
+                rec.inventory_date
+            ).astimezone(self.MANILA_TZ).date()
+            if inv_date_manila > today_manila:
+                raise ValidationError(_(
+                    "You cannot generate an inventory snapshot for a future date "
+                    "(%s). Please pick today or an earlier date."
+                ) % inv_date_manila.strftime("%Y-%m-%d"))
 
     def action_generate_stock_quant_history(self):
         for snapshot in self:
@@ -480,12 +512,19 @@ class StockQuantHistorySnapshot(models.Model):
         day_start = datetime.combine(yesterday, datetime.min.time())
         day_end = datetime.combine(yesterday, datetime.max.time())
 
-        existing = self.search([
+        # Look for the SCHEDULED snapshot specifically, not just any snapshot.
+        # A user may have manually generated one for this day; the scheduled
+        # action must still produce its OWN authoritative end-of-day snapshot so
+        # the Occupancy Report always has an odoobot record to prefer (the manual
+        # one is only a fallback). The resulting duplicate on user-snapshot days
+        # is resolved by the report's per-day dedupe.
+        existing_cron = self.search([
             ('inventory_date', '>=', day_start),
             ('inventory_date', '<=', day_end),
+            ('generated_by_cron', '=', True),
         ], limit=1)
 
-        if not existing:
+        if not existing_cron:
             # Create snapshot at 23:59:59 Manila → UTC
             local_dt = self.MANILA_TZ.localize(
                 datetime.combine(yesterday, datetime.min.time()).replace(
@@ -497,17 +536,18 @@ class StockQuantHistorySnapshot(models.Model):
             snapshot = self.create({
                 'inventory_date': utc_dt,
                 'state': 'draft',
+                'generated_by_cron': True,
             })
             _logger.info(
-                "CRON: created snapshot for %s (inventory_date=%s)",
+                "CRON: created scheduled snapshot for %s (inventory_date=%s)",
                 yesterday, utc_dt,
             )
             snapshot._generate_stock_quant_history()
-        elif existing.state == 'draft':
-            _logger.info("CRON: generating existing draft snapshot for %s", yesterday)
-            existing._generate_stock_quant_history()
+        elif existing_cron.state == 'draft':
+            _logger.info("CRON: generating existing draft scheduled snapshot for %s", yesterday)
+            existing_cron._generate_stock_quant_history()
         else:
-            _logger.info("CRON: snapshot for %s already exists and is generated", yesterday)
+            _logger.info("CRON: scheduled snapshot for %s already exists and is generated", yesterday)
 
         # ── Cleanup: keep only the newest MAX_SNAPSHOTS ──
         all_snapshots = self.search([], order='inventory_date desc')
@@ -589,9 +629,10 @@ class StockQuantHistorySnapshot(models.Model):
             snapshot = self.create({
                 'inventory_date': utc_dt,
                 'state': 'draft',
+                'generated_by_cron': True,
             })
             _logger.info(
-                "Backfill CRON: created snapshot for %s (inventory_date=%s)",
+                "Backfill CRON: created scheduled snapshot for %s (inventory_date=%s)",
                 target_date, utc_dt,
             )
             try:

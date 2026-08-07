@@ -272,7 +272,11 @@ class OccupancyXlsxReport(models.AbstractModel):
                 SELECT id, inventory_date
                 FROM stock_quant_history_snapshot
                 WHERE state = 'generated' AND inventory_date <= %s
-                ORDER BY inventory_date DESC
+                -- nearest snapshot to the target day (latest first); the cron
+                -- snapshot is stamped 23:59:59 == target_end so it already wins
+                -- its day, with generated_by_cron breaking exact-timestamp ties
+                -- in favour of the scheduled one over a manual/wizard snapshot.
+                ORDER BY inventory_date DESC, generated_by_cron DESC
                 LIMIT 1
             """, (target_end,))
             row = cr.fetchone()
