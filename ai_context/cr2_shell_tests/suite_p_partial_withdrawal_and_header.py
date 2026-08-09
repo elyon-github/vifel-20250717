@@ -35,23 +35,34 @@ try:
     check('W1 a normal pallet still requires complete selection',
           not Q._vifel_package_allows_partial_withdrawal(normal.id), normal.name)
 
-    # a pinned Fixed Merge Pallet may be withdrawn from partially
-    owner.write({'vifel_can_merge_pallets':True,'vifel_multiple_pallet_support':False,
-                 'vifel_fixed_package_id':normal.id,'vifel_fixed_psi':'ZZZ-000001'})
+    # a pinned Fixed Merge Pallet may be withdrawn from partially. Under the
+    # empty-&-free rule it is pinned WHILE EMPTY then takes stock, so pin a fresh
+    # empty pallet and give it a quant.
+    owner.write({'vifel_can_merge_pallets':True,'vifel_multiple_pallet_support':False})
+    env.flush_all()
+    prod0=env['product.product'].search([('type','=','product')],limit=1)
+    dst0=env['stock.location'].search([('usage','=','internal')],limit=1)
+    fixpkg=env['stock.quant.package'].create({})
+    fixed_row=env['vifel.fixed.merge.pallet'].create({
+        'partner_id':owner.id,'package_id':fixpkg.id,'psi':'ZZZ-000001'})
+    env.flush_all()
+    env['stock.quant'].with_context(inventory_mode=True).create({
+        'product_id':prod0.id,'location_id':dst0.id,'package_id':fixpkg.id,
+        'owner_id':owner.id,'quantity':100.0,'x_studio_pallet_series_id':'ZZZ-000001'})
     env.flush_all()
     check('W2 a pinned Fixed Merge Pallet allows partial withdrawal',
-          Q._vifel_package_allows_partial_withdrawal(normal.id))
-    # DURABLE IDENTITY: un-pinning a Fixed pallet that STILL HOLDS its merged
-    # stock KEEPS partial withdrawal (freed only once emptied) - the user's rule.
-    owner.write({'vifel_fixed_package_id':False,'vifel_fixed_psi':False}); env.flush_all()
+          Q._vifel_package_allows_partial_withdrawal(fixpkg.id))
+    # DURABLE IDENTITY: un-pinning (removing the row) a Fixed pallet that STILL
+    # HOLDS its merged stock KEEPS partial withdrawal (freed only once emptied).
+    fixed_row.unlink(); env.flush_all()
     check('W3 un-pinned while still holding stock, it KEEPS partial withdrawal '
           '(durable; freed only once emptied)',
-          Q._vifel_package_allows_partial_withdrawal(normal.id))
+          Q._vifel_package_allows_partial_withdrawal(fixpkg.id))
     # empty it -> now it stops
-    normal.quant_ids.filtered(lambda q: q.quantity>0).write({'quantity':0.0})
+    fixpkg.quant_ids.filtered(lambda q: q.quantity>0).write({'quantity':0.0})
     env.flush_all()
     check('W3b ... and stops once the pallet is emptied (fully withdrawn)',
-          not Q._vifel_package_allows_partial_withdrawal(normal.id))
+          not Q._vifel_package_allows_partial_withdrawal(fixpkg.id))
 
     # helper: a fresh package holding stock, marked via a move line
     prod=env['product.product'].search([('type','=','product')],limit=1)

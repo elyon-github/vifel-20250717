@@ -225,13 +225,16 @@ try:
     empty_fixed = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=400).filtered(
-        lambda p: not env['stock.move.line'].search_count([
+        ('x_studio_active', '=', True),
+        ('x_studio_is_reserved', '=', False),
+        ('vifel_is_merge_pallet', '=', False)], limit=400).filtered(
+        lambda p: not p.quant_ids.filtered(lambda q: q.quantity > 0)
+        and not env['stock.move.line'].search_count([
             ('result_package_id', '=', p.id),
             ('picking_id.picking_type_id.code', '=', 'incoming'),
             ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
-    owner.write({'vifel_fixed_package_id': empty_fixed.id,
-                 'vifel_fixed_psi': 'WMF-000230'})
+    env['vifel.fixed.merge.pallet'].create({
+        'partner_id': owner.id, 'package_id': empty_fixed.id, 'psi': 'WMF-000230'})
     env.flush_all()
     # NOT a line already sitting on the pinned pallet — the wizard rightly
     # excludes a line's own pallet, which would leave 0 candidates

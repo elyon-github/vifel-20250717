@@ -15,7 +15,7 @@
 #   3. WORDING — the offending-series detail line is trimmed to facts.
 #   4. WORDING — the duplicate-series section header/footer states the RULE and
 #                the FIX (fresh series, or use Merge Pallet). No change to WHEN.
-# is_pallet_merge and vifel_fixed_package_id are defined by the merge module
+# is_pallet_merge and vifel_fixed_pallet_ids are defined by the merge module
 # (always installed where this is pasted), so the guards read them directly —
 # server actions run sandboxed and have no getattr/hasattr.
 # ============================================================================
@@ -321,15 +321,16 @@ for record in records:
         location, package = line.location_dest_id, line.result_package_id
     
     
-        # >>> MERGE: a merged line, or a line on the client's PINNED Fixed
-        # >>> Merge Pallet, uses a pallet that is reserved ON PURPOSE — the
-        # >>> pinned pallet is reserved by the client config and reused every
+        # >>> MERGE: a merged line, or a line on ONE OF the client's PINNED
+        # >>> Fixed Merge Pallets, uses a pallet that is reserved ON PURPOSE —
+        # >>> each pinned pallet is reserved by the client config and reused every
         # >>> receipt, and a merge deliberately adopts an in-use pallet. Exempt
         # >>> them from the "already reserved elsewhere" guard (same spirit as
-        # >>> the duplicate-PSI exemption further below).
-        _fixed_pkg = line.picking_id.partner_id.vifel_fixed_package_id
+        # >>> the duplicate-PSI exemption further below). A client may now pin
+        # >>> SEVERAL fixed pallets, so check membership in the whole set.
+        _fixed_pkgs = line.picking_id.partner_id.vifel_fixed_pallet_ids.mapped('package_id')
         _reserved_ok = line.is_pallet_merge or (
-            _fixed_pkg and line.result_package_id == _fixed_pkg)
+            line.result_package_id and line.result_package_id in _fixed_pkgs)
         if (line.result_package_id.x_studio_is_reserved
                 and line.result_package_id.x_studio_receiving_report_id.id != line.picking_id.id
                 and not _reserved_ok):

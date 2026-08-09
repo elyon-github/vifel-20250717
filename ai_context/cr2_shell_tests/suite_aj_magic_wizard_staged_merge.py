@@ -138,6 +138,10 @@ try:
               not rb.vifel_pending_merge and not rb.vifel_on_merged_pallet
               and rb.result_package_id == b2_pkg0,
               (rb.vifel_pending_merge, rb.result_package_id.name))
+        check('AJ11b the cancelled staged create-special series is VOIDED to the '
+              'receipt (recyclable), not lost',
+              staged2 in picking.vifel_voided_special_psi_ids.mapped('series'),
+              (staged2, picking.vifel_voided_special_psi_ids.mapped('series')))
         # confirm now writes a PLAIN line: the staged create-special pallet and
         # its special series must NOT persist anywhere on the real line.
         fw2.action_confirm()

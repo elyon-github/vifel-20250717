@@ -410,3 +410,14 @@ class StockMoveLineMergeEntry(models.Model):
         if old_loc and old_loc != new_loc \
                 and old_loc not in siblings.mapped('location_dest_id'):
             self._free_location_if_unused(picking.id, old_loc.id)
+
+        # A CREATE-SPECIAL birth (an unflagged +1 line carrying a special-TYPE
+        # series) whose LAST holder is being peeled off: save its series to the
+        # receipt's voided list so create-special of the same type on this same
+        # receipt can recycle it (lowest first) instead of losing it. The helper
+        # no-ops for a non-special series (a Fixed PSI, or a client-code normal
+        # series); a +0 merge (is_pallet_merge) never voids — the series belongs
+        # to the pallet it joined, not to the peeling line.
+        if old_series and not self.is_pallet_merge and not siblings.filtered(
+                lambda l: l.x_studio_pallet_series_id == old_series):
+            picking._vifel_void_special_series(old_series)
