@@ -11,8 +11,12 @@ This replaces the old single ``res.partner.vifel_fixed_package_id`` /
 driven from THIS line model's create/unlink so that adding or removing a row keeps
 the reserve + durable-identity state symmetric per pallet.
 """
+import logging
+
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+
+_logger = logging.getLogger(__name__)
 
 
 class VifelFixedMergePallet(models.Model):
@@ -41,6 +45,55 @@ class VifelFixedMergePallet(models.Model):
          'That Fixed Merge PSI is already used by another fixed pallet — a '
          'Pallet Series identifies one pallet, so it must be globally unique.'),
     ]
+
+    # ------------------------------------------------------------------
+    # Legacy migration - runs on EVERY module -u.
+    #
+    # The old design pinned ONE Fixed pallet per client on
+    # res.partner.vifel_fixed_package_id / vifel_fixed_psi. The multiple-fixed
+    # feature dropped those fields (their columns linger as orphans) and moved
+    # the config into this model. The manifest version stays PINNED (a bump
+    # would collide on the branch/deploy workflow), so a version-gated
+    # migrations/ script would NEVER fire - the conversion has to happen here,
+    # in init(), which Odoo calls after the table is created on each -u.
+    # ------------------------------------------------------------------
+    def init(self):
+        super_init = getattr(super(), 'init', None)
+        if callable(super_init):
+            super_init()
+        cr = self.env.cr
+        # No-op on a fresh install: the legacy columns never existed there.
+        cr.execute("""
+            SELECT count(*) FROM information_schema.columns
+            WHERE table_name = 'res_partner'
+              AND column_name IN ('vifel_fixed_package_id', 'vifel_fixed_psi')
+        """)
+        if cr.fetchone()[0] != 2:
+            return
+        # Raw SQL on purpose: read the now-orphan legacy columns directly and
+        # bypass the empty-&-free create guard (a migrated pallet legitimately
+        # already holds stock / is reserved from its original pin). Idempotent:
+        # a package that already has a row is skipped, and ON CONFLICT covers
+        # the unique(package_id)/unique(psi) constraints. No commit - the module
+        # loader commits the whole upgrade transaction.
+        cr.execute("""
+            INSERT INTO vifel_fixed_merge_pallet
+                (partner_id, package_id, psi,
+                 create_uid, write_uid, create_date, write_date)
+            SELECT p.id, p.vifel_fixed_package_id, UPPER(TRIM(p.vifel_fixed_psi)),
+                   1, 1, (now() at time zone 'UTC'), (now() at time zone 'UTC')
+            FROM res_partner p
+            WHERE p.vifel_fixed_package_id IS NOT NULL
+              AND COALESCE(TRIM(p.vifel_fixed_psi), '') <> ''
+              AND NOT EXISTS (
+                  SELECT 1 FROM vifel_fixed_merge_pallet f
+                  WHERE f.package_id = p.vifel_fixed_package_id)
+            ON CONFLICT DO NOTHING
+        """)
+        if cr.rowcount:
+            _logger.info(
+                "vifel.fixed.merge.pallet: migrated %s legacy single-Fixed "
+                "pallet(s) into the multiple-Fixed model.", cr.rowcount)
 
     @staticmethod
     def _normalize_psi(psi):

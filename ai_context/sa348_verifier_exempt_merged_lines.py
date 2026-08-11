@@ -486,7 +486,7 @@ for record in records:
     # === DUPLICATE PALLET SERIES IN STOCK CHECK (Incoming non-return only) ===
     if record.picking_type_code == 'incoming' and not record.return_id and not record.picking_type_id.is_blast_freeze_operation:
         # Collect unique (pallet_series, owner) combos from NEW lines only
-        seen_combos = set()
+        seen_combos = {}
         combos_to_check = []
         for move_line in record.move_line_ids:
             if not move_line.x_studio_pallet_series_id:
@@ -505,21 +505,33 @@ for record in records:
                 move_line.owner_id.id,
             )
             if combo_key not in seen_combos:
-                seen_combos.add(combo_key)
-                combos_to_check.append({
+                seen_combos[combo_key] = {
                     'series': move_line.x_studio_pallet_series_id,
                     'owner_id': move_line.owner_id.id,
                     'owner_name': move_line.owner_id.name,
                     'product_id': move_line.product_id.id,
                     'product_name': move_line.product_id.display_name,
-                })
+                    'package_ids': set(),
+                }
+                combos_to_check.append(seen_combos[combo_key])
+            if move_line.result_package_id:
+                seen_combos[combo_key]['package_ids'].add(move_line.result_package_id.id)
     
         for combo in combos_to_check:
-            existing_quant = env['stock.quant'].search([
+            # A series already on the floor is a true duplicate ONLY when it sits
+            # on a DIFFERENT physical pallet. When this receipt lands the same
+            # series on the SAME package it is already stocked on, it is a
+            # legitimate top-up onto the one physical pallet (a merge pallet is
+            # built up across several receipts that all re-use the package), so
+            # ignore quants that stand on that same package.
+            _dup_domain = [
                 ('x_studio_pallet_series_id', '=', combo['series']),
                 ('owner_id', '=', combo['owner_id']),
                 ('quantity', '>', 0),
-            ], limit=1)
+            ]
+            if combo['package_ids']:
+                _dup_domain.append(('package_id', 'not in', list(combo['package_ids'])))
+            existing_quant = env['stock.quant'].search(_dup_domain, limit=1)
 
             if existing_quant:
                 error_messages['existing_pallet_series'].append(

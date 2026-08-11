@@ -42,6 +42,9 @@
                 <div t-if="vifelShowMultiWrNote" class="o_vpc_note">
                     <i>Multi-truck withdrawal: this pallet count is not final. A shared pallet is counted on whichever transfer empties it last, so the total may change once the other transfers are validated.</i>
                 </div>
+                <div t-if="vifelShowProvisionalBirthNote" class="o_vpc_note">
+                    <i>Provisional count: this receipt is starting an empty merge pallet. Whichever receipt validates onto that pallet first is the one that counts it (+1), so this total may change once transfers are validated.</i>
+                </div>
             </div>
         </xpath>
     </t>

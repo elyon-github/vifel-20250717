@@ -112,8 +112,15 @@ export class MagicWizardListController extends ListController {
                     pallets += 1;
                 }
             } else {
-                // Incoming (RR): a merged (+0) line adds no pallet.
-                if (!this._vifelLineOriginatesPallet(rec)) {
+                // Incoming (RR): count per the server preview flag. On a pinned
+                // Fixed pallet vifel_counts_in_preview counts EVERY receipt still
+                // racing to birth it (pallet empty) and drops the losers once it
+                // is stocked, matching validation order rather than merge order.
+                // Falls back to the plain +0 rule when the flag is absent.
+                const counts = ("vifel_counts_in_preview" in d)
+                    ? !!d.vifel_counts_in_preview
+                    : this._vifelLineOriginatesPallet(rec);
+                if (!counts) {
                     continue;
                 }
                 const rpkg = idOf(d.result_package_id);
@@ -153,6 +160,26 @@ export class MagicWizardListController extends ListController {
         }
         const records = (this.model.root && this.model.root.records) || [];
         return records.some((rec) => !!rec.data.is_package_multiple_withdraw);
+    }
+
+    /**
+     * Show a "count is provisional" caveat on an OPEN (incoming, not done)
+     * receipt that is birthing an empty pinned Fixed pallet: which receipt takes
+     * the +1 is only settled at validation: whichever receipt validates onto
+     * the empty pallet FIRST is the one that counts it. Reads the feature field
+     * vifel_birth_provisional defensively (undefined when the merge add-on is
+     * absent → falsy), exactly like vifelCounts reads is_pallet_merge.
+     */
+    get vifelShowProvisionalBirthNote() {
+        const ctx = this.props.context || {};
+        const isOutgoing =
+            ctx.picking_code === "outgoing" || ctx.picking_type_code === "outgoing";
+        const isDone = ctx.state === "done";
+        if (isOutgoing || isDone) {
+            return false;
+        }
+        const records = (this.model.root && this.model.root.records) || [];
+        return records.some((rec) => !!rec.data.vifel_birth_provisional);
     }
 
     async onMagicWizardClick() {

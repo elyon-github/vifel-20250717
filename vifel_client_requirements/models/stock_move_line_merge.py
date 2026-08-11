@@ -29,6 +29,25 @@ class StockMoveLineMergeEntry(models.Model):
              'this same receipt. Any such line can be un-merged; the pallet is '
              'counted once.')
 
+    # Live Pallet Breakdown preview flags. On a pinned Fixed pallet the +1
+    # (birth) is decided at VALIDATION (whichever receipt validates onto the
+    # still-empty pallet FIRST counts it), NOT by the claim-time is_pallet_merge
+    # flag. So while such a pallet is EMPTY every receipt merging onto it is a
+    # live contender: each counts it in its preview and shows the note; once it
+    # holds stock the birth is decided and the losers stop counting it (on
+    # refresh). Both non-stored: they must reflect live floor stock.
+    vifel_birth_provisional = fields.Boolean(
+        compute='_compute_vifel_merge_preview_flags',
+        help='This line is merging onto an empty pinned Fixed pallet whose +1 '
+             'is not yet decided: the first receipt to validate onto it wins '
+             'the count, so the live pallet count is provisional until then.')
+    vifel_counts_in_preview = fields.Boolean(
+        compute='_compute_vifel_merge_preview_flags',
+        help='Whether this line counts its pallet in the live No. of Pallets '
+             'preview. Same as "originates a pallet" for ordinary lines; on an '
+             'empty pinned Fixed pallet it is True for every racing receipt, '
+             'and False once the pallet is stocked (the birth is decided).')
+
     @api.depends('result_package_id', 'is_pallet_merge',
                  'vifel_premerge_captured',
                  'picking_id.move_line_ids.result_package_id',
@@ -76,6 +95,41 @@ class StockMoveLineMergeEntry(models.Model):
                 and not getattr(picking, 'is_void_return', False)
                 and not picking.x_studio_is_a_blast_freezer
                 and picking.partner_id.vifel_can_merge_pallets)
+
+    @api.depends('result_package_id', 'is_pallet_merge',
+                 'picking_id.state', 'picking_id.picking_type_id',
+                 'picking_id.return_id', 'picking_id.partner_id',
+                 'picking_id.partner_id.vifel_fixed_pallet_ids')
+    def _compute_vifel_merge_preview_flags(self):
+        """Drive the two live-preview flags. Default: a line counts its pallet
+        unless it is a +0 merge (the ledger rule). Override ONLY for a line on a
+        pinned Fixed pallet of an OPEN, merge-enabled incoming receipt: there the
+        +1 is settled at validation, so while the pallet is still EMPTY every
+        such line is a racer - it counts (provisional) and flags the note; once
+        the pallet holds stock the birth is decided and it stops counting, even
+        for the receipt that merged onto it first. Non-stored, so it reflects
+        live floor stock on each read/refresh."""
+        for line in self:
+            line.vifel_counts_in_preview = not line.is_pallet_merge
+            line.vifel_birth_provisional = False
+            picking = line.picking_id
+            if not (picking
+                    and picking.picking_type_code == 'incoming'
+                    and picking.state != 'done'
+                    and not picking.return_id
+                    and not getattr(picking, 'is_void_return', False)
+                    and not picking.x_studio_is_a_blast_freezer
+                    and picking.partner_id.vifel_can_merge_pallets):
+                continue
+            pkg = line.result_package_id
+            if not pkg:
+                continue
+            fixed_pkgs = picking.partner_id.vifel_fixed_pallet_ids.mapped(
+                'package_id')
+            if pkg in fixed_pkgs:
+                racing = not pkg.vifel_holds_stock()
+                line.vifel_counts_in_preview = racing
+                line.vifel_birth_provisional = racing
 
     @api.model_create_multi
     def create(self, vals_list):
