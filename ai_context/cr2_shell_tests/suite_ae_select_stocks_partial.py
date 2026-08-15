@@ -88,9 +88,9 @@ try:
     # broad quant scan (merged-onto pallets) if none is stocked with >=2 quants.
     pkg = None
     Partner = env['res.partner']
-    pinned = Partner.search([('vifel_fixed_package_id', '!=', False)]) \
-        if 'vifel_fixed_package_id' in Partner._fields else Partner.browse()
-    for p in pinned.mapped('vifel_fixed_package_id'):
+    pinned_pkgs = env['vifel.fixed.merge.pallet'].sudo().search([]).mapped('package_id') \
+        if 'vifel.fixed.merge.pallet' in env else env['stock.quant.package'].browse()
+    for p in pinned_pkgs:
         if Q.search_count([('package_id', '=', p.id), ('quantity', '>', 0),
                            ('location_id.usage', '=', 'internal')]) >= 2:
             pkg = p

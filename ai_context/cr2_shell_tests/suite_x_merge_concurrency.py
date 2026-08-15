@@ -31,15 +31,18 @@ try:
     empty_pkg = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=400).filtered(
-        lambda p: not env['stock.move.line'].search_count([
+        ('x_studio_active', '=', True),
+        ('x_studio_is_reserved', '=', False),
+        ('vifel_is_merge_pallet', '=', False)], limit=400).filtered(
+        lambda p: not p.quant_ids.filtered(lambda q: q.quantity > 0)
+        and not env['stock.move.line'].search_count([
             ('result_package_id', '=', p.id),
             ('picking_id.picking_type_id.code', '=', 'incoming'),
             ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
     owner.write({'vifel_can_merge_pallets': True,
-                 'vifel_multiple_pallet_support': False,
-                 'vifel_fixed_package_id': empty_pkg.id,
-                 'vifel_fixed_psi': 'ZZZ-000001'})
+                 'vifel_multiple_pallet_support': False})
+    env['vifel.fixed.merge.pallet'].create({
+        'partner_id': owner.id, 'package_id': empty_pkg.id, 'psi': 'ZZZ-000001'})
     env.flush_all()
     check('X0 pinned pallet starts empty',
           not env['stock.quant'].search_count(

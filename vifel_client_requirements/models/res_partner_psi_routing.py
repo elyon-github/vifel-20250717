@@ -75,10 +75,10 @@ class ResPartnerPsiRouting(models.Model):
         # line peels off a not-yet-stocked Fixed pallet, before the floor-stock
         # guard below can bite) would re-issue it to a brand-new pallet. This is
         # a hard backstop regardless of the caller.
-        fixed_psi = (self.vifel_fixed_psi or '').strip() \
-            if 'vifel_fixed_psi' in self._fields else ''
-        if fixed_psi and pallet_series_id \
-                and pallet_series_id.strip() == fixed_psi:
+        fixed_psis = {(p or '').strip()
+                      for p in self.vifel_fixed_pallet_ids.mapped('psi')} \
+            if 'vifel_fixed_pallet_ids' in self._fields else set()
+        if pallet_series_id and pallet_series_id.strip() in fixed_psis:
             return
 
         # Still on the floor: recycling it would duplicate live stock.

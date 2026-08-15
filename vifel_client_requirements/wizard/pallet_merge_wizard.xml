@@ -125,7 +125,7 @@
                               decoration-success="is_target"
                               decoration-muted="not eligible">
                             <field name="eligible" column_invisible="1"/>
-                            <field name="is_target" widget="boolean_toggle"
+                            <field name="is_target" widget="merge_target_toggle"
                                    string="Merge Here"
                                    readonly="not eligible"/>
                             <field name="on_this_receipt" column_invisible="1"/>
@@ -134,8 +134,6 @@
                             <!-- distinguishes a pallet already on the floor
                                  from one this receipt is still creating -->
                             <field name="source_label" string="Where"
-                                   readonly="1"/>
-                            <field name="product_summary" string="Product"
                                    readonly="1"/>
                             <field name="location_id" string="Location"
                                    readonly="1"/>
@@ -159,6 +157,10 @@
                          weights, lots and locations. -->
                     <group string="On the selected pallet"
                            invisible="not selected_target_quant_ids">
+                        <field name="selected_target_product_ids" nolabel="1"
+                               colspan="2" readonly="1"
+                               widget="many2many_tags"
+                               options="{'no_open': True}"/>
                         <field name="selected_target_quant_ids" nolabel="1"
                                colspan="2" readonly="1">
                             <tree create="false" delete="false" edit="false">
@@ -200,6 +202,26 @@
                            options="{'no_create': True, 'no_open': True}"/>
                     <field name="new_location_id"
                            options="{'no_create': True, 'no_open': True}"/>
+                </group>
+
+                <!-- Special series voided (created then un-merged) earlier on
+                     THIS receipt: recyclable here only, lowest-first. -->
+                <group invisible="mode != 'new' or not vifel_voided_special_psi_ids"
+                       string="Voided special series on this receipt (recyclable)">
+                    <div class="oe_grey" colspan="2">
+                        These special Pallet Series were created and then
+                        un-merged earlier on THIS receipt. They stay recorded here
+                        (they are not returned to the client pool). Starting a new
+                        special pallet of the same type will reuse the lowest
+                        matching series below before drawing a fresh number.
+                    </div>
+                    <field name="vifel_voided_special_psi_ids" nolabel="1"
+                           colspan="2" readonly="1">
+                        <tree create="false" delete="false" edit="false">
+                            <field name="prefix" string="Type"/>
+                            <field name="series" string="Voided Pallet Series"/>
+                        </tree>
+                    </field>
                 </group>
 
                 <!-- The one consequence that is NOT obvious from the screen,

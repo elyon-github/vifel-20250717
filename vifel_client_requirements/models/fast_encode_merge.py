@@ -114,8 +114,12 @@ class FastEncodeLineMerge(models.TransientModel):
             # The row shows Merged only because a merge is STAGED but not yet
             # committed — the real line was never touched. Treat Un-merge as
             # "cancel that staged merge": clear the markers and restore the row's
-            # own identity from the real line. The drawn create-special series (if
-            # any) is left as a harmless gap — same accepted trade-off.
+            # own identity from the real line. A staged CREATE-SPECIAL drew a
+            # special series that will never reach a real line (so the real
+            # detach's void hook cannot fire): void it to the receipt here so it
+            # is recyclable within this receipt instead of being lost.
+            if self.vifel_pending_merge_kind == 'create_special':
+                self._vifel_void_staged_special_series()
             self._vifel_cancel_staged_merge()
             return self._reopen_fast_encode_list()
         ml = self._real_line()
@@ -149,6 +153,25 @@ class FastEncodeLineMerge(models.TransientModel):
             # draw a fresh number); only a truly series-less line needs a new one.
             'needs_new_pallet_series': not bool(series),
         })
+
+    def _vifel_void_staged_special_series(self):
+        """Void this row's staged create-special series to the receipt (so a
+        later create-special of the same type on this receipt can recycle it),
+        but only when no real move line or other staged row still holds it."""
+        self.ensure_one()
+        series = (self.pallet_series_id or '').strip()
+        if not series:
+            return
+        picking = self._real_line().picking_id
+        if not picking:
+            return
+        held_real = picking.move_line_ids.filtered(
+            lambda l: l.x_studio_pallet_series_id == series)
+        held_rows = (self.wizard_id.line_ids - self).filtered(
+            lambda r: (r.pallet_series_id or '').strip() == series
+            and not r.vifel_pending_unmerge)
+        if not held_real and not held_rows:
+            picking._vifel_void_special_series(series)
 
     def _vifel_sync_from_move_line(self, move_line, reset_original=False):
         """Copy the real line's pallet identity onto this transient row.

@@ -70,6 +70,15 @@
                      (two lines sharing one pallet) unchecked, which reads as a
                      bug to the floor. -->
                 <field name="is_pallet_merge" column_invisible="1"/>
+                <!-- Live-preview only. vifel_birth_provisional: this line is
+                     merging onto an empty pinned Fixed pallet whose +1 is still
+                     contested -> the magic_wizard_list_view JS shows the
+                     "provisional count" note. vifel_counts_in_preview: whether
+                     the line counts its pallet in the live No. of Pallets (True
+                     for every racer while the pallet is empty; False once it is
+                     stocked, so losers drop it - validation decides the real +1). -->
+                <field name="vifel_birth_provisional" column_invisible="1"/>
+                <field name="vifel_counts_in_preview" column_invisible="1"/>
                 <!-- User-facing "Merged" column: checked when the line is part
                      of a merged pallet either way — a +0 merge onto existing
                      stock, OR sharing a pallet with other lines of this same

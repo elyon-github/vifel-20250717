@@ -42,27 +42,34 @@
                         <field name="vifel_multiple_pallet_support"/>
                         <div class="oe_grey" colspan="2"
                              invisible="vifel_multiple_pallet_support">
-                            Off — every merge is offered the same one pallet,
-                            named below.
+                            <strong>Fixed Merge Pallet and PSI Support</strong> —
+                            pin one or more dedicated pallets, each with its own
+                            fixed PSI. Every merge is offered these pallets.
                         </div>
                         <div class="oe_grey" colspan="2"
                              invisible="not vifel_multiple_pallet_support">
-                            On — merges are offered the client's special
-                            pallets, listed below.
+                            <strong>Multiple Special Pallet Support</strong> —
+                            merges are offered the client's special-type pallets,
+                            listed below.
                         </div>
 
-                        <!-- Fixed: one pinned pallet, forever -->
-                        <!-- Only a pallet that is free, or already holds THIS
-                             client's stock. Pinning a pallet occupied by
-                             someone else would offer every merge a target
-                             holding another client's goods. -->
-                        <field name="vifel_fixed_package_id"
-                               invisible="vifel_multiple_pallet_support"
-                               domain="['|', ('quant_ids', '=', False),
-                                        ('quant_ids.owner_id', '=', id)]"
-                               options="{'no_create': True}"/>
-                        <field name="vifel_fixed_psi"
-                               invisible="vifel_multiple_pallet_support"/>
+                        <!-- Fixed: one or more pinned pallets, each with its own
+                             PSI. A pallet may be pinned only while it is empty and
+                             free (no stock, not reserved, not already a merge
+                             pallet) — the picker domain enforces it and the
+                             vifel.fixed.merge.pallet model constraints back it. -->
+                        <field name="vifel_fixed_pallet_ids" nolabel="1"
+                               colspan="2"
+                               invisible="vifel_multiple_pallet_support">
+                            <tree editable="bottom">
+                                <field name="package_id"
+                                       domain="[('quant_ids', '=', False),
+                                                ('x_studio_is_reserved', '=', False),
+                                                ('vifel_is_merge_pallet', '=', False)]"
+                                       options="{'no_create': True}"/>
+                                <field name="psi"/>
+                            </tree>
+                        </field>
 
                         <!-- Multiple: widen the candidates. Restricted to ERP
                              managers - it is an advanced switch that lets merges
