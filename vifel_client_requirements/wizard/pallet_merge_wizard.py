@@ -72,10 +72,13 @@ class PalletMergeCandidate(models.TransientModel):
     @api.depends('on_this_receipt', 'first_stock')
     def _compute_source_label(self):
         for cand in self:
-            if cand.first_stock:
-                cand.source_label = _('Empty — starts the pallet')
-            elif cand.on_this_receipt:
+            # "On this receipt" wins over "Empty" so an empty Fixed pallet that
+            # already carries this receipt's lines reads as an on-receipt pallet
+            # with figures, not a blank first-stock row.
+            if cand.on_this_receipt:
                 cand.source_label = _('On this receipt')
+            elif cand.first_stock:
+                cand.source_label = _('Empty — starts the pallet')
             else:
                 cand.source_label = _('In storage')
 
@@ -175,14 +178,22 @@ class PalletMergeWizard(models.TransientModel):
         'stock.quant', 'vifel_merge_wizard_target_quant_rel',
         compute='_compute_selected_target_quants',
         string='On the selected pallet')
+    # The distinct products standing on the selected pallet, shown as tags.
+    selected_target_product_ids = fields.Many2many(
+        'product.product', 'vifel_merge_wizard_target_product_rel',
+        compute='_compute_selected_target_quants',
+        string='Products on pallet')
 
     @api.depends('candidate_line_ids.is_target')
     def _compute_selected_target_quants(self):
         for wizard in self:
             target = wizard.candidate_line_ids.filtered(
                 'is_target')[:1].package_id
-            wizard.selected_target_quant_ids = target.quant_ids.filtered(
-                lambda q: q.quantity != 0) if target else False
+            quants = target.quant_ids.filtered(
+                lambda q: q.quantity != 0) if target \
+                else self.env['stock.quant']
+            wizard.selected_target_quant_ids = quants
+            wizard.selected_target_product_ids = quants.mapped('product_id')
 
     mode = fields.Selection(
         [('merge', 'Merge onto a pallet already stocked'),
@@ -240,6 +251,20 @@ class PalletMergeWizard(models.TransientModel):
     psi_type_id = fields.Many2one(
         'vifel.psi.type', string='PSI Type',
         domain="[('partner_id', '=', partner_id)]")
+    # Special series voided (un-merged) earlier ON THIS RECEIPT — recyclable
+    # within this receipt only (lowest first). Shown read-only under "Start a new
+    # special pallet" so the encoder sees what will be recycled before a fresh
+    # number is drawn from the client profile.
+    vifel_voided_special_psi_ids = fields.Many2many(
+        'vifel.voided.special.pallet',
+        'vifel_merge_wizard_voided_rel',
+        compute='_compute_vifel_voided_special')
+
+    @api.depends('move_line_id')
+    def _compute_vifel_voided_special(self):
+        for wizard in self:
+            wizard.vifel_voided_special_psi_ids = \
+                wizard.picking_id.vifel_voided_special_psi_ids
     # The RR's own warehouse. Everything offered by this wizard is scoped to
     # it: merge candidates already were (see _candidate_packages), and the
     # create-new-special pallet and location must be too — with two
@@ -466,7 +491,7 @@ class PalletMergeWizard(models.TransientModel):
         if not partner.vifel_can_merge_pallets:
             return self.env['stock.quant.package']
         if not partner.vifel_multiple_pallet_support:
-            return partner.vifel_fixed_package_id
+            return partner.vifel_fixed_pallet_ids.mapped('package_id')
 
         warehouse = self.warehouse_id      # the picking's own warehouse
         quants = self.env['stock.quant'].search([
@@ -546,6 +571,7 @@ class PalletMergeWizard(models.TransientModel):
             a = agg.get(package.id)
             psis = sorted(a['psis']) if a else []
             eligible, reason, first_stock = True, False, False
+            sib_agg = None   # this receipt's lines already on an empty Fixed pallet
             if len(psis) > 1:
                 eligible = False
                 reason = _('Mixed pallet — carries %d Pallet Series (%s). '
@@ -554,33 +580,46 @@ class PalletMergeWizard(models.TransientModel):
                 psi_label = ', '.join(psis)
             elif psis:
                 psi_label = psis[0]
-            elif package == partner.vifel_fixed_package_id \
-                    and (partner.vifel_fixed_psi or '').strip():
-                psi_label = '%s (empty)' % partner.vifel_fixed_psi.strip()
+            elif package in partner.vifel_fixed_pallet_ids.mapped('package_id'):
+                # one of the client's dedicated Fixed pallets: adopt ITS OWN
+                # fixed PSI. If this receipt already placed line(s) on it, show
+                # their combined figures + "On this receipt"; otherwise mark it
+                # an empty first-stock pallet.
+                fixed_row = partner.vifel_fixed_pallet_ids.filtered(
+                    lambda r: r.package_id == package)[:1]
                 # first stock ONLY if no other open receipt already claimed
                 # this empty pinned pallet — otherwise this one merges (+0)
                 first_stock = not self._pinned_pallet_already_claimed(package)
+                sib_agg = self._vifel_receipt_pallet_agg(package)
+                clean_psi = (fixed_row.psi or '').strip()
+                # the candidate's psi IS the series a same-receipt join adopts
+                # (_resolve_merge_target), so keep it CLEAN once the pallet carries
+                # this receipt's lines; the "(empty)" hint is only for a genuinely
+                # empty first-stock pallet with nothing on it yet.
+                psi_label = clean_psi if sib_agg else '%s (empty)' % clean_psi
             else:
                 eligible = False
                 reason = _('Empty pallet — no stock, so there is no Pallet '
                            'Series to adopt.')
                 psi_label = ''
             prefix = psi_label.rpartition('-')[0]
-            products = a['products'] if a else []
+            src = sib_agg or a   # empty Fixed pallet: prefer this-receipt siblings
+            products = src['products'] if src else []
             vals = {
                 'package_id': package.id,
                 'psi': psi_label,
                 'psi_count': len(psis),
                 'product_summary': ', '.join(products[:3]),
-                'location_id': a['location_id'] if a else False,
-                'weight_kg': a['weight'] if a else 0.0,
-                'quantity': a['quantity'] if a else 0.0,
+                'location_id': src['location_id'] if src else False,
+                'weight_kg': src['weight'] if src else 0.0,
+                'quantity': src['quantity'] if src else 0.0,
                 'matches_line_product':
-                    (line_product_id in a['product_ids']) if a else True,
+                    (line_product_id in src['product_ids']) if src else True,
                 'eligible': eligible,
                 'ineligible_reason': reason,
                 'is_target': False,
                 'first_stock': first_stock,
+                'on_this_receipt': bool(sib_agg),
             }
             # eligible + special-type pallets sort to the top, then by PSI
             scored.append(((0 if eligible else 1,
@@ -692,6 +731,41 @@ class PalletMergeWizard(models.TransientModel):
         if len(eligibles) == 1 and not self.candidates_capped:
             eligibles.is_target = True
 
+    def _vifel_receipt_pallet_agg(self, package):
+        """Aggregate THIS receipt's lines already sitting on ``package`` — used to
+        enrich an empty pinned Fixed pallet candidate with "On this receipt"
+        figures. Returns None when no line of this receipt is on it yet. Matches
+        the shape of the stocked-quant aggregation used in _populate_candidates."""
+        own = self.move_line_ids or self.move_line_id
+        rows = []
+        sib_lines = self.picking_id.move_line_ids.filtered(
+            lambda l: l.result_package_id == package and l not in own)
+        if sib_lines:
+            rows = [(l.product_id, l.location_dest_id, l.quantity,
+                     l.x_studio_2nd_uom) for l in sib_lines]
+        else:
+            # Magic Wizard: siblings live on the transient rows, not real lines.
+            fe_rows = self._fast_encode_rows()
+            if fe_rows:
+                rows = [(r.product_id, r.location_dest_id, r.kilogram, r.quantity)
+                        for r in (fe_rows[0].wizard_id.line_ids - fe_rows)
+                        if r.result_package_id == package]
+        if not rows:
+            return None
+        products, product_ids = [], set()
+        location_id = False
+        weight = quantity = 0.0
+        for product, location, kg, qty in rows:
+            if product and product.id not in product_ids:
+                product_ids.add(product.id)
+                products.append(product.display_name)
+            location_id = location_id or (location.id if location else False)
+            weight += kg or 0.0
+            quantity += qty or 0.0
+        return {'products': products, 'product_ids': product_ids,
+                'location_id': location_id, 'weight': weight,
+                'quantity': quantity}
+
     # ------------------------------------------------------------------
     # confirm — dispatch on mode
     # ------------------------------------------------------------------
@@ -742,7 +816,10 @@ class PalletMergeWizard(models.TransientModel):
             # series NOW so the row can show it and Confirm reuses it (a wasted
             # number only if the wizard is cancelled — an accepted trade-off).
             self._check_create_special()
-            series = self.psi_type_id.draw_number()
+            # recycle a series voided earlier ON THIS RECEIPT (lowest first)
+            # before drawing a fresh one from the client profile.
+            series = (self.picking_id._vifel_pull_voided_special(self.psi_type_id)
+                      or self.psi_type_id.draw_number())
             decision = {'kind': 'create_special',
                         'target': self.new_package_id,
                         'adopted': series,
@@ -867,12 +944,13 @@ class PalletMergeWizard(models.TransientModel):
             adopted = psis[0]
             target_location = quants[:1].location_id
         else:
-            if target != partner.vifel_fixed_package_id \
-                    or not (partner.vifel_fixed_psi or '').strip():
+            fixed_row = partner.vifel_fixed_pallet_ids.filtered(
+                lambda r: r.package_id == target)[:1]
+            if not fixed_row:
                 raise UserError(_(
                     'Pallet %s has no stock, so there is no Pallet Series to '
                     'adopt. Merging needs a stocked pallet.') % target.name)
-            adopted = partner.vifel_fixed_psi.strip()
+            adopted = (fixed_row.psi or '').strip()
             # a claimed-but-empty pinned pallet: adopt the profile PSI (same as
             # the birth), but flagged +0 - the birthing receipt owns the +1.
             #
@@ -1095,7 +1173,12 @@ class PalletMergeWizard(models.TransientModel):
         picking = line.picking_id
         self._check_create_special()
 
-        series = preassigned_series or self.psi_type_id.draw_number()
+        # preassigned_series: staged path already drew/recycled it. Otherwise
+        # recycle a series voided earlier ON THIS RECEIPT (lowest first) before
+        # drawing a fresh number from the client profile.
+        series = (preassigned_series
+                  or picking._vifel_pull_voided_special(self.psi_type_id)
+                  or self.psi_type_id.draw_number())
         target = self.new_package_id
 
         # one series, one new pallet — every selected line lands on it (one

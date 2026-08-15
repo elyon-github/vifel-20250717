@@ -77,21 +77,24 @@ try:
     pkg2 = env['stock.quant.package'].create({})
     # a LEGACY birth: placed on the pallet but with NO merge marker at all
     pick2, ml2 = line_on(pkg2, 'none')
+    # Pin the Fixed pallet WHILE it is still empty (empty-&-free rule), THEN let
+    # it take stock - a Fixed pallet fills via merges after it is pinned.
+    fixed_row = env['vifel.fixed.merge.pallet'].create({
+        'partner_id': owner.id, 'package_id': pkg2.id, 'psi': 'WMF-000999'})
+    env.flush_all()
     # the pallet genuinely HOLDS merged stock (a quant on it)
     env['stock.quant'].with_context(inventory_mode=True).create({
         'product_id': prod.id, 'location_id': dst.id, 'package_id': pkg2.id,
         'owner_id': owner.id, 'quantity': 100.0,
         'x_studio_pallet_series_id': 'WMF-000999'})
-    owner.write({'vifel_fixed_package_id': pkg2.id,
-                 'vifel_fixed_psi': 'WMF-000999'})
     env.flush_all()
     check('AM2 while pinned, the Fixed pallet allows partial withdrawal (baseline)',
           allows(pkg2))
     still_stocked = bool(pkg2.quant_ids.filtered(lambda q: q.quantity > 0))
     check('AM2b the Fixed pallet still holds its merged stock', still_stocked)
 
-    # un-pin the Fixed pallet WHILE it still holds stock
-    owner.write({'vifel_fixed_package_id': False, 'vifel_fixed_psi': False})
+    # un-pin the Fixed pallet WHILE it still holds stock -> remove the row
+    fixed_row.unlink()
     env.flush_all()
     check('AM3 [D2] a Fixed pallet un-pinned WHILE it still holds its merged '
           'stock stays a merge pallet (partial withdrawal preserved until that '

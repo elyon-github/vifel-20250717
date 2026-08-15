@@ -42,38 +42,52 @@ try:
                  'vifel_multiple_pallet_support': False})
     env.flush_all()
     try:
-        owner.write({'vifel_fixed_package_id': foreign_q.package_id.id,
-                     'vifel_fixed_psi': 'ZZZ-000001'})
-        env.flush_all()
-        check('A1 a pallet owned by another client is refused', False,
+        # savepoint: the create INSERTs before the constraint raises at flush, so
+        # roll that INSERT back — otherwise its PSI lingers and the next create
+        # (reusing ZZZ-000001) trips the unique(psi) SQL constraint.
+        with env.cr.savepoint():
+            env['vifel.fixed.merge.pallet'].create({
+                'partner_id': owner.id, 'package_id': foreign_q.package_id.id,
+                'psi': 'ZZZ-000001'})
+            env.flush_all()
+        check('A1 a stocked pallet (here another client\'s) is refused', False,
               'no error raised')
     except ValidationError as e:
-        check('A1 a pallet owned by another client is refused',
-              'holding stock owned by' in str(e), str(e)[:90])
+        check('A1 a stocked pallet (here another client\'s) is refused',
+              'not empty' in str(e), str(e)[:90])
 
     own_q = env['stock.quant'].search([
         ('package_id', '!=', False), ('quantity', '>', 0),
         ('owner_id', '=', owner.id),
         ('location_id.usage', '=', 'internal')], limit=1)
-    owner.write({'vifel_fixed_package_id': own_q.package_id.id,
-                 'vifel_fixed_psi': 'ZZZ-000001'})
-    env.flush_all()
-    check('A2 a pallet already holding THEIR stock is accepted',
-          owner.vifel_fixed_package_id == own_q.package_id)
+    try:
+        with env.cr.savepoint():
+            env['vifel.fixed.merge.pallet'].create({
+                'partner_id': owner.id, 'package_id': own_q.package_id.id,
+                'psi': 'ZZZ-000001'})
+            env.flush_all()
+        check('A2 a stocked pallet (even the client\'s OWN) is now REFUSED '
+              '(empty & free only)', False, 'no error raised')
+    except ValidationError as e:
+        check('A2 a stocked pallet (even the client\'s OWN) is now REFUSED '
+              '(empty & free only)', 'not empty' in str(e), str(e)[:90])
 
     empty_pkg = env['stock.quant.package'].search([
         ('location_id', '=', False),
         ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=400).filtered(
-        lambda p: not env['stock.move.line'].search_count([
+        ('x_studio_active', '=', True),
+        ('x_studio_is_reserved', '=', False),
+        ('vifel_is_merge_pallet', '=', False)], limit=400).filtered(
+        lambda p: not p.quant_ids.filtered(lambda q: q.quantity > 0)
+        and not env['stock.move.line'].search_count([
             ('result_package_id', '=', p.id),
             ('picking_id.picking_type_id.code', '=', 'incoming'),
             ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
-    owner.write({'vifel_fixed_package_id': empty_pkg.id,
-                 'vifel_fixed_psi': 'ZZZ-000001'})
+    fixed_row = env['vifel.fixed.merge.pallet'].create({
+        'partner_id': owner.id, 'package_id': empty_pkg.id, 'psi': 'ZZZ-000001'})
     env.flush_all()
     check('A3 an empty pallet is accepted',
-          owner.vifel_fixed_package_id == empty_pkg)
+          owner.vifel_fixed_pallet_ids.package_id == empty_pkg)
 
     # ---- B. FIRST STOCK on the empty pinned pallet (+1, unflagged) ---
     # User ruling 2026-07-23: +0 applies ONLY while the target already
@@ -118,25 +132,23 @@ try:
           'on the pallet',
           line.vifel_on_merged_pallet, line.vifel_on_merged_pallet)
 
-    # ---- B-flagged: merge onto a STOCKED pinned pallet, exact restore -
-    env.cr.execute("""
-        SELECT sq.package_id FROM stock_quant sq
-        JOIN stock_location sl ON sl.id=sq.location_id
-        WHERE sq.owner_id=%s AND sq.quantity>0 AND sq.package_id IS NOT NULL
-          AND sq.x_studio_pallet_series_id IS NOT NULL AND sl.usage='internal'
-        GROUP BY sq.package_id
-        HAVING COUNT(DISTINCT sq.x_studio_pallet_series_id)=1
-        LIMIT 1""", (owner.id,))
-    prow = env.cr.fetchone()
-    check('B5 found a single-PSI stocked pallet of the client', bool(prow))
-    pin = env['stock.quant.package'].browse(prow[0])
-    pin_psi = pin.quant_ids.filtered(
-        lambda q: q.quantity > 0
-        and q.location_id.usage == 'internal').mapped(
-        'x_studio_pallet_series_id')[0]
-    owner.write({'vifel_fixed_package_id': pin.id,
-                 'vifel_fixed_psi': 'ZZZ-000001'})
+    # ---- B-flagged: merge onto a STOCKED Fixed pallet, exact restore -
+    # Under the empty-&-free rule a Fixed pallet is pinned while empty; give the
+    # already-pinned empty_pkg a quant at a DIFFERENT location so it now HOLDS
+    # stock (a merge onto it is then a +0, not a birth) and the un-merge location
+    # restore is genuinely exercised.
+    other_loc = env['stock.location'].search([
+        ('usage', '=', 'internal'), ('child_ids', '=', False),
+        ('id', '!=', line.location_dest_id.id)], limit=1)
+    env['stock.quant'].with_context(inventory_mode=True).create({
+        'product_id': line.product_id.id,
+        'location_id': (other_loc or line.location_dest_id).id,
+        'package_id': empty_pkg.id, 'owner_id': owner.id, 'quantity': 100.0,
+        'x_studio_pallet_series_id': 'ZZZ-000001'})
     env.flush_all()
+    pin = empty_pkg
+    pin_psi = 'ZZZ-000001'
+    check('B5 the Fixed pallet now holds single-PSI stock', bool(pin_psi))
 
     line.with_context(skip_pallet_series_sync=True).write({
         'x_studio_pallet_series_id': False, 'result_package_id': False})
