@@ -78,6 +78,7 @@ counts, and a wrong pallet count is a wrong invoice.
         'web.assets_backend': [
             'vifel_client_requirements/static/src/js/hide_print_pallet_breakdown.js',
             'vifel_client_requirements/static/src/js/merge_wizard_back_on_close.js',
+            'vifel_client_requirements/static/src/js/merge_target_toggle.js',
         ],
     },
 

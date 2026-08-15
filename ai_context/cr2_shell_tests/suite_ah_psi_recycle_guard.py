@@ -47,13 +47,20 @@ try:
     owner = Partner.browse(428)
     empty_fixed = env['stock.quant.package'].search([
         ('location_id', '=', False), ('package_type_id.name', '=', 'Pallet'),
-        ('x_studio_active', '=', True)], limit=1)
+        ('x_studio_active', '=', True),
+        ('x_studio_is_reserved', '=', False),
+        ('vifel_is_merge_pallet', '=', False)], limit=400).filtered(
+        lambda p: not p.quant_ids.filtered(lambda q: q.quantity > 0)
+        and not env['stock.move.line'].search_count([
+            ('result_package_id', '=', p.id),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.state', 'not in', ('done', 'cancel'))]))[:1]
 
     # ===== GUARD 2: the Fixed PSI can never be pooled, whatever the caller =====
     owner.write({'vifel_can_merge_pallets': True,
-                 'vifel_multiple_pallet_support': False,
-                 'vifel_fixed_package_id': empty_fixed.id,
-                 'vifel_fixed_psi': 'TCF-000777'})
+                 'vifel_multiple_pallet_support': False})
+    env['vifel.fixed.merge.pallet'].create({
+        'partner_id': owner.id, 'package_id': empty_fixed.id, 'psi': 'TCF-000777'})
     env.flush_all()
     before = owner.unused_pallet_series_ids
     owner.push_unused_pallet('TCF-000777')
