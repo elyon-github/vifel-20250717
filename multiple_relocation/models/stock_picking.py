@@ -2339,6 +2339,7 @@ class transfer_locations(models.Model):
             'production_date': None,
             'expiration_date': None,
             'container_number': None,
+            'client_lot_no': '',
             'qty_demand': 0,
             'weight_demand': 0,
             'qty_actual': 0,
@@ -2358,6 +2359,10 @@ class transfer_locations(models.Model):
         globally_processed_moves = set()
 
         package_ids = set()
+        # The client's own Lot No. is printed only when this client's profile
+        # asks for it. show_client_lot_no comes from vifel_client_requirements;
+        # getattr keeps this working when that module is not installed.
+        show_lot_no = bool(getattr(doc, 'show_client_lot_no', False))
         # Process each move
         for move in doc.move_ids:
             # Process each move line within the move
@@ -2369,6 +2374,8 @@ class transfer_locations(models.Model):
                     move_line, 'x_studio_expiration_date') else None
                 cont_number = move_line.x_studio_container_number if hasattr(
                     move_line, 'x_studio_container_number') else None
+                lot_no = (getattr(move_line, 'client_lot_no', '')
+                          or '').strip() if show_lot_no else ''
 
                 # Convert dates to string for consistent grouping
                 prod_date_str = prod_date.strftime(
@@ -2376,8 +2383,11 @@ class transfer_locations(models.Model):
                 exp_date_str = exp_date.strftime(
                     '%Y-%m-%d') if exp_date else 'No Exp Date'
 
-                # Create unique key
-                key = f"{move.product_id.id}_{prod_date_str}_{exp_date_str}_{cont_number}"
+                # Create unique key. Lot No. joins the key so a row never
+                # merges two different lots under one printed Lot No.; it is
+                # always '' for clients that do not show it, leaving their
+                # grouping byte-for-byte unchanged.
+                key = f"{move.product_id.id}_{prod_date_str}_{exp_date_str}_{cont_number}_{lot_no}"
 
                 # Initialize or update grouped data
                 if grouped_moves[key]['product_id'] is None:
@@ -2405,9 +2415,15 @@ class transfer_locations(models.Model):
                     else:
                         grouped_moves[key]['product_name'] = self._wrap_text(base_name, max_chars=45)
 
+                    # Appended after the branches above so the Lot No. is the
+                    # last line of the description whichever shape it took.
+                    if lot_no:
+                        grouped_moves[key]['product_name'] += f"<br/>LOT NO.: {lot_no}"
+
                     grouped_moves[key]['production_date'] = prod_date
                     grouped_moves[key]['expiration_date'] = exp_date
                     grouped_moves[key]['container_number'] = cont_number
+                    grouped_moves[key]['client_lot_no'] = lot_no
                     grouped_moves[key]['uom_name'] = move.x_studio_packaging_unit.name if hasattr(
                         move, 'x_studio_packaging_unit') and move.x_studio_packaging_unit else ''
                     grouped_moves[key]['packaging_unit_name'] = move.x_studio_packaging_unit.name if hasattr(
