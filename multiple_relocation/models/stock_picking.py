@@ -560,6 +560,24 @@ class transfer_locations(models.Model):
         merged lines). Neutral no-op when the add-on is not installed."""
         return True
 
+    def _vifel_special_type_for_line(self, move_line):
+        """Hook: the client's special PSI type (a 'Multiple Special Pallet'
+        type) owning this line's pallet series, or a falsy value when the line
+        is on a normal pallet. Falsy in base so the report never references the
+        feature's models; the Multiple-Special-Pallet add-on overrides it to
+        split those pallets into their own summary rows."""
+        return False
+
+    def _vifel_report_show_lot_no(self):
+        """Hook: does this client's profile print the Lot No. on the summary?
+        False in base; the client-requirements add-on returns its profile flag."""
+        return False
+
+    def _vifel_report_lot_no(self, move_line):
+        """Hook: the client Lot No. to print for this summary line - typed on a
+        receipt, read back from the quant on a withdrawal. '' in base."""
+        return ''
+
     def _compute_transacted_pallet_count(self):
         # Count unique pallets transacted on this picking. Only validated
         # ('done') pickings contribute; mirrors the dedupe logic in
@@ -2340,7 +2358,7 @@ class transfer_locations(models.Model):
             'production_date': None,
             'expiration_date': None,
             'container_number': None,
-            'client_lot_no': '',
+            'lot_no': '',
             'qty_demand': 0,
             'weight_demand': 0,
             'qty_actual': 0,
@@ -2352,6 +2370,16 @@ class transfer_locations(models.Model):
             'heads_uom': 0,
             'packaging_unit_name': '',
             'pallet_count': 0,
+            # main-row DISPLAY figures (normal pallets only). The un-suffixed
+            # fields above stay the FULL SKU totals, so the grand total and the
+            # pallet count are unchanged; only what the main row SHOWS uses
+            # these. special_rows holds the per-special-type breakdown rendered
+            # as sub-rows under the SKU.
+            'qty_actual_main': 0,
+            'weight_actual_main': 0,
+            'packaging_qty_main': 0,
+            'heads_actual_main': 0,
+            'special_rows': {},
             'package_ids': set(),
             'processed_moves': set()  # Track which moves we've already processed GLOBALLY
         })
@@ -2360,10 +2388,11 @@ class transfer_locations(models.Model):
         globally_processed_moves = set()
 
         package_ids = set()
-        # The client's own Lot No. is printed only when this client's profile
-        # asks for it. show_client_lot_no comes from vifel_client_requirements;
-        # getattr keeps this working when that module is not installed.
-        show_lot_no = bool(getattr(doc, 'show_client_lot_no', False))
+        # Whether to print the client Lot No., and the value itself, come from
+        # hooks the client-requirements add-on fills (a receipt uses the typed
+        # value; a withdrawal reads it back from the quant). Core references none
+        # of that feature's fields, so it stays installable on its own.
+        show_lot_no = doc._vifel_report_show_lot_no()
         # Process each move
         for move in doc.move_ids:
             # Process each move line within the move
@@ -2375,8 +2404,7 @@ class transfer_locations(models.Model):
                     move_line, 'x_studio_expiration_date') else None
                 cont_number = move_line.x_studio_container_number if hasattr(
                     move_line, 'x_studio_container_number') else None
-                lot_no = (getattr(move_line, 'client_lot_no', '')
-                          or '').strip() if show_lot_no else ''
+                lot_no = doc._vifel_report_lot_no(move_line) if show_lot_no else ''
 
                 # Convert dates to string for consistent grouping
                 prod_date_str = prod_date.strftime(
@@ -2406,25 +2434,28 @@ class transfer_locations(models.Model):
                         date_info.append(
                             f"- {exp_date.strftime('%b').upper()}.{exp_date.day}.{exp_date.year}")
 
-                    if date_info:
-                        if cont_number:
-                            grouped_moves[key][
-                                'product_name'] = f"{self._wrap_text(base_name, max_chars=45)} <br/>{cont_number} <br/>{' '.join(date_info)} "
-                        else:
-                            grouped_moves[key][
-                                'product_name'] = f"{self._wrap_text(base_name, max_chars=45)} <br/>{', '.join(date_info)} "
-                    else:
-                        grouped_moves[key]['product_name'] = self._wrap_text(base_name, max_chars=45)
-
-                    # Appended after the branches above so the Lot No. is the
-                    # last line of the description whichever shape it took.
+                    # Description lines in order: product, Container Number,
+                    # Lot No. (only when present), then the Prod-Exp dates. The
+                    # Lot No. now sits BETWEEN the container and the dates (moved
+                    # up from its old last-line spot). The date separator keeps
+                    # the legacy shapes - a space when a container precedes it, a
+                    # comma otherwise - so existing rows read the same.
+                    _name = self._wrap_text(base_name, max_chars=45)
+                    _parts = [_name]
+                    if cont_number:
+                        _parts.append(str(cont_number))
                     if lot_no:
-                        grouped_moves[key]['product_name'] += f"<br/>LOT NO.: {lot_no}"
+                        _parts.append(f"LOT NO.: {lot_no}")
+                    if date_info:
+                        _parts.append(' '.join(date_info) if cont_number
+                                      else ', '.join(date_info))
+                    grouped_moves[key]['product_name'] = (
+                        ' <br/>'.join(_parts) + (' ' if date_info else ''))
 
                     grouped_moves[key]['production_date'] = prod_date
                     grouped_moves[key]['expiration_date'] = exp_date
                     grouped_moves[key]['container_number'] = cont_number
-                    grouped_moves[key]['client_lot_no'] = lot_no
+                    grouped_moves[key]['lot_no'] = lot_no
                     grouped_moves[key]['uom_name'] = move.x_studio_packaging_unit.name if hasattr(
                         move, 'x_studio_packaging_unit') and move.x_studio_packaging_unit else ''
                     grouped_moves[key]['packaging_unit_name'] = move.x_studio_packaging_unit.name if hasattr(
@@ -2468,11 +2499,38 @@ class transfer_locations(models.Model):
                     qty_actual = 0
 
                 # Add move line specific quantities (actual quantities)
-                # These are added for each move line since they're line-specific
+                # These are added for each move line since they're line-specific.
+                # The un-suffixed fields stay the FULL SKU total (grand total is
+                # unchanged); the *_main fields and special_rows split those same
+                # figures into normal-pallet (main row) vs per-special-type rows.
+                _heads_val = (move_line.x_studio_total_units
+                              if move_line.x_studio_total_units
+                              else move_line.x_studio_withdraw_units)
                 grouped_moves[key]['qty_actual'] += qty_actual
                 grouped_moves[key]['weight_actual'] += weight_actual
                 grouped_moves[key]['packaging_qty'] += pack_qty
-                grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if move_line.x_studio_total_units else move_line.x_studio_withdraw_units
+                grouped_moves[key]['heads_actual'] += _heads_val
+
+                # A special pallet's qty/weight/packs are pulled into a per-type
+                # sub-row; a normal pallet's stay on the main row. The pallet
+                # COUNT (below) is untouched and still counts every pallet. The
+                # special-type lookup is a hook the Multiple-Special-Pallet
+                # add-on fills, so core never references that feature's models.
+                _ptype = doc._vifel_special_type_for_line(move_line)
+                if _ptype:
+                    sr = grouped_moves[key]['special_rows'].setdefault(
+                        _ptype.id, {
+                            'description': _ptype.name or _ptype.prefix or '',
+                            'quantity': 0, 'weight': 0, 'packs': 0, 'heads': 0})
+                    sr['quantity'] += qty_actual
+                    sr['weight'] += weight_actual
+                    sr['packs'] += pack_qty
+                    sr['heads'] += _heads_val
+                else:
+                    grouped_moves[key]['qty_actual_main'] += qty_actual
+                    grouped_moves[key]['weight_actual_main'] += weight_actual
+                    grouped_moves[key]['packaging_qty_main'] += pack_qty
+                    grouped_moves[key]['heads_actual_main'] += _heads_val
 
                 # WR withdrawn-pallet count = PHYSICAL emptying only, matching
                 # the PKR ledger and the on-screen Transacted Pallet Count. A
@@ -2531,6 +2589,11 @@ class transfer_locations(models.Model):
             # Remove set as it's not needed in template
             del data['package_ids']
             del data['processed_moves']  # Remove tracking set
+            # special-pallet breakdown: dict -> list, ordered by Description
+            data['special_rows'] = [
+                data['special_rows'][k] for k in sorted(
+                    data['special_rows'],
+                    key=lambda k: data['special_rows'][k]['description'])]
             processed_moves.append(data)
 
         # Sort by product name for consistent ordering

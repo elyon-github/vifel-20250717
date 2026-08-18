@@ -78,7 +78,16 @@ class ResPartner(models.Model):
         """
         Search for a specific pallet series ID in unused pallets.
         If found, return and remove it from unused list.
-        If not found, fall back to get_smallest_pallet_series_ids(1).
+        If NOT found, return the requested ID untouched and consume nothing.
+
+        This never substitutes a different number. Every caller asks for a
+        series the line already wears and only wants the pool to stop offering
+        it; none of them read a substitute back onto the line. Handing one out
+        therefore removed a live number from the pool and wrote it nowhere -
+        CDF-021779..021783 were lost that way on M/RR/05792 (2026-08-13
+        20:54:03), and the client saw the numbering jump 21778 -> 21784.
+        Callers that want a fresh number call get_smallest_pallet_series_ids
+        or generate_new_pallet_series_id directly.
         
         Args:
             pallet_series_id (str): Full pallet ID like 'AHA-000001'
@@ -90,8 +99,9 @@ class ResPartner(models.Model):
         try:
             series_number = int(pallet_series_id.split('-')[-1])
         except (ValueError, IndexError):
-            # Invalid format, fall back to smallest
-            return self.get_smallest_pallet_series_ids(1)
+            # Unparseable ID: there is nothing to reserve, and consuming a
+            # number the caller will not use is exactly the leak above.
+            return []
         
         # Get the current list of IDs
         pallet_series_list = self.unused_pallet_series_ids or []
@@ -108,9 +118,9 @@ class ResPartner(models.Model):
             
             formatted_id = f"{self.x_studio_client_unique_code_1}-{str(series_number).zfill(6)}"
             return [formatted_id]
-        else:
-            # Not found in unused pallets, get the smallest available
-            return self.get_smallest_pallet_series_ids(1)
+        # Not in the pool: nothing to consume. The number is already the
+        # caller's, so give it straight back rather than burning another one.
+        return [pallet_series_id]
         
         
 
