@@ -61,9 +61,15 @@ class StockMoveLineVifelClientFields(models.Model):
         compute_sudo=True,
         help="The client Lot No. frozen onto this pallet at receiving, shown "
              "read-only on the withdrawal line.")
+    # Frozen snapshot captured at WR validation BEFORE the source quant is
+    # consumed. A full withdrawal empties that quant, so the live read-back
+    # below would blank the Lot No. / Prodcode after validation; once these are
+    # set the display uses them instead. Stored, copy=False.
+    vifel_lot_no_frozen = fields.Char(copy=False)
+    vifel_prodcode_frozen = fields.Char(copy=False)
 
     @api.depends('package_id', 'product_id', 'lot_id', 'location_id',
-                 'picking_code')
+                 'picking_code', 'vifel_lot_no_frozen', 'vifel_prodcode_frozen')
     def _compute_vifel_quant_readback(self):
         """Read the frozen Prodcode AND Lot No. off the quant this line
         withdraws from (one search, two display fields).
@@ -85,6 +91,13 @@ class StockMoveLineVifelClientFields(models.Model):
             # only withdrawals read back from a quant; skip the rest cheaply
             if line.picking_code != 'outgoing':
                 continue
+            # Once frozen at validation, keep the frozen value: the source quant
+            # is gone after a full withdrawal, so the live read-back below can no
+            # longer resolve it and would blank the display.
+            if line.vifel_lot_no_frozen or line.vifel_prodcode_frozen:
+                line.vifel_lot_no_display = line.vifel_lot_no_frozen or ''
+                line.prodcode = line.vifel_prodcode_frozen or ''
+                continue
             # need at least a source package or location to identify the quant
             if not line.package_id and not line.location_id:
                 continue
@@ -100,6 +113,34 @@ class StockMoveLineVifelClientFields(models.Model):
                 continue
             line.prodcode = quant.prodcode or ''
             line.vifel_lot_no_display = quant.client_lot_no or ''
+
+    def _vifel_freeze_wr_readback(self):
+        """Snapshot the withdrawal line's Lot No. / Prodcode off the source
+        quant onto stored fields, so they still display once that quant is
+        consumed at validation. Only outgoing lines with a resolvable quant;
+        idempotent (never overwrites an existing frozen value)."""
+        Quant = self.env['stock.quant']
+        for line in self:
+            if line.picking_code != 'outgoing':
+                continue
+            if not line.product_id or (
+                    not line.package_id and not line.location_id):
+                continue
+            quant = Quant.sudo().search([
+                ('product_id', '=', line.product_id.id),
+                ('location_id', '=', line.location_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('package_id', '=', line.package_id.id),
+            ], limit=1)
+            if not quant:
+                continue
+            vals = {}
+            if quant.client_lot_no and not line.vifel_lot_no_frozen:
+                vals['vifel_lot_no_frozen'] = quant.client_lot_no
+            if quant.prodcode and not line.vifel_prodcode_frozen:
+                vals['vifel_prodcode_frozen'] = quant.prodcode
+            if vals:
+                line.write(vals)
 
     # What the merge displaced, so un-merge can put back exactly that instead
     # of guessing. The generic restore keys off original_pallet_series_id and
