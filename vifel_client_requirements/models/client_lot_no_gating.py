@@ -91,11 +91,44 @@ class StockPickingClientLotNo(models.Model):
                 vifel_can_merge=bool(self.partner_id.vifel_can_merge_pallets))
         return res
 
+    def _action_done(self):
+        # Freeze the WR read-back (Lot No. / Prodcode) onto the outgoing lines
+        # BEFORE the source quants are consumed here: a full withdrawal removes
+        # the source quant the live read-back depends on, which blanked the Lot
+        # No. / Prodcode on the validated withdrawal.
+        for picking in self.filtered(
+                lambda p: p.picking_type_id.code == 'outgoing'):
+            picking.move_line_ids._vifel_freeze_wr_readback()
+        return super()._action_done()
+
     def button_validate(self):
         res = super().button_validate()
         self._vifel_stamp_client_lot_no()
         self._vifel_stamp_batch_prodcode()
         return res
+
+    def _vifel_special_type_for_line(self, move_line):
+        """Fill the core report hook: the special PSI type owning this line's
+        pallet series (falsy for a normal pallet), so the RR/WR summary splits
+        special pallets into their own rows."""
+        series = getattr(move_line, 'x_studio_pallet_series_id', '') or ''
+        if not series:
+            return False
+        return self.env['vifel.psi.type']._type_for_series(
+            self.partner_id, series) or False
+
+    def _vifel_report_show_lot_no(self):
+        """Fill the core hook: print the Lot No. when this client's profile
+        enables it."""
+        return bool(self.show_client_lot_no)
+
+    def _vifel_report_lot_no(self, move_line):
+        """Fill the core hook: a receipt prints the typed Lot No.; a withdrawal
+        prints the value read back from the quant (client_lot_no vs the display
+        field)."""
+        if self.picking_type_id.code == 'outgoing':
+            return (move_line.vifel_lot_no_display or '').strip()
+        return (move_line.client_lot_no or '').strip()
 
     def _vifel_stamp_client_lot_no(self):
         """Copy each line's Lot No. onto the quants it landed on.
