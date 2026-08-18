@@ -68,6 +68,7 @@ counts, and a wrong pallet count is a wrong invoice.
         'wizard/pallet_merge_wizard.xml',
         'views/res_partner_views.xml',
         'views/stock_move_line_views.xml',
+        'views/stock_picking_views.xml',
         'views/fast_encode_views.xml',
         'views/stock_quant_views.xml',
     ],

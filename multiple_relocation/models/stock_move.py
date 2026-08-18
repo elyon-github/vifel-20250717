@@ -557,6 +557,12 @@ class stock_move_line_Override(models.Model):
         # Create nested defaultdict structure
         result = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
             'reference_document_name': '',
+            # Who PREPARED BY names on the printed form: the Inventory Analyst
+            # recorded on the RR being adjusted. It is NOT create_uid of the
+            # adjustment line - those lines are all cut through one shared
+            # inventory login, so create_uid prints the same person on every
+            # form regardless of who handled the receipt.
+            'inventory_analyst': '',
             'timestamps': defaultdict(list)
         })))
 
@@ -573,6 +579,13 @@ class stock_move_line_Override(models.Model):
             # Set reference document name (only needs to be set once per group)
             if not result[batch_number][client][reference_id]['reference_document_name']:
                 result[batch_number][client][reference_id]['reference_document_name'] = reference_name
+                # Same group, same referenced RR, so the analyst is set here
+                # too. Left empty when the adjustment has no referenced RR, or
+                # the RR has no analyst recorded - an empty signature line is
+                # correct, naming the wrong person is not.
+                result[batch_number][client][reference_id]['inventory_analyst'] = (
+                    line.adjustment_reference_id.x_studio_inventory_analyst.name or ''
+                    if line.adjustment_reference_id else '')
 
             # Parse reference field for changes
             ref = line.reference or ''

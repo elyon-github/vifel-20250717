@@ -12,6 +12,37 @@ this module must not erase them.
 from odoo import api, fields, models
 
 
+class StockMoveBatchNoDisplay(models.Model):
+    """Roll the lines' Batch # up onto the move, for the Operations tab.
+
+    ``batch_no`` is encoded per stock.move.line in the Pallet Breakdown, so the
+    picking form's Operations tab — a stock.move list — has nothing to show. One
+    move can carry several lines on different batches, hence a joined read-only
+    summary rather than a related field: it is a preview so the encoder can
+    confirm the Batch # before printing the Pallet Tag, not an input.
+    """
+    _inherit = 'stock.move'
+
+    batch_no_display = fields.Char(
+        string='Batch #',
+        compute='_compute_batch_no_display',
+        help="Batch numbers encoded on this move's lines. Read-only summary — "
+             "edit them per line in the Pallet Breakdown.")
+
+    @api.depends('move_line_ids.batch_no')
+    def _compute_batch_no_display(self):
+        for move in self:
+            # De-duplicated but order-preserving: the floor reads these against
+            # the lines in the order they were encoded, so sorting them would
+            # make the column harder to check, not easier.
+            seen = []
+            for line in move.move_line_ids:
+                batch = (line.batch_no or '').strip()
+                if batch and batch not in seen:
+                    seen.append(batch)
+            move.batch_no_display = ', '.join(seen)
+
+
 class StockPickingClientLotNo(models.Model):
     _inherit = 'stock.picking'
 
