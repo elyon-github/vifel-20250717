@@ -1,4 +1,4 @@
-// Pallet Merge Enhancement — To-Be Functional Blueprint (Elyon → Vifel)
+// Pallet Merge Enhancement - To-Be Functional Blueprint (Elyon → Vifel)
 // Executive-summary depth, Vifel-navy accent (#002880), Elyon-green secondary.
 const fs = require("fs");
 const path = require("path");
@@ -157,50 +157,14 @@ const cover = [
   P([T("Cold-Storage Warehouse Management System", { size: 19, color: GREY })],
     { alignment: AlignmentType.CENTER, spacing: { after: 560 } }),
 
-  // meta strip
-  new Table({
-    width: { size: CW, type: WidthType.DXA }, columnWidths: [3120, 3120, 3120],
-    rows: [new TableRow({ children: [
-      ["VERSION", "1.0"], ["DATE", "04 August 2026"], ["CLASSIFICATION", "Confidential"],
-    ].map((c) => new TableCell({
-      width: { size: 3120, type: WidthType.DXA },
-      borders: { top: { style: BorderStyle.SINGLE, size: 12, color: NAVY },
-                 bottom: noBorder, left: noBorder, right: noBorder },
-      margins: { top: 110, bottom: 40, left: 40, right: 40 },
-      children: [
-        P([T(c[0], { size: 15, color: GREY, characterSpacing: 40, bold: true })],
-          { alignment: AlignmentType.CENTER, spacing: { after: 30 } }),
-        P([T(c[1], { size: 22, bold: true, color: NAVY })],
-          { alignment: AlignmentType.CENTER }),
-      ],
-    })) })],
-  }),
+  // date only
+  P([T("04 August 2026", { size: 20, bold: true, color: NAVY })],
+    { alignment: AlignmentType.CENTER, spacing: { before: 80, after: 30 },
+      border: { top: { style: BorderStyle.SINGLE, size: 10, color: NAVY, space: 12 } } }),
   spacer(120),
   P([T("Prepared by ", { size: 18, color: GREY }),
      T("Elyon Solutions International Inc.", { size: 18, bold: true, color: INK })],
     { alignment: AlignmentType.CENTER }),
-];
-
-// ============================ FRONT MATTER ============================
-const docControl = [
-  frontTitle("Document Control"),
-  table([2600, 6760], [
-    [{ t: "Field", bold: true }, { t: "Detail", bold: true }],
-    [{ t: "Document Title" }, { t: "Pallet Merge Enhancement — To-Be Functional Blueprint" }],
-    [{ t: "Document Type" }, { t: "Functional Scope / To-Be Blueprint (non-technical)" }],
-    [{ t: "Prepared For" }, { t: "Vifel Ice Plant & Cold Storage, Inc." }],
-    [{ t: "Prepared By" }, { t: "Elyon Solutions International Inc." }],
-    [{ t: "Version" }, { t: "1.0" }],
-    [{ t: "Status" }, { t: "For Review" }],
-    [{ t: "Date" }, { t: "04 August 2026" }],
-    [{ t: "Classification" }, { t: "Confidential — for the named client only" }],
-  ]),
-  spacer(180),
-  P([T("Version History", { size: 24, bold: true, color: NAVY })], { spacing: { after: 120 } }),
-  table([1300, 1900, 2600, 3560], [
-    [{ t: "Version" }, { t: "Date" }, { t: "Author" }, { t: "Summary of Change" }],
-    [{ t: "1.0" }, { t: "04 Aug 2026" }, { t: "Elyon Solutions" }, { t: "Initial scope release issued for Vifel review." }],
-  ]),
 ];
 
 // Manual contents (robust across Word/Google Docs/preview; no field-update prompt)
@@ -218,7 +182,6 @@ const tocSub = (num, title) =>
     children: [T(num, { size: 20, color: GREY }), T("\t" + title, { size: 20, color: GREY })],
   });
 const toc = [
-  P([new PageBreak()]),
   frontTitle("Contents"),
   tocMain("1", "Executive Summary"),
   tocMain("2", "Business Background & Rationale"),
@@ -241,21 +204,21 @@ const content = [
   P([new PageBreak()]),
 
   h1("1.  Executive Summary"),
-  body("This blueprint defines the to-be scope of the Pallet Merge Enhancement, a client-specific extension to Vifel’s warehouse management system. It allows designated clients to consolidate several products or batches onto a single physical pallet — a practice their operations already follow — while keeping Vifel’s pallet count, occupancy, and billing figures accurate."),
-  body("Today the system treats every received line as a separate pallet. For clients who legitimately place several items on one pallet, this over-states the number of physical pallets in storage and distorts occupancy-based billing. The enhancement introduces a controlled “merge” action, a matching “un-merge”, and the supporting configuration, identifiers, and reporting so that one physical pallet is always counted once — and only once."),
+  body("The Pallet Merge Enhancement lets designated clients record several items on one physical pallet, so Vifel’s pallet count and occupancy billing stay accurate."),
+  body("When a client’s container is received, its goods are broken down into pallets, and some items are placed together on a shared or special pallet. The standard system counts every received line as a separate pallet, which over-counts pallets for these clients. This enhancement adds a controlled merge, with a matching un-merge, so one physical pallet is always counted once."),
   spacer(60),
   callout("At a glance", [
-    "Opt-in per client — every client is unaffected until merging is deliberately switched on.",
+    "Opt-in per client - every client is unaffected until merging is deliberately switched on.",
     "One physical pallet is counted once, no matter how many products sit on it.",
-    "Fully reversible — any merge can be un-merged and the count self-corrects.",
+    "Fully reversible - any merge can be un-merged and the count self-corrects.",
     "Withdrawal, occupancy, and billing all read the true physical pallet count.",
     "No change whatsoever for clients who do not use merging.",
   ]),
 
   h1("2.  Business Background & Rationale"),
-  body("As a cold-storage third-party logistics provider, Vifel measures storage and bills occupancy by the pallet. The standard system assumes one received line equals one new pallet. That assumption holds for most cargo, but not for clients who consolidate small lots — several products or production batches — onto a single pallet to use space efficiently."),
-  body("Without a controlled way to record this, staff either over-count pallets (inflating occupancy and billing) or apply manual workarounds that are error-prone and leave the ledger inconsistent. The enhancement replaces those workarounds with a deliberate, auditable action that reflects what is physically on the floor."),
-  bullet("Accurate occupancy and billing — charge for the pallets that physically exist."),
+  body("Vifel provides cold storage for its clients and bills storage by the pallet. When a container is received, its goods are divided into pallets; for some clients, certain items are then placed together on a shared pallet, and some are assessed for a special pallet."),
+  body("The standard system assumes one received line equals one pallet, which over-counts pallets and inflates occupancy and billing for these clients. This enhancement replaces error-prone manual workarounds with a deliberate, auditable merge that reflects what is physically on the floor."),
+  bullet("Accurate occupancy and billing - charge for the pallets that physically exist."),
   bullet("A single, consistent method for staff, replacing ad-hoc manual corrections."),
   bullet("A clear, reversible audit trail of what was merged, when, and by whom."),
 
@@ -271,12 +234,12 @@ const content = [
 
   h2("3.2  Pallet Series Identifiers (PSI)"),
   body("Every physical pallet carries exactly one unique series number. Merge clients use dedicated series types so special pallets are recognisable and never collide with ordinary numbering."),
-  bullet("One series equals one physical pallet — a system-wide integrity rule."),
+  bullet("One series equals one physical pallet - a system-wide integrity rule."),
   bullet("Dedicated special series types are created automatically for a Multiple-mode client."),
   bullet("Numbers are drawn and recycled automatically, never reused across the wrong pool."),
 
   h2("3.3  Merge on Receiving"),
-  body("During receiving, a line can be merged onto a pallet that is already in stock, or onto a newly-created special pallet. Merging is available from both the Pallet Breakdown and the guided Magic Wizard, and behaves identically on each. The action is staged — nothing is committed until the user confirms."),
+  body("During receiving, a line can be merged onto a pallet that is already in stock, or onto a newly-created special pallet. Merging is available from both the Pallet Breakdown and the guided Magic Wizard, and behaves identically on each. The action is staged - nothing is committed until the user confirms."),
   spacer(40),
   table([6260, 3100], [
     [{ t: "Situation", bold: true }, { t: "Pallet count impact", bold: true, align: AlignmentType.CENTER }],
@@ -291,34 +254,34 @@ const content = [
 
   h2("3.4  Un-merge"),
   body("Any merged line can be separated again. The pallet count self-corrects and no captured data is lost."),
-  bullet("Un-merge is offered wherever merge is — the Pallet Breakdown and the Magic Wizard."),
+  bullet("Un-merge is offered wherever merge is - the Pallet Breakdown and the Magic Wizard."),
   bullet("The separated line reverts to its own pallet series and location."),
   bullet("The pallet count is restored as if the merge had not happened."),
 
   h2("3.5  Lot No., Batch # & Prodcode Tracking"),
-  body("Optional client reference fields are captured at receiving and carried through stock, withdrawal, and reports, with a standardised product code frozen at validation."),
+  body("Optional client reference fields are captured at receiving and carried through stock, withdrawal, and reports, with a standardised product code set at validation."),
   bullet("Lot No. and Batch # entry are shown only for clients configured to use them."),
-  bullet("A Prodcode is composed automatically (expiration date, batch, and building) and shown read-only on the withdrawal."),
+  bullet("A Prodcode is composed automatically from the expiration date and batch, and shown read-only on the withdrawal."),
   bullet("These references are available as optional columns in the stock and withdrawal views."),
 
   h2("3.6  Withdrawal & Pallet-Count Integrity"),
   body("A merge pallet may be withdrawn from in part, because it deliberately carries several products. The pallet is only counted as leaving storage when it is physically emptied."),
-  bullet("Partial withdrawal is allowed — take one product and leave the rest — without forcing a return document."),
+  bullet("Partial withdrawal is allowed - take one product and leave the rest - without forcing a return document."),
   bullet("The pallet counts as one leaving (−1) only on the withdrawal that empties it."),
   bullet("For multi-truck shipments, the pallet is counted against the truck that empties it, not the first truck to draw from it."),
 
   h2("3.7  Reports"),
-  body("Every pallet-based figure reflects the merged reality — one physical pallet is counted once across all documents and reports."),
+  body("Every pallet-based figure reflects the merged reality - one physical pallet is counted once across all documents and reports."),
   bullet("Receiving and Withdrawal printed pallet counts, occupancy, and billing each count a merged pallet once."),
   bullet("Where enabled, the Lot No., Batch #, and Prodcode appear as tracking columns on the relevant documents."),
 
   h1("4.  Out of Scope"),
   body("The following are intentionally not part of this enhancement:"),
-  bullet("Clients without merging enabled — no change to their receiving, withdrawal, or pallet counts."),
-  bullet("Standard (non-merge) pallet handling — unchanged."),
-  bullet("Blast-freeze operations — unaffected."),
-  bullet("Pricing, costing, or contract terms — no change."),
-  bullet("Migration of existing shared pallets — handled as a one-time deployment step, not an ongoing feature."),
+  bullet("Clients without merging enabled - no change to their receiving, withdrawal, or pallet counts."),
+  bullet("Standard (non-merge) pallet handling - unchanged."),
+  bullet("Blast-freeze operations - unaffected."),
+  bullet("Pricing, costing, or contract terms - no change."),
+  bullet("Migration of existing shared pallets - handled as a one-time deployment step, not an ongoing feature."),
 
   h1("5.  Assumptions & Dependencies"),
   bullet("Per-client configuration is maintained by authorised Vifel administrators."),
@@ -339,7 +302,7 @@ const content = [
     [{ t: "Pallet Breakdown" }, { t: "The receiving screen listing each pallet line." }],
     [{ t: "Magic Wizard" }, { t: "The guided receiving-encoding screen." }],
     [{ t: "RR / WR" }, { t: "Receiving Report / Withdrawal Report." }],
-    [{ t: "Prodcode" }, { t: "Standardised product/batch code frozen at validation." }],
+    [{ t: "Prodcode" }, { t: "Standardised product/batch code set at validation." }],
   ]),
 
   h1("7.  Acceptance & Sign-off"),
@@ -348,8 +311,8 @@ const content = [
   table([2600, 3080, 2280, 1400], [
     [{ t: "Role", bold: true }, { t: "Name / Organisation", bold: true }, { t: "Signature", bold: true }, { t: "Date", bold: true }],
     [{ t: "Prepared by" }, { t: "Elyon Solutions International Inc." }, { t: " " }, { t: " " }],
-    [{ t: "Reviewed by" }, { t: "Vifel — Operations" }, { t: " " }, { t: " " }],
-    [{ t: "Approved by" }, { t: "Vifel — Management" }, { t: " " }, { t: " " }],
+    [{ t: "Reviewed by" }, { t: "Vifel - Operations" }, { t: " " }, { t: " " }],
+    [{ t: "Approved by" }, { t: "Vifel - Management" }, { t: " " }, { t: " " }],
   ], { header: true }),
 ];
 
@@ -373,7 +336,7 @@ const bodyFooter = new Footer({ children: [
     border: { top: { style: BorderStyle.SINGLE, size: 6, color: NAVY, space: 4 } },
     spacing: { before: 40 },
     children: [
-      T("Confidential  ·  © 2026 Elyon Solutions International Inc.", { size: 15, color: GREY }),
+      T("© 2026 Elyon Solutions International Inc.", { size: 15, color: GREY }),
       T("\tPage ", { size: 15, color: GREY }),
       new TextRun({ children: [PageNumber.CURRENT], size: 15, color: GREY, font: "Arial" }),
     ],
@@ -383,7 +346,7 @@ const bodyFooter = new Footer({ children: [
 // ============================ DOCUMENT ============================
 const doc = new Document({
   creator: "Elyon Solutions International Inc.",
-  title: "Pallet Merge Enhancement — To-Be Functional Blueprint",
+  title: "Pallet Merge Enhancement - To-Be Functional Blueprint",
   description: "Client-Specific Requirement Enhancement scope for Vifel Ice Plant & Cold Storage, Inc.",
   styles: {
     default: { document: { run: { font: "Arial", size: 21, color: INK } } },
@@ -415,7 +378,7 @@ const doc = new Document({
         margin: { top: 1440, right: 1440, bottom: 1260, left: 1440 },
         pageNumbers: { start: 1 } } },
       headers: { default: bodyHeader }, footers: { default: bodyFooter },
-      children: [...docControl, ...toc, ...content] },
+      children: [...toc, ...content] },
   ],
 });
 
