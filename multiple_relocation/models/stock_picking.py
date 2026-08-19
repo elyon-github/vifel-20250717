@@ -831,6 +831,128 @@ class transfer_locations(models.Model):
             return self.void_source_picking_id, _('void withdrawal')
         return False, ''
 
+    def _find_void_identity_by_content(self):
+        """The voided document this one still mirrors, recognised by CONTENT
+        when the link is gone: same client, and at least one shared pallet
+        series. A void WR reverses a receipt, a void return reverses a
+        withdrawal, so the direction is fixed by which flag is set.
+
+        Ranked by how many series they share, so a pallet that legitimately
+        passed through several documents cannot outvote the real parent."""
+        self.ensure_one()
+        empty = self.env['stock.picking']
+        series = [s for s in self.move_line_ids.mapped(
+            'x_studio_pallet_series_id') if s]
+        if not series or not self.partner_id:
+            return empty
+
+        lines = self.env['stock.move.line'].search([
+            ('x_studio_pallet_series_id', 'in', series),
+            ('picking_id', '!=', self.id),
+            ('picking_id.x_studio_voided', '=', True),
+            ('picking_id.partner_id', '=', self.partner_id.id),
+            ('picking_id.picking_type_id.code', '=',
+             'incoming' if self.is_void_wr else 'outgoing'),
+        ])
+        if not lines:
+            return empty
+
+        tally = {}
+        for line in lines:
+            tally[line.picking_id] = tally.get(line.picking_id, 0) + 1
+        return max(tally, key=tally.get)
+
+    def _void_identity_status(self):
+        """Where this document's void identity stands, as (status, parent):
+
+        - ``intact``      the pointer resolves to a parent that is voided
+        - ``recoverable`` the pointer is gone but the content still mirrors
+                          a voided document, so the link can be rebuilt
+        - ``stale``       it mirrors nothing: the flag outlived its void
+
+        The edit guard (`_void_mirror_source`) already demands both the flag
+        AND a resolvable parent before it protects a document. Validation
+        used to demand only the flag, so an orphaned shell was at once
+        freely editable and self-voiding. This is the shared answer both
+        sides now key on."""
+        self.ensure_one()
+        empty = self.env['stock.picking']
+        if not (self.is_void_wr or self.is_void_return):
+            return 'stale', empty
+
+        parent = (self.return_id if self.is_void_return
+                  else self.void_source_picking_id)
+        if parent and parent.x_studio_voided:
+            return 'intact', parent
+
+        candidate = self._find_void_identity_by_content()
+        if candidate:
+            return 'recoverable', candidate
+        return 'stale', empty
+
+    def _apply_void_identity_on_validation(self):
+        """Auto-void a validated void equivalent, but only if it really is
+        one. Called by `button_validate`.
+
+        A void document exists to reverse another; voiding it archives its
+        PKR row, which is correct precisely because the pair cancels out.
+        Applied blindly it is destructive: a leftover shell that operators
+        repurposed into a real transfer gets stamped VOIDED on validation
+        and its ledger row archived, so genuine stock leaves the warehouse
+        and never reaches the client's book (M/WR/08389, MEATS SUPREME:
+        2 pallets / 1,310 kg lost this way)."""
+        self.ensure_one()
+        if not (self.is_void_wr or self.is_void_return):
+            return
+
+        status, parent = self._void_identity_status()
+        kind = "WR" if self.is_void_wr else "return RR"
+
+        if status == 'recoverable':
+            if self.is_void_wr:
+                self.void_source_picking_id = parent
+            elif not self.return_id:
+                self.return_id = parent
+            self.message_post(body=_(
+                "Void %(kind)s link repaired on validation: this document "
+                "mirrors voided %(parent)s, whose pointer had been lost.",
+                kind=kind, parent=parent.name))
+            _logger.info("Repaired lost void link on %s -> %s",
+                         self.name, parent.name)
+
+        if status in ('intact', 'recoverable'):
+            _logger.info(
+                "Auto-voiding void %s %s after validation", kind, self.name)
+            self.x_studio_voided = True
+            self._void_archive_pallet_kilos_record(self)
+            _logger.info("Successfully auto-voided void %s %s",
+                         kind, self.name)
+            return
+
+        # Stale: the flag outlived the void it belonged to and the document
+        # has since been used for real work. Void it and its ledger row
+        # disappears. Disarm it instead, loudly, and let it validate as
+        # whatever it now is.
+        stale_vals = {
+            'is_void_wr': False,
+            'is_void_return': False,
+            'void_source_picking_id': False,
+        }
+        if self.x_studio_source == 'VOIDED':
+            stale_vals['x_studio_source'] = False
+        if self.x_studio_manual_document_ == 'VOIDED':
+            stale_vals['x_studio_manual_document_'] = False
+        if (self.x_studio_remarks or '').startswith('Auto-created from voided '):
+            stale_vals['x_studio_remarks'] = False
+        self.with_context(skip_void_mirror_guard=True).write(stale_vals)
+
+        note = _(
+            "Stale void marker cleared on validation: this document carried "
+            "the void %(kind)s flag but reverses no voided record, so it was "
+            "NOT auto-voided. Its ledger row is kept.", kind=kind)
+        self.message_post(body=note)
+        _logger.warning("%s: %s", self.name, note)
+
     def _create_void_wr_from_rr(self, record):
         """
         Create an outgoing (WR) picking to reverse the inventory from a voided RR/BFRR.
@@ -1844,23 +1966,10 @@ class transfer_locations(models.Model):
                 if not record.validated_on:
                     record.validated_on = fields.Datetime.now()
 
-                # Auto-void WRs created from voiding RRs
-                if record.is_void_wr:
-                    _logger.info(
-                        "Auto-voiding void WR %s after validation", record.name)
-                    record.x_studio_voided = True
-                    record._void_archive_pallet_kilos_record(record)
-                    _logger.info(
-                        "Successfully auto-voided void WR %s", record.name)
-
-                # Auto-void return RRs created from voiding WRs
-                elif record.is_void_return:
-                    _logger.info(
-                        "Auto-voiding void return RR %s after validation", record.name)
-                    record.x_studio_voided = True
-                    record._void_archive_pallet_kilos_record(record)
-                    _logger.info(
-                        "Successfully auto-voided void return RR %s", record.name)
+                # Auto-void void equivalents (WRs from voided RRs, return RRs
+                # from voided WRs) - but only those whose void identity holds
+                # up. See _apply_void_identity_on_validation.
+                record._apply_void_identity_on_validation()
 
         return result
         
