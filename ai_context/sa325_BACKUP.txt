@@ -1,0 +1,117 @@
+# Available variables:
+#  - env: environment on which the action is triggered
+#  - model: model of the record on which the action is triggered; is a void recordset
+#  - record: record on which the action is triggered; may be void
+#  - records: recordset of all records on which the action is triggered in multi-mode; may be void
+#  - time, datetime, dateutil, timezone: useful Python libraries
+#  - float_compare: utility function to compare floats based on specific precision
+#  - log: log(message, level='info'): logging function to record debug information in ir.logging table
+#  - _logger: _logger.info(message): logger to emit messages in server logs
+#  - UserError: exception class for raising user-facing warning messages
+#  - Command: x2many commands namespace
+# To return an action, assign: action = {...}
+
+current_operation = record.picking_type_id
+next_operation = None
+warehouse_id = record.picking_type_id.warehouse_id.id
+to_source_location = 4
+to_destination_location = 5
+
+if current_operation.code == "incoming" and current_operation.is_blast_freeze_operation:
+    picking_type = env['stock.picking.type'].search([('code', '=', "outgoing"), ('is_blast_freeze_operation', '=', True), ('warehouse_id', '=', warehouse_id)], limit=1)
+    next_operation = picking_type
+    # dest_to_source = record.location_dest_id.id
+
+
+    
+elif current_operation.code == "outgoing" and current_operation.is_blast_freeze_operation:
+    picking_type = env['stock.picking.type'].search([('code', '=', "incoming"), ('is_blast_freeze_operation', '=', False), ('warehouse_id', '=', warehouse_id)], limit=1)
+    next_operation = picking_type
+
+    
+elif current_operation.code == "incoming" and not current_operation.is_blast_freeze_operation:
+    picking_type = env['stock.picking.type'].search([('code', '=', "outgoing"), ('is_blast_freeze_operation', '=', False), ('warehouse_id', '=', warehouse_id)], limit=1)
+    next_operation = picking_type
+
+
+
+if current_operation.code == "outgoing" and current_operation.is_blast_freeze_operation:
+    # Step 1: Copy the record with initial fields
+    toNavigateto = record.copy({
+        'picking_type_id': next_operation.id,
+        'x_studio_last_operation_source_document': record.id,
+        'location_dest_id': to_destination_location,
+        'location_id': to_source_location,
+        'state': 'draft',
+        'x_studio_loading_dock_no': 'N/A',
+        'truck_type': record.truck_type,
+        'x_studio_trucks_plate_': record.x_studio_trucks_plate_,
+        'x_studio_driver': record.x_studio_driver,
+        'x_studio_client_reference': '',
+        'x_studio_start_time': record.x_studio_end_time,
+        'x_studio_truck_time': record.x_studio_end_time,
+        'x_studio_validated_by': False,
+        'x_studio_checked_by': False,
+        'x_studio_approved_by': False,
+        'x_studio_gate_pass': record.x_studio_gate_pass,
+        'x_studio_client_reference': record.x_studio_client_reference
+        
+        
+        
+    })
+else:
+    # Step 1: Copy the record with initial fields
+    toNavigateto = record.copy({
+        'picking_type_id': next_operation.id,
+        'x_studio_last_operation_source_document': record.id,
+        'location_dest_id': to_destination_location,
+        'location_id': to_source_location,
+        'state': 'draft',
+        'x_studio_checked_by': False,
+        'x_studio_client_reference': record.x_studio_client_reference,
+        'truck_type': record.truck_type,
+        'x_studio_trucks_plate_': record.x_studio_trucks_plate_,
+        'x_studio_driver': record.x_studio_driver,
+        'x_studio_start_time': record.x_studio_end_time,
+        'x_studio_truck_time': record.x_studio_end_time,
+        'x_studio_validated_by': False,
+        'x_studio_approved_by': False,
+        'x_studio_gate_pass': record.x_studio_gate_pass,
+        
+    })
+
+# Step 2: Update the picking_type_id for move_ids_without_package
+toNavigateto.move_ids_without_package.write({
+    'picking_type_id': next_operation.id
+})
+
+
+# Step 3: Set all stock moves related to move_ids_without_package to draft
+
+
+
+if current_operation.code == "outgoing" and current_operation.is_blast_freeze_operation:
+    for move in toNavigateto.move_ids_without_package:
+        # Step 3.1: Clear associated stock.move.line records
+        # Step 3.2: Set the stock move state to 'draft'
+        move.write({'state': 'draft'})
+        move.move_line_ids.unlink()  # This will delete all move lines related to the move
+        for current_move in record.move_ids_without_package:
+            if move.product_id.id == current_move.product_id.id:
+                move.write({'x_studio_packaging_unit': current_move.x_studio_packaging_unit, 'x_studio_min_unit': current_move.x_studio_min_unit})
+else:
+    toNavigateto.move_ids_without_package.unlink()
+
+# Step 4: Define the action to navigate to the new record
+action = {
+    'type': 'ir.actions.act_window',
+    'name': 'New Record',
+    'res_model': record._name,
+    'view_mode': 'form',
+    'res_id': toNavigateto.id,
+    'target': 'current',
+}
+
+
+
+

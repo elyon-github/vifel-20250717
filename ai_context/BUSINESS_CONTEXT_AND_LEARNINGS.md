@@ -49,6 +49,29 @@ packs, lines) — operators must not "reuse" a void doc as a vehicle for edits. 
 unvoid a WR whose equivalent return RR is already validated. Unvoiding neutralizes
 unvalidated children into empty drafts; their PSIs are NOT recycled into the pool.
 
+**Repurposed void shells (M/WR/08389, MEATS SUPREME, 2026-08-12).** The rule above
+("operators must not reuse a void doc") is not a style preference, it silently
+destroys ledger rows. Voiding GRJM's M/RR/05176 left unvalidated void-WR shells
+behind. Staff used them as blank withdrawal documents for OTHER clients: the
+tracking on M/WR/08389 shows GRJM's gate pass 113937 and the void generator's
+literal loading dock 'N/A' being wiped and MEATS SUPREME's own values typed in.
+The flags operators cannot see (`is_void_wr`, `x_studio_source = VOIDED`) survived,
+so validation auto-voided the document and archived its PKR row: 2 pallets and
+1,310 kg physically left the warehouse and never reached the client's book, while
+its 310 kg partial return still counted as a receipt.
+
+Two lessons. **First, a document's own tracking tells you who voided it.** Here
+`x_studio_voided` flipped 0 -> 1 in the SAME write that set the picking Done, which
+is the auto-void signature; a deliberate void is a separate write later. That test
+is what makes bulk repair safe, and it is why the "void the returns first" guard
+never fired: it lives in `void_transfer`, and nobody ever called it. **Second, a
+guard and the action it protects must key on the SAME evidence.** The edit guard
+(`_void_mirror_source`) required the flag AND a resolvable parent; the auto-void
+required only the flag. An orphaned shell was therefore simultaneously freely
+editable and self-voiding, which is the worst possible combination. Fixed by
+`_apply_void_identity_on_validation`; when a leftover flag no longer mirrors
+anything, the flag is wrong, never the document.
+
 ## 3. Identity doctrine (the invariants everything depends on)
 
 - **One physical pallet = one PSI = one package (Pallet #).** PSI format
