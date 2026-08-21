@@ -172,3 +172,29 @@ class StockQuantVifelClientFields(models.Model):
         string='Prodcode', copy=False,
         help="Production code frozen at receiving: production date "
              "(DDMONYYYY) + Batch # + building short name, e.g. 18MAY202699M.")
+
+    def _vifel_quant_audit_vals(self):
+        """This feature's stamped values, as move-line vals, for an audit line
+        built from this quant.
+
+        Prodcode is deliberately absent: on stock.move.line it is a non-stored
+        compute (read back from the quant on withdrawals), so it cannot be
+        written onto a history line.
+        """
+        self.ensure_one()
+        return {'client_lot_no': self.client_lot_no or False,
+                'batch_no': self.batch_no or False}
+
+    def _vifel_relocation_extra_fields(self):
+        """Carry this feature's stamped values onto the destination quant when
+        a pallet is relocated.
+
+        Relocation builds a NEW quant at the destination and copies a fixed
+        list of fields onto it. These three were not on that list, so moving a
+        pallet between bins or buildings silently dropped the client's Lot No.,
+        Batch # and Prodcode — the pallet kept its identity but lost the
+        client's own reference to it. Core exposes the hook; the names stay
+        here because they belong to this module.
+        """
+        return super()._vifel_relocation_extra_fields() + [
+            'client_lot_no', 'batch_no', 'prodcode']

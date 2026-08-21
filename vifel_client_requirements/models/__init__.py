@@ -11,5 +11,7 @@ from . import fast_encode_merge
 from . import pkr_merge_counting
 from . import stock_quant_merge_withdrawal
 from . import return_lot_batch
+from . import correction_lot_batch
+from . import history_lot_batch
 from . import vifel_voided_special_pallet
 from . import stock_picking_voided_special

@@ -120,7 +120,7 @@ class FastEncodeRRWizard(models.TransientModel):
             for line in self.line_ids:
                 if line.stock_move_line:
                     move_line = self.env['stock.move.line'].browse(line.stock_move_line)
-                    move_line.write({
+                    bf_vals = {
                         'result_package_id': line.result_package_id.id if line.result_package_id else False,
                         'bf_pallet_char': line.bf_pallet_char,
                         'x_studio_2nd_uom': line.quantity,
@@ -131,7 +131,14 @@ class FastEncodeRRWizard(models.TransientModel):
                         'x_studio_expiration_date': line.expiration_date,
                         'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
                         'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
-                    })
+                        'vifel_remarks': line.remarks or '',
+                    }
+                    # Route BF through the same extension hook as the normal
+                    # path below. This dict used to be the end of the story, so
+                    # every field an add-on carries (client Lot No., Batch #)
+                    # was silently dropped on a BF confirm.
+                    bf_vals.update(self._vifel_line_write_vals(line))
+                    move_line.write(bf_vals)
             return {'type': 'ir.actions.act_window_close'}
         
         # Normal logic for non-blast-freeze operations
@@ -336,8 +343,9 @@ class FastEncodeRRWizard(models.TransientModel):
                     'x_studio_expiration_date': line.expiration_date,
                     'x_studio_quantity_uom': line.quantity_uom.id if line.quantity_uom else False,
                     'x_studio_min_quantity_uom': line.packs_uom.id if line.packs_uom else False,
+                    'vifel_remarks': line.remarks or '',
                 }
-                
+
                 write_vals.update(self._vifel_line_write_vals(line))
 
                 # Only write location_dest_id if we have a valid value
@@ -462,7 +470,8 @@ class FastEncodeRRWizardLine(models.TransientModel):
     expiration_date = fields.Date(string='Expiration Date')
     quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM')
     packs_uom = fields.Many2one('uom.uom', string='Packs UOM')
-    
+    remarks = fields.Char(string='Remarks')
+
     # Snapshot of the pallet series from the DB when wizard opened — NEVER changes during wizard session.
     # Used at confirm time to compare with the final pallet_series_id and determine what needs recycling.
     pre_wizard_pallet_series_id = fields.Char(string='Pre-Wizard Pallet Series ID', readonly=True)

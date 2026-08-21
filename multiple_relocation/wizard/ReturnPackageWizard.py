@@ -18,6 +18,10 @@ class ReturnPackageWizardLine(models.TransientModel):
     production_date=fields.Date(string="Production Date")
     expiration_date=fields.Date(string="Expiration Date")
     container_number = fields.Char(string="Container #")
+    # Carried from the withdrawn pallet and re-stamped onto the re-received
+    # stock at validation. Not shown as a column, matching how the client
+    # Lot No. / Batch # ride this wizard.
+    remarks = fields.Char(string="Remarks")
     return_counter = fields.Integer(string="No. of Returns")
     stock_move_line = fields.Integer(string="Move Line ID")
     pack_uom_unit = fields.Float(string="Actual Quantity")
@@ -537,15 +541,27 @@ class ReturnPackageWizard(models.TransientModel):
         })
 
     def _vifel_return_wizard_line_vals(self, move_line):
-        """Neutral hook: extra return WIZARD-LINE vals derived from the withdrawn
-        move line (e.g. the client's Lot No. / Batch #). Overridden by
-        vifel_client_requirements; returns {} in the base module."""
-        return {}
+        """Extra return WIZARD-LINE vals derived from the withdrawn move line.
+
+        Core carries the Remarks of the pallet being returned. A return
+        re-receives stock, and on a withdrawal the Remarks lives on the QUANT,
+        not the line, so a return landing on a NEW quant (rather than merging
+        into the PSI remainder) would otherwise arrive blank.
+        vifel_remarks_display already prefers the stored snapshot, so this still
+        resolves after the source quant has been consumed.
+
+        vifel_client_requirements extends this via super() for the client's
+        Lot No. / Batch #.
+        """
+        return {'remarks': move_line.vifel_remarks_display or ''}
 
     def _vifel_return_move_line_vals(self, package):
-        """Neutral hook: extra return MOVE-LINE vals derived from the wizard line.
-        Overridden by vifel_client_requirements; {} in the base module."""
-        return {}
+        """Extra return MOVE-LINE vals derived from the wizard line.
+
+        Carries Remarks onto the return move line so validation re-stamps it
+        onto the re-received stock. Extended by vifel_client_requirements.
+        """
+        return {'vifel_remarks': package.remarks or ''}
 
     def action_process_return(self):
         selected_packages = self.package_line_ids.filtered(lambda line: line.select_package)

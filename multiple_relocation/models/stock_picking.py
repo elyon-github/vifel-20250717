@@ -1306,6 +1306,13 @@ class transfer_locations(models.Model):
                 'stock_move_line': move_line.id,
                 'return_counter': move_line.x_studio_return_count,
                 'container_number': move_line.x_studio_container_number,
+                # This method builds the wizard lines by hand instead of going
+                # through _compute_location_and_packages, so it is a SEPARATE
+                # write path and the hook has to be applied here too. Without
+                # it a void return RR arrived with an empty Remarks / Lot No.
+                # while the withdrawal it mirrors carried them.
+                **self.env['return.package.wizard']
+                    ._vifel_return_wizard_line_vals(move_line),
                 'pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                 'min_uom_unit': move_line.x_studio_withdraw_units,
                 'quantity': move_line.quantity,
@@ -1929,6 +1936,48 @@ class transfer_locations(models.Model):
             blockers |= siblings.mapped('picking_id')
         return blockers
 
+    def _vifel_stamp_remarks(self):
+        """Copy each receiving line's Remarks onto the quants it landed on.
+
+        Matched on the quant identity (product / DESTINATION location / lot /
+        package / owner) — the mirror image of the read-back on the withdrawal
+        side, which keys on the SOURCE location and package. Several lines
+        carrying different remarks can land on one quant: last write wins, the
+        same rule the client Lot No. stamp uses.
+        """
+        Quant = self.env['stock.quant']
+        for picking in self:
+            # Only cheap, always-correct guards here; empty lines short-circuit
+            # below. A present value is always persisted.
+            if picking.state != 'done':
+                continue
+            if picking.picking_type_id.code != 'incoming':
+                continue
+            for line in picking.move_line_ids:
+                remarks = (line.vifel_remarks or '').strip()
+                if not remarks:
+                    continue
+                quants = Quant.search([
+                    ('product_id', '=', line.product_id.id),
+                    ('location_id', '=', line.location_dest_id.id),
+                    ('lot_id', '=', line.lot_id.id),
+                    ('package_id', '=', line.result_package_id.id),
+                    ('owner_id', '=',
+                     line.owner_id.id or picking.partner_id.id),
+                ])
+                if quants:
+                    quants.write({'x_studio_remarks': remarks})
+
+    def _action_done(self):
+        # Snapshot the WR Remarks read-back onto the outgoing lines BEFORE the
+        # source quants are consumed here: a full withdrawal removes the quant
+        # the live read-back depends on, which would blank the Remarks on the
+        # validated withdrawal.
+        for picking in self.filtered(
+                lambda p: p.picking_type_id.code == 'outgoing'):
+            picking.move_line_ids._vifel_freeze_remarks_readback()
+        return super(transfer_locations, self)._action_done()
+
     def button_validate(self):
         """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
         # SEQUENCE PARTIAL-WITHDRAW RETURNS BEHIND THEIR MULTI-TRUCK SIBLINGS.
@@ -1958,6 +2007,11 @@ class transfer_locations(models.Model):
                                 'wrs': ', '.join(blockers.mapped('name'))})
 
         result = super(transfer_locations, self).button_validate()
+
+        # Stamp each receiving line's Remarks onto the stock it landed on, so a
+        # later withdrawal can read it back. Runs AFTER super() because it needs
+        # the destination quants to exist.
+        self._vifel_stamp_remarks()
 
         # After validation, check if any of these pickings are void WRs or void returns
         for record in self:
