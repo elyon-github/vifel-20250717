@@ -166,6 +166,17 @@ class StockQuantHistorySnapshot(models.Model):
     # Non-x_studio fields we also mirror from stock.quant -> stock.quant.history.
     _EXTRA_COPY_FIELDS = ("owner_id", "package_id")
 
+    def _extra_copy_fields(self):
+        """Non-`x_studio_` quant field names to mirror onto stock.quant.history.
+
+        Hook: an add-on appends the names it owns. Without this, a field whose
+        name does not start with `x_studio_` can never reach occupancy history,
+        however faithfully it is stamped onto the quant, because the discovery
+        below only admits that prefix. The field must ALSO be declared on
+        stock.quant.history or it is skipped (and logged) as unmirrored.
+        """
+        return tuple(self._EXTRA_COPY_FIELDS)
+
     def _get_quant_copy_fields(self):
         """Dynamically discover which fields to copy from stock.quant onto
         stock.quant.history.
@@ -178,10 +189,11 @@ class StockQuantHistorySnapshot(models.Model):
         """
         quant_fields = self.env["stock.quant"]._fields
         history_fields = self.env["stock.quant.history"]._fields
+        extra_fields = self._extra_copy_fields()
         fields_to_copy = []
         skipped = []
         for name, field in quant_fields.items():
-            if not (name.startswith("x_studio_") or name in self._EXTRA_COPY_FIELDS):
+            if not (name.startswith("x_studio_") or name in extra_fields):
                 continue
             if field.type not in self._COPYABLE_TTYPES:
                 continue
@@ -203,20 +215,45 @@ class StockQuantHistorySnapshot(models.Model):
             )
         return fields_to_copy
 
+    def _quant_field_aliases(self):
+        """Quant field name -> other names carrying the same value on a
+        different source model.
+
+        The copy list is built from stock.quant field NAMES, but the same values
+        are also read off stock.move.line when replaying moves. Where the two
+        models name a field differently the read silently found nothing, so the
+        value was dropped for rows whose metadata comes from a move line.
+        `x_studio_remarks` on the quant is `vifel_remarks` on the move line.
+
+        Extend this rather than renaming a field: the names are load-bearing in
+        `_get_quant_copy_fields`, which only discovers `x_studio_*`.
+        """
+        return {"x_studio_remarks": ("vifel_remarks",)}
+
     @api.model
     def _copy_field_values(self, source, field_names):
         """Read field_names off `source` (a stock.quant, stock.quant.history or
         stock.move.line record) and return a write-ready vals dict, coercing
-        many2one values to ids. Fields absent on the source are skipped."""
+        many2one values to ids. Fields absent on the source are looked up under
+        their aliases, and skipped only when no alias resolves either."""
         vals = {}
         source_fields = source._fields
+        aliases = self._quant_field_aliases()
         for name in field_names:
-            field = source_fields.get(name)
+            read_name = name
+            field = source_fields.get(read_name)
+            if field is None:
+                for alias in aliases.get(name, ()):
+                    field = source_fields.get(alias)
+                    if field is not None:
+                        read_name = alias
+                        break
             if field is None:
                 continue
-            value = source[name]
+            value = source[read_name]
             if field.type == "many2one":
                 value = value.id if value else False
+            # keyed by the TARGET (quant/history) name, not the source alias
             vals[name] = value
         return vals
 

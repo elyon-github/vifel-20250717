@@ -213,3 +213,35 @@ No custom group is declared. Only stock managers can use this module.
 > - **Upgrade from upstream OCA** → bump the `version` in the header, re-verify sections 3-5, note any merge conflicts addressed.
 >
 > Keep the tone tight and architectural. Use file paths; do not paste long method bodies. Update the **Last updated** date at the top each time. If a section becomes uncertain, mark it `⚠️ NEEDS VERIFICATION` rather than removing it.
+
+## Update 2026-08-22 — the copy list is name-driven, and now extensible
+
+Two changes in `stock_quant_history_snapshot.py`, both prompted by walking
+`ai_context/PALLET_FIELD_CHAIN.md` (hop 9) against newly added pallet fields.
+
+**1. `_extra_copy_fields()` is now a hook.** `_get_quant_copy_fields` discovers what to
+mirror from `stock.quant` onto `stock.quant.history` by NAME: anything starting with
+`x_studio_`, plus the hardcoded `_EXTRA_COPY_FIELDS`, and only where a same-named field
+exists on the history model. That prefix rule is load-bearing and easy to miss: a quant
+field named without the prefix reaches occupancy history **nowhere**, however faithfully
+it is stamped. `client_lot_no` / `batch_no` / `prodcode` sat in exactly that hole, so
+occupancy history could never answer "what Lot No. was on that pallet on 30 June".
+`vifel_client_requirements/models/history_lot_batch.py` now declares those three on
+`stock.quant.history` and appends them via the hook (that module gained a
+`stock_quant_history` dependency for it). Forward-only: the ~1.25M existing rows stay
+blank and values appear from the next snapshot.
+
+**2. `_copy_field_values` resolves aliases.** The copy list is built from QUANT field
+names, but the same names are also read off `stock.move.line` when replaying moves, and
+absent ones were silently skipped. 5 of the discovered names do not exist on
+`stock.move.line`. `x_studio_remarks` is one: the move-line field is `vifel_remarks`.
+`_quant_field_aliases()` maps quant name to the other model's name; the result is still
+keyed by the target name. Extend that map rather than renaming a field, since the
+`x_studio_` prefix is what makes discovery work at all.
+
+Tests: `ai_context/cr2_shell_tests/suite_aw_occupancy_history_chain.py` (16 checks).
+
+Note the module's own `tests/test_stock_quant_history.py` has **8 of 12 pre-existing
+failures** on this environment (a Manila timezone assertion and a
+`stock.move.line.is_quant_detail_adjusted` domain error). Verified identical before and
+after the changes above by reverting them and re-running, so they are unrelated.
