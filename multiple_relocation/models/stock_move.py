@@ -741,6 +741,96 @@ class stock_move_line_Override(models.Model):
     # travel with a merge - and because the Magic Wizard, imports and manual
     # edits all write the field without going near it.
 
+    # ------------------------------------------------------------------
+    # ADJUSTMENT AUDIT TRAIL (COMP-2026-00045)
+    # ------------------------------------------------------------------
+    # The Adjustment Form prints its From / To columns from
+    # stock.picking.AuditTrail(), which reads the PICKING's chatter. Move lines
+    # carry no chatter of their own (0 tracked fields, 0 messages on
+    # stock.move.line), so adjusting a pallet's weight or quantity after
+    # validation left nothing for the form to print - the very change the form
+    # exists to document. Proven on M/RR/05775: editing a line's quantity from
+    # 644.000 to 651.500 produced byte-identical output.
+    #
+    # Every material change to a line of a VALIDATED document is therefore
+    # logged onto its picking, as real tracking values so the existing report
+    # code picks them up unchanged. Only done pickings are watched: before
+    # validation the document is still being encoded, and every keystroke would
+    # otherwise become an audit entry.
+    VIFEL_ADJUSTMENT_TRACKED_FIELDS = (
+        'quantity', 'x_studio_actual_kg',
+        'x_studio_2nd_uom', 'x_studio_actual_packaging',
+        'x_studio_total_units', 'x_studio_actual_min',
+        'x_studio_withdraw_units', 'x_studio_affected_2nd_uom',
+        'product_id', 'lot_id', 'x_studio_pallet_series_id',
+        'x_studio_container_number', 'x_studio_production_date',
+        'x_studio_expiration_date',
+    )
+
+    def _vifel_adjustment_label(self, field):
+        """'Weight (KG) - Pallet R 2951', so the form says WHICH pallet moved."""
+        self.ensure_one()
+        pallet = (self.result_package_id.name or self.package_id.name
+                  or self.x_studio_pallet_series_id or '')
+        desc = self._fields[field].string if field in self._fields else field
+        return '%s - Pallet %s' % (desc, pallet) if pallet else desc
+
+    @staticmethod
+    def _vifel_adjustment_display(record, field):
+        """Readable old/new value: a name for relations, the raw value else."""
+        value = record[field] if field in record._fields else None
+        if not value:
+            return ''
+        if hasattr(value, 'display_name'):
+            return value.display_name or ''
+        if isinstance(value, float):
+            return '%.3f' % value
+        return str(value)
+
+    def _vifel_log_adjustment(self, vals):
+        """Record post-validation line edits on the picking's chatter."""
+        watched = [f for f in self.VIFEL_ADJUSTMENT_TRACKED_FIELDS if f in vals]
+        if not watched or self.env.context.get('vifel_skip_adjustment_log'):
+            return {}
+        before = {}
+        for line in self:
+            if line.picking_id.state != 'done':
+                continue
+            before[line.id] = {f: self._vifel_adjustment_display(line, f)
+                               for f in watched}
+        return before
+
+    def _vifel_post_adjustment(self, before):
+        """Write the captured before/after pairs as tracking values."""
+        if not before:
+            return
+        Field = self.env['ir.model.fields'].sudo()
+        Tracking = self.env['mail.tracking.value'].sudo()
+        by_picking = {}
+        for line in self:
+            old = before.get(line.id)
+            if not old:
+                continue
+            for field, old_value in old.items():
+                new_value = self._vifel_adjustment_display(line, field)
+                if new_value == old_value:
+                    continue          # written but unchanged
+                by_picking.setdefault(line.picking_id, []).append(
+                    (line, field, old_value, new_value))
+        for picking, changes in by_picking.items():
+            body = _('Adjustment recorded on %d pallet line(s).') % len(changes)
+            message = picking.sudo().message_post(body=body)
+            for line, field, old_value, new_value in changes:
+                fid = Field._get(line._name, field)
+                Tracking.create({
+                    'mail_message_id': message.id,
+                    'field_id': fid.id if fid else False,
+                    'old_value_char': old_value[:250],
+                    'new_value_char': new_value[:250],
+                    # the form prefers this label, so it can name the pallet
+                    'field_info': {'label': line._vifel_adjustment_label(field)},
+                })
+
     @staticmethod
     def _vifel_series_spellings(series):
         """Every zero-padded spelling of the same pallet number.
@@ -1619,6 +1709,17 @@ class stock_move_line_Override(models.Model):
 
 class stock_move_line_Override(models.Model):
     _inherit = 'stock.move.line'
+
+    def write(self, vals):
+        """Record post-validation pallet edits for the Adjustment Form.
+
+        Wraps the whole write chain from the later class so the several
+        early returns in the other override cannot skip the log.
+        """
+        before = self._vifel_log_adjustment(vals)
+        res = super().write(vals)
+        self._vifel_post_adjustment(before)
+        return res
     _order = 'product_id asc'
 
     def action_open_fast_encode_wizard(self):

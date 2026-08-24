@@ -3562,7 +3562,10 @@ class transfer_locations(models.Model):
             and any(
                 hasattr(tracking_value, 'field_id')
                 and isinstance(tracking_value.field_id.name, str)
-                and 'x_studio' in tracking_value.field_id.name
+                # NOT restricted to x_studio_ any more (COMP-2026-00045):
+                # that excluded every native field - quantity, product, lot,
+                # scheduled date - and so excluded most real adjustments. The
+                # form is meant to show whatever changed.
                 and any(
                     getattr(tracking_value, field, False)
                     for field in ['old_value_text', 'old_value_integer', 'old_value_float', 'old_value_datetime', 'old_value_char']
@@ -3588,8 +3591,14 @@ class transfer_locations(models.Model):
                     old_value = getattr(tracking_value, field, None)
                     new_value = getattr(tracking_value, new_field, None)
                     if old_value or new_value:
+                        # a line change carries its own label ("Weight (KG) -
+                        # Pallet R 2951"); header changes fall back to the
+                        # field's own description.
+                        info = tracking_value.field_info or {}
+                        label = (info.get('label')
+                                 if isinstance(info, dict) else None)
                         Values.insert(0, {
-                            'field': tracking_value.field_id.field_description,
+                            'field': label or tracking_value.field_id.field_description,
                             'old_value': old_value,
                             'new_value': new_value if new_value else None
                         })
