@@ -100,6 +100,49 @@ class StockMoveLineVifelClientFields(models.Model):
                 continue
             line.prodcode = quant.prodcode or ''
             line.vifel_lot_no_display = quant.client_lot_no or ''
+        self._vifel_fill_lot_no_from_receipt()
+
+    def _vifel_fill_lot_no_from_receipt(self):
+        """Fall back to the ORIGINAL receiving line for withdrawals whose
+        source quant no longer carries the Lot No.
+
+        The quant read-back above only works while the stock is still standing
+        there. Once the withdrawal is VALIDATED the quant is depleted (or the
+        lot number was never stamped on it), so the read-back yields '' — and a
+        WR is normally printed AFTER validation, which is precisely why the WR
+        summary kept printing no Lot No. even after the report started asking
+        for this field. Measured on the 2026-08-18 production restore: on done
+        WRs the quant resolved 0 of 20 lot-numbered lines, this fallback
+        resolves all 20.
+
+        Matched by product + lot on an incoming, non-return line — the same
+        rule the return wizard already uses (_vifel_return_wizard_line_vals):
+        the lot is receipt-specific, so it identifies the original line.
+
+        One batched search for all unresolved lines, not one per line: a WR
+        carries 30+ lines and this runs on every render of the Pallet
+        Breakdown.
+        """
+        missing = self.filtered(
+            lambda l: l.picking_code == 'outgoing'
+            and not l.vifel_lot_no_display and l.product_id and l.lot_id)
+        if not missing:
+            return
+        src_lines = self.env['stock.move.line'].search([
+            ('product_id', 'in', missing.product_id.ids),
+            ('lot_id', 'in', missing.lot_id.ids),
+            ('client_lot_no', '!=', False),
+            ('picking_id.picking_type_id.code', '=', 'incoming'),
+            ('picking_id.return_id', '=', False),
+        ])
+        by_product_lot = {}
+        for src in src_lines:
+            # First match wins, mirroring the return wizard's limit=1.
+            by_product_lot.setdefault(
+                (src.product_id.id, src.lot_id.id), (src.client_lot_no or '').strip())
+        for line in missing:
+            line.vifel_lot_no_display = by_product_lot.get(
+                (line.product_id.id, line.lot_id.id), '')
 
     # What the merge displaced, so un-merge can put back exactly that instead
     # of guessing. The generic restore keys off original_pallet_series_id and
