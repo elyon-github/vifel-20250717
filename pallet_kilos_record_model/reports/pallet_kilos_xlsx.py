@@ -1,4 +1,4 @@
-from odoo import models
+from odoo import models, _
 import datetime
 from xlsxwriter.workbook import Workbook
 from odoo.exceptions import ValidationError, UserError
@@ -635,6 +635,31 @@ class PalletKilosXlsx(models.AbstractModel):
 
     def generate_xlsx_report(self, workbook, data, records):
         """Generate the entire XLSX report with professional formatting."""
+        # Blast-freeze documents (BFRR / BFWR) do not belong on this statement.
+        # The ledger keeps them in their OWN running-balance partition - the
+        # balance engine is keyed on (warehouse, is_blast_freezer), see
+        # _recompute_owner_running_balances - so a BF row carries a balance from
+        # a different series entirely. Printing it beside the dry-store rows
+        # showed the client a Beginning/Remaining column that jumps to an
+        # unrelated number, which is what they reported.
+        #
+        # Filtered HERE rather than only in the report wizard because this
+        # report is bound to the Pallet Kilos list view (binding_model_id), so
+        # a user can select records and Print straight past the wizard.
+        # ``not record.is_blast_freezer`` also keeps rows whose flag was never
+        # stamped (NULL on older records - 4071 of them in the 2026-08-24
+        # production restore, all of them RR/WR); only an explicit True drops.
+        had_records = bool(records)
+        records = records.filtered(lambda r: not r.is_blast_freezer)
+        # Only complain when BF filtering is what emptied the selection. An
+        # already-empty selection is left to behave exactly as it did before.
+        if had_records and not records:
+            raise UserError(_(
+                "Every Pallet Kilos record in this selection is a blast-freeze "
+                "document (BFRR / BFWR). Those are kept on their own ledger and "
+                "are not shown on the Pallet Monitoring statement, so there is "
+                "nothing to print."))
+
         formats = self._define_formats(workbook)
         (header_format, table_header_format, summary_format, normal_format, normal_format_bold,
          date_format, float_format_dash, pallet_format, received_format_vivid, received_format,
