@@ -26,11 +26,26 @@ quants = Quant.search([
 ])
 print('Scanning %d live quants that carry a pallet series...' % len(quants))
 
-# (owner, series) -> {package: [quants]}   owner-scoped: two clients may each
-# hold their own number, that is not a collision.
+def _norm(series):
+    """Key a series by prefix + NUMBER, ignoring zero padding.
+
+    Padding is not consistent in the data - GB-20809 and GB-020809 are the same
+    physical number. Matching on the raw string finds 78 duplicates; matching on
+    the number finds 100.
+    """
+    s = (series or '').strip()
+    if not s or '-' not in s:
+        return s
+    prefix, _sep, tail = s.rpartition('-')
+    tail = tail.strip()
+    return '%s-%d' % (prefix, int(tail)) if tail.isdigit() else s
+
+
+# (owner, normalised series) -> {package: [quants]}   owner-scoped: two clients
+# may each hold their own number, that is not a collision.
 by_key = {}
 for q in quants:
-    key = (q.owner_id.id, (q.x_studio_pallet_series_id or '').strip())
+    key = (q.owner_id.id, _norm(q.x_studio_pallet_series_id))
     if not key[1]:
         continue
     by_key.setdefault(key, {}).setdefault(q.package_id, []).append(q)
@@ -49,14 +64,17 @@ for (owner_id, series), pkgs in sorted(
         indate = qs[0].in_date and qs[0].in_date.date() or ''
         # the documents that put this series on this pallet
         docs = MoveLine.search([
-            ('x_studio_pallet_series_id', '=', series),
+            ('x_studio_pallet_series_id', 'in',
+             MoveLine._vifel_series_spellings(series)),
             '|', ('result_package_id', '=', pkg.id), ('package_id', '=', pkg.id),
         ]).mapped('picking_id.name')
         docs = sorted(set(d for d in docs if d))
-        print('      %-14s %-26s %10.3f kg   since %s   %s'
-              % (pkg.name or '?', loc[:26], qty, indate, ', '.join(docs[:3]) or '(no document)'))
-        rows.append([owner.name or '', series, pkg.name or '', loc, '%.3f' % qty,
-                     str(indate), ' '.join(docs)])
+        spelling = (qs[0].x_studio_pallet_series_id or '').strip()
+        print('      %-14s %-12s %-24s %10.3f kg   since %s   %s'
+              % (pkg.name or '?', spelling, loc[:24], qty, indate,
+                 ', '.join(docs[:3]) or '(no document)'))
+        rows.append([owner.name or '', series, spelling, pkg.name or '', loc,
+                     '%.3f' % qty, str(indate), ' '.join(docs)])
     print()
 
 # per-client tally
@@ -74,8 +92,8 @@ if CSV_PATH:
     import csv, io
     with io.open(CSV_PATH, 'w', encoding='utf-8-sig', newline='') as fh:
         w = csv.writer(fh)
-        w.writerow(['Client', 'Pallet Series', 'Pallet', 'Location', 'Kilos',
-                    'In Date', 'Documents'])
+        w.writerow(['Client', 'Pallet Number', 'As Written', 'Pallet',
+                    'Location', 'Kilos', 'In Date', 'Documents'])
         w.writerows(rows)
     print('\nCSV written to %s' % CSV_PATH)
 print('\nREAD-ONLY - nothing was written to the database.')

@@ -741,6 +741,32 @@ class stock_move_line_Override(models.Model):
     # travel with a merge - and because the Magic Wizard, imports and manual
     # edits all write the field without going near it.
 
+    @staticmethod
+    def _vifel_series_spellings(series):
+        """Every zero-padded spelling of the same pallet number.
+
+        Padding is NOT consistent in the data: on the 2026-08-24 production
+        restore live stock carries 18341 six-digit series, 3605 five-digit, 142
+        four-digit and a handful shorter. GB-20809 and GB-020809 are the same
+        physical number written two ways, so an exact string match misses the
+        collision - 78 duplicates by raw string, 100 once padding is ignored
+        (TITAN alone holds CON-05461 and CON-5461 on two different pallets).
+
+        Returns every spelling so the lookup stays a plain indexed 'in' rather
+        than a scan. A series whose tail is not purely numeric is returned
+        as-is; there is nothing safe to normalise there.
+        """
+        s = (series or '').strip()
+        if not s or '-' not in s:
+            return [s] if s else []
+        prefix, _sep, tail = s.rpartition('-')
+        tail = tail.strip()
+        if not tail.isdigit():
+            return [s]
+        n = int(tail)
+        return sorted({s} | {'%s-%s' % (prefix, str(n).zfill(w))
+                             for w in range(1, 9)})
+
     # Flows allowed to write a series that is already standing on stock.
     def _vifel_series_guard_exempt(self):
         # Data fixes and migration scripts opt out explicitly; nothing in the
@@ -765,7 +791,8 @@ class stock_move_line_Override(models.Model):
             if line is not None and getattr(line, 'is_pallet_merge', False):
                 continue
             busy = Quant.search([
-                ('x_studio_pallet_series_id', '=', series),
+                ('x_studio_pallet_series_id', 'in',
+                 self._vifel_series_spellings(series)),
                 ('package_id', '!=', False),
                 ('quantity', '>', 0),
                 ('owner_id', '=', owner.id),
