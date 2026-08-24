@@ -25,6 +25,12 @@ class picking_type(models.Model):
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
+    # Track the Client in the chatter (COMP-2026-00044). It was NOT tracked, so
+    # a swap on a draft left no trace at all - which is why "another user used
+    # my series" could never be proved either way. The lock below prevents it;
+    # this makes any legitimate change (a Stock Administrator override) visible.
+    partner_id = fields.Many2one(tracking=True)
+
     is_void_wr = fields.Boolean(string="Is Void WR", default=False, copy=False,
                                 help="Marks this WR as auto-created by voiding an RR. Will auto-void after validation.")
     void_source_picking_id = fields.Many2one('stock.picking', string="Void Source Picking",
@@ -3004,6 +3010,54 @@ class transfer_locations(models.Model):
                             "document — it will no longer count against "
                             "%(src)s.",
                             doc=record.name, src=link_name, kind=link_kind))
+
+        # CLIENT LOCK (COMP-2026-00044). The RR/WR number is reserved the
+        # moment the document is created, so a draft already owns its number.
+        # Nothing stopped another user opening someone else's draft, swapping
+        # the Client and encoding their own transaction into it - which is what
+        # "the active series is being used by other transactions" describes.
+        # The numbering itself is sound (a Postgres sequence, zero duplicates in
+        # 16395 documents), so a number only ever APPEARS to move because the
+        # DOCUMENT moved.
+        #
+        # Draft is a SOFT lock: the creator can still fix a mis-picked client
+        # without cancelling the document and burning an RR number - every draft
+        # is empty at that point, so nothing is corrupted by the change. From
+        # 'assigned' onward the pallet lines exist and re-attributing them to
+        # another client re-owns stock and misattributes billing, so it is shut
+        # to everyone. Stock Administrators can always override.
+        if 'partner_id' in vals and not self.env.context.get(
+                'skip_client_lock_guard'):
+            is_manager = self.env.user.has_group('stock.group_stock_manager')
+            for record in self:
+                if record.state in ('done', 'cancel'):
+                    continue          # core already blocks these
+                if (not vals['partner_id']
+                        or vals['partner_id'] == record.partner_id.id):
+                    continue          # not actually a change
+                if is_manager:
+                    continue
+                if record.state != 'draft':
+                    raise UserError(_(
+                        "%(doc)s is already %(state)s, so its Client can no "
+                        "longer be changed.\n\n"
+                        "Pallet lines have been encoded against %(client)s - "
+                        "moving them to another client would re-own the stock "
+                        "and misattribute the billing.\n\n"
+                        "Ask a Stock Administrator if this really has to "
+                        "change.",
+                        doc=record.name, state=record.state,
+                        client=record.partner_id.display_name or '?'))
+                if record.create_uid and record.create_uid != self.env.user:
+                    raise UserError(_(
+                        "%(doc)s was created by %(owner)s and is still in "
+                        "draft, so only they can change its Client.\n\n"
+                        "This document already reserves its number for "
+                        "%(client)s. If you need a transfer for a different "
+                        "client, create a new one rather than reusing this "
+                        "number.",
+                        doc=record.name, owner=record.create_uid.name or '?',
+                        client=record.partner_id.display_name or '?'))
 
         # Capture old x_studio_edit_record values before super write
         old_edit_record_vals = {}
