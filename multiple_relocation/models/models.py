@@ -20,7 +20,36 @@ class ResPartner(models.Model):
     # JSON field to store pallet series IDs
     unused_pallet_series_ids = fields.Json("Unused Pallet Series IDs", default=[])
 
+    def _vifel_lock_pallet_pool(self):
+        """Serialise pallet-number issuance for this client (COMP-2026-00043).
+
+        Both the recycle pool and the counter are read-modify-write: read the
+        JSON / the counter, compute, write back. Under Odoo's default READ
+        COMMITTED two concurrent "Assign Pallet Series" clicks each read the
+        SAME state and are handed the SAME numbers - the second write simply
+        overwrites the first. That is one of the ways one number ends up on
+        two pallets.
+
+        Taking the client's row first makes the whole read-compute-write
+        atomic. Plain FOR UPDATE, never NOWAIT: waiting a moment is correct
+        here, whereas failing outright would surface on the floor as the
+        LockNotAvailable crash the client already reported elsewhere. The lock
+        is released at commit and the section it protects is a few statements
+        long.
+
+        The cache is dropped after the lock so the values are re-read from the
+        row we now hold, not from whatever was cached before we waited.
+        """
+        if not self.ids:
+            return
+        self.env.cr.execute(
+            'SELECT id FROM res_partner WHERE id IN %s FOR UPDATE',
+            (tuple(self.ids),))
+        self.invalidate_recordset(
+            ['unused_pallet_series_ids', 'x_studio_pallet_series_id'])
+
     def push_unused_pallet(self, pallet_series_id):
+        self._vifel_lock_pallet_pool()
         # Extract the integer part after the hyphen
         try:
             series_number = int(pallet_series_id.split('-')[-1])
@@ -43,6 +72,7 @@ class ResPartner(models.Model):
 
 
     def get_smallest_pallet_series_ids(self, count):
+        self._vifel_lock_pallet_pool()
         # Get the current list of IDs or return an empty list if None
         pallet_series_list = self.unused_pallet_series_ids or []
     
@@ -66,6 +96,7 @@ class ResPartner(models.Model):
         Increments the counter on res.partner after generating.
         Returns the new series ID string (e.g. 'BGZ-000042').
         """
+        self._vifel_lock_pallet_pool()
         if not self.x_studio_client_unique_code_1:
             raise UserError(f"\nIt seems like Client: {self.name} does NOT have a client unique code set. \n\nPlease set it first before we can generate Pallet Series ID.")
         
@@ -86,6 +117,7 @@ class ResPartner(models.Model):
         Returns:
             list: Single-item list with the pallet series ID
         """
+        self._vifel_lock_pallet_pool()
         # Extract the integer part after the hyphen
         try:
             series_number = int(pallet_series_id.split('-')[-1])

@@ -726,6 +726,103 @@ class stock_move_line_Override(models.Model):
     #     # Proceed with the deletion
     #     res = super(stock_move_line_Override, self).unlink()
 
+
+    # ------------------------------------------------------------------
+    # ONE PALLET NUMBER = ONE PALLET  (COMP-2026-00043)
+    # ------------------------------------------------------------------
+    # A pallet series identifies one physical pallet. It becomes free again
+    # only when that pallet has been withdrawn and its stock is gone - which is
+    # exactly what the client asked for: "once Pallet No. 001 has been assigned
+    # and used, it should not be reused unless the pallet has been withdrawn
+    # and is already available for reassignment".
+    #
+    # Enforced on the model rather than in the "Assign Pallet Series" server
+    # action (id 347), because that action lives in the DATABASE and would not
+    # travel with a merge - and because the Magic Wizard, imports and manual
+    # edits all write the field without going near it.
+
+    # Flows allowed to write a series that is already standing on stock.
+    def _vifel_series_guard_exempt(self):
+        # Data fixes and migration scripts opt out explicitly; nothing in the
+        # normal UI sets this.
+        return bool(self.env.context.get('vifel_skip_series_guard'))
+
+    def _vifel_assert_series_free(self, series_by_line):
+        """Refuse a pallet series that is live on a DIFFERENT pallet.
+
+        series_by_line: {line_or_None: (series, owner, own_package)}. Lines are
+        checked one by one so the error can name the offending pallet.
+        """
+        if self._vifel_series_guard_exempt():
+            return
+        Quant = self.env['stock.quant'].sudo()
+        for line, (series, owner, own_pkg) in series_by_line.items():
+            series = (series or '').strip()
+            if not series or not owner:
+                continue
+            # A merged line DELIBERATELY adopts a stocked pallet's number - that
+            # is the whole Merge Pallet feature. Blast freeze carries no series.
+            if line is not None and getattr(line, 'is_pallet_merge', False):
+                continue
+            busy = Quant.search([
+                ('x_studio_pallet_series_id', '=', series),
+                ('package_id', '!=', False),
+                ('quantity', '>', 0),
+                ('owner_id', '=', owner.id),
+            ]).mapped('package_id')
+            # its own pallet keeping its own number is not a collision, nor is a
+            # second line of the same receipt landing on that same pallet.
+            if own_pkg:
+                busy -= own_pkg
+            if busy:
+                pkg = busy[0]
+                where = pkg.location_id.complete_name if pkg.location_id else ''
+                raise UserError(_(
+                    "Pallet Series %(series)s is still in use.\n\n"
+                    "It is currently on pallet %(pallet)s%(where)s for "
+                    "%(client)s, which still holds stock. A pallet number can "
+                    "only be used again once that pallet has been withdrawn "
+                    "and is empty.\n\n"
+                    "Use a different Pallet Series for this line, or withdraw "
+                    "%(pallet)s first.",
+                    series=series, pallet=pkg.name or '?',
+                    where=(' at %s' % where) if where else '',
+                    client=owner.name or '?'))
+
+    def _vifel_guard_series_on_vals(self, vals, lines=None):
+        """Collect what a create/write is about to set, then check it."""
+        if 'x_studio_pallet_series_id' not in vals:
+            return
+        series = vals.get('x_studio_pallet_series_id')
+        if not series:
+            return
+        Package = self.env['stock.quant.package']
+        to_check = {}
+        if lines is None:
+            # create(): the picking decides direction and owner
+            picking = self.env['stock.picking'].browse(vals['picking_id'])                 if vals.get('picking_id') else self.env['stock.picking']
+            if picking.picking_type_id.code != 'incoming':
+                return
+            if picking.x_studio_is_a_blast_freezer:
+                return
+            owner = self.env['res.partner'].browse(vals['owner_id'])                 if vals.get('owner_id') else picking.partner_id
+            pkg_id = vals.get('result_package_id') or vals.get('package_id')
+            to_check[None] = (series, owner, Package.browse(pkg_id) if pkg_id else Package)
+        else:
+            for line in lines:
+                picking = line.picking_id
+                if picking.picking_type_id.code != 'incoming':
+                    continue
+                if picking.x_studio_is_a_blast_freezer:
+                    continue
+                owner = line.owner_id or picking.partner_id
+                pkg_id = vals.get('result_package_id') or vals.get('package_id')
+                pkg = Package.browse(pkg_id) if pkg_id else (
+                    line.result_package_id or line.package_id)
+                to_check[line] = (series, owner, pkg)
+        if to_check:
+            self._vifel_assert_series_free(to_check)
+
     @api.model_create_multi
     def create(self, vals_list):
         # VOID-MIRROR GUARD: no manual pallet lines may be ADDED to a linked,
@@ -738,6 +835,9 @@ class stock_move_line_Override(models.Model):
                 if source:
                     self._void_mirror_raise(
                         picking, source, kind, _('add pallet lines to it'))
+        # ONE PALLET NUMBER = ONE PALLET (COMP-2026-00043)
+        for vals in vals_list:
+            self._vifel_guard_series_on_vals(vals)
         return super().create(vals_list)
 
     def unlink(self):
@@ -766,6 +866,10 @@ class stock_move_line_Override(models.Model):
         # VOID-MIRROR GUARD: KG / Packaging / Packs on a linked, unvalidated
         # void equivalent must stay identical to the voided document
         self._void_mirror_guard_write(vals)
+
+        # ONE PALLET NUMBER = ONE PALLET (COMP-2026-00043). Only fires when the
+        # series itself is being written, so unrelated edits are untouched.
+        self._vifel_guard_series_on_vals(vals, lines=self)
 
         # Skip when called from action_confirm (wizard already handles everything)
         if self.env.context.get('skip_pallet_series_sync'):
