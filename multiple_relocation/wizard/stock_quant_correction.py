@@ -150,6 +150,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_total_units': quant.x_studio_total_units,
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id,
             'x_studio_container_number': quant.x_studio_container_number,
+            'x_studio_remarks': quant.x_studio_remarks,
             'x_studio_building_dropped': quant.x_studio_building_dropped,
             'quantity': quant.quantity,
             'lot_id': quant.lot_id.id,
@@ -413,6 +414,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'old_x_studio_quantity_uom': quant.x_studio_quantity_uom.id if quant.x_studio_quantity_uom else False,
             'old_x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'old_x_studio_container_number': quant.x_studio_container_number,
+            'old_x_studio_remarks': quant.x_studio_remarks,
             'new_package_id': wizard_line.package_id.id if wizard_line.package_id else False,
             'new_product_id': wizard_line.product_id.id,
             'new_quantity': wizard_line.quantity,
@@ -425,6 +427,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'new_x_studio_quantity_uom': wizard_line.x_studio_quantity_uom.id if wizard_line.x_studio_quantity_uom else False,
             'new_x_studio_min_quantity_uom': wizard_line.x_studio_min_quantity_uom.id if wizard_line.x_studio_min_quantity_uom else False,
             'new_x_studio_container_number': wizard_line.x_studio_container_number,
+            'new_x_studio_remarks': wizard_line.x_studio_remarks,
             'display_pallet_series': quant.x_studio_pallet_series_id or '',
             'display_location': quant.location_id.complete_name or '',
         }
@@ -589,9 +592,25 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'x_studio_return_count': quant.x_studio_return_count,
             'x_studio_container_number': quant.x_studio_container_number,
+            # Named differently on the two models (quant: x_studio_remarks,
+            # move line: vifel_remarks), which is exactly why the dynamic
+            # x_studio_ loop in _create_correction_move cannot pick it up.
+            'vifel_remarks': quant.x_studio_remarks,
+            **self._vifel_correction_line_extra_vals(quant),
         }
 
         self.env['stock.move.line'].sudo().create(move_line_vals)
+
+    def _vifel_correction_line_extra_vals(self, quant):
+        """Hook: extra move-line vals for a correction history line, read off
+        the quant being corrected.
+
+        Empty in core. An optional add-on returns the fields it owns, so the
+        adjustment audit trail is as complete as the receiving line was. Core
+        must not name an add-on's fields (see the plug-and-play suite), hence a
+        hook rather than more entries in the dicts above.
+        """
+        return {}
 
     def _release_pallet_if_emptied(self, line, changes):
         """Free the package of a pallet that this adjustment emptied.
@@ -680,6 +699,10 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'x_studio_min_quantity_uom': quant.x_studio_min_quantity_uom.id if quant.x_studio_min_quantity_uom else False,
             'x_studio_return_count': quant.x_studio_return_count if quant.x_studio_return_count else 0,
             'x_studio_container_number': quant.x_studio_container_number,
+            # See the note in _handle_quantity_adjustment: the name differs on
+            # the two models, so the loop below cannot carry it.
+            'vifel_remarks': quant.x_studio_remarks,
+            **self._vifel_correction_line_extra_vals(quant),
         }
 
         for field_name in changes.keys():
@@ -1050,6 +1073,10 @@ class StockQuantCorrectionLine(models.TransientModel):
     lot_id = fields.Many2one('stock.lot', string='Lot/Serial', readonly=True)
     x_studio_return_count = fields.Integer(string="Return Count")
     x_studio_container_number = fields.Char(string="Container #")
+    # Remarks is correctable here because it is read-only everywhere else once
+    # the receipt is validated (the RR column locks at done, the quant lists are
+    # read-only), so this is the only sanctioned way to fix one.
+    x_studio_remarks = fields.Char(string="Remarks")
     x_studio_building_dropped = fields.Char(string="Building RR")
     display_pallet_series_id = fields.Char(
         string='Pallet Series ID', compute="_compute_display_payllet_series_id", store=True)
@@ -1108,6 +1135,7 @@ class StockQuantCorrectionLine(models.TransientModel):
             'x_studio_production_date': ('x_studio_production_date', str),
             'x_studio_expiration_date': ('x_studio_expiration_date', str),
             'x_studio_container_number': ('x_studio_container_number', str),
+            'x_studio_remarks': ('x_studio_remarks', str),
         }
 
         for wizard_field, (quant_field, converter) in field_mapping.items():
@@ -1718,6 +1746,8 @@ class StockQuantAdjustmentLine(models.Model):
         'uom.uom', string='Old Heads UOM', readonly=True)
     old_x_studio_container_number = fields.Char(
         string='Old Container #', readonly=True)
+    old_x_studio_remarks = fields.Char(
+        string='Old Remarks', readonly=True)
     old_bf_pallet_char = fields.Char(
         string='Old BF Pallet #', readonly=True)
 
@@ -1740,6 +1770,7 @@ class StockQuantAdjustmentLine(models.Model):
     new_x_studio_min_quantity_uom = fields.Many2one(
         'uom.uom', string='New Heads UOM')
     new_x_studio_container_number = fields.Char(string='New Container #')
+    new_x_studio_remarks = fields.Char(string='New Remarks')
     new_bf_pallet_char = fields.Char(string='New BF Pallet #')
 
     changed_fields_display = fields.Html(
@@ -1754,6 +1785,7 @@ class StockQuantAdjustmentLine(models.Model):
                  'old_x_studio_production_date', 'new_x_studio_production_date',
                  'old_x_studio_expiration_date', 'new_x_studio_expiration_date',
                  'old_x_studio_container_number', 'new_x_studio_container_number',
+                 'old_x_studio_remarks', 'new_x_studio_remarks',
                  'old_bf_pallet_char', 'new_bf_pallet_char')
     def _compute_changed_fields_display(self):
         """Compute HTML display of only the fields that changed"""
@@ -1776,6 +1808,7 @@ class StockQuantAdjustmentLine(models.Model):
                 'x_studio_production_date': 'Production Date',
                 'x_studio_expiration_date': 'Expiration Date',
                 'x_studio_container_number': 'Container #',
+                'x_studio_remarks': 'Remarks',
                 'bf_pallet_char': 'BF Pallet #',
             }
 
@@ -1817,19 +1850,24 @@ class StockQuantAdjustmentLine(models.Model):
                     try:
                         record = self.env[model_name].browse(value)
                         if record.exists():
-                            return record.display_name or str(value)
+                            return html_escape(
+                                record.display_name or str(value))
                     except:
                         pass
-                return str(value)
+                return html_escape(str(value))
 
         # Handle float fields with formatting
         if field_name in ['quantity', 'x_studio_2nd_uom', 'x_studio_total_units']:
             try:
                 return f'{float(value):,.2f}'
             except:
-                return str(value)
+                return html_escape(str(value))
 
-        return str(value)
+        # Free text (Remarks, Container #, BF Pallet #) is interpolated straight
+        # into the HTML diff below, which renders on the approver's screen, so a
+        # value like <img src=x onerror=...> would execute. Escape it here. The
+        # "Empty" marker above is deliberate markup and stays unescaped.
+        return html_escape(str(value))
 
     def action_view_line_details(self):
         """Open form view of the adjustment line"""
@@ -1919,6 +1957,7 @@ class StockQuantAdjustmentLine(models.Model):
             'x_studio_production_date': ('x_studio_production_date', str),
             'x_studio_expiration_date': ('x_studio_expiration_date', str),
             'x_studio_container_number': ('x_studio_container_number', str),
+            'x_studio_remarks': ('x_studio_remarks', str),
         }
 
         for base_field, (field_name, converter) in field_mapping.items():

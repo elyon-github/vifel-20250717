@@ -53,6 +53,7 @@
                 <field name="kilogram" sum="Total"/>
                 <field name="min_uom_unit"/>
                 <field name="packs_uom" string="Packs UOM" options="{'no_create': True, 'no_open': True}" domain="[('category_id', 'ilike', 'min uom')]"/>
+                <field name="remarks" string="Remarks"/>
                 <field name="pre_wizard_pallet_series_id" column_invisible="1"/>
                 <field name="original_pallet_series_id" column_invisible="1"/>
                 <field name="original_location_dest_id" column_invisible="1"/>

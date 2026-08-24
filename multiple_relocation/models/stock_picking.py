@@ -1306,6 +1306,13 @@ class transfer_locations(models.Model):
                 'stock_move_line': move_line.id,
                 'return_counter': move_line.x_studio_return_count,
                 'container_number': move_line.x_studio_container_number,
+                # This method builds the wizard lines by hand instead of going
+                # through _compute_location_and_packages, so it is a SEPARATE
+                # write path and the hook has to be applied here too. Without
+                # it a void return RR arrived with an empty Remarks / Lot No.
+                # while the withdrawal it mirrors carried them.
+                **self.env['return.package.wizard']
+                    ._vifel_return_wizard_line_vals(move_line),
                 'pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                 'min_uom_unit': move_line.x_studio_withdraw_units,
                 'quantity': move_line.quantity,
@@ -1929,6 +1936,48 @@ class transfer_locations(models.Model):
             blockers |= siblings.mapped('picking_id')
         return blockers
 
+    def _vifel_stamp_remarks(self):
+        """Copy each receiving line's Remarks onto the quants it landed on.
+
+        Matched on the quant identity (product / DESTINATION location / lot /
+        package / owner) — the mirror image of the read-back on the withdrawal
+        side, which keys on the SOURCE location and package. Several lines
+        carrying different remarks can land on one quant: last write wins, the
+        same rule the client Lot No. stamp uses.
+        """
+        Quant = self.env['stock.quant']
+        for picking in self:
+            # Only cheap, always-correct guards here; empty lines short-circuit
+            # below. A present value is always persisted.
+            if picking.state != 'done':
+                continue
+            if picking.picking_type_id.code != 'incoming':
+                continue
+            for line in picking.move_line_ids:
+                remarks = (line.vifel_remarks or '').strip()
+                if not remarks:
+                    continue
+                quants = Quant.search([
+                    ('product_id', '=', line.product_id.id),
+                    ('location_id', '=', line.location_dest_id.id),
+                    ('lot_id', '=', line.lot_id.id),
+                    ('package_id', '=', line.result_package_id.id),
+                    ('owner_id', '=',
+                     line.owner_id.id or picking.partner_id.id),
+                ])
+                if quants:
+                    quants.write({'x_studio_remarks': remarks})
+
+    def _action_done(self):
+        # Snapshot the WR Remarks read-back onto the outgoing lines BEFORE the
+        # source quants are consumed here: a full withdrawal removes the quant
+        # the live read-back depends on, which would blank the Remarks on the
+        # validated withdrawal.
+        for picking in self.filtered(
+                lambda p: p.picking_type_id.code == 'outgoing'):
+            picking.move_line_ids._vifel_freeze_remarks_readback()
+        return super(transfer_locations, self)._action_done()
+
     def button_validate(self):
         """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
         # SEQUENCE PARTIAL-WITHDRAW RETURNS BEHIND THEIR MULTI-TRUCK SIBLINGS.
@@ -1958,6 +2007,11 @@ class transfer_locations(models.Model):
                                 'wrs': ', '.join(blockers.mapped('name'))})
 
         result = super(transfer_locations, self).button_validate()
+
+        # Stamp each receiving line's Remarks onto the stock it landed on, so a
+        # later withdrawal can read it back. Runs AFTER super() because it needs
+        # the destination quants to exist.
+        self._vifel_stamp_remarks()
 
         # After validation, check if any of these pickings are void WRs or void returns
         for record in self:
@@ -2108,6 +2162,23 @@ class transfer_locations(models.Model):
             # Operation type decides the total_units field mapping further down
             is_outgoing = self.picking_type_id.code == 'outgoing'
 
+            # The client's own Lot No. prints only when this client's profile
+            # asks for it. show_client_lot_no comes from
+            # vifel_client_requirements; getattr keeps this working when that
+            # module is not installed. Same gate the summary reports use.
+            show_lot_no = bool(getattr(self, 'show_client_lot_no', False))
+            # Lot No. sits in a DIFFERENT field per operation type: a receiving
+            # line TYPES it into client_lot_no, a withdrawal line is a fresh
+            # record that never carried it and reads it back off the source
+            # quant (vifel_lot_no_display). Mirrors preprocess_stock_move_data.
+            lot_no_field = ('vifel_lot_no_display' if is_outgoing
+                            else 'client_lot_no')
+
+            def _line_lot_no(line):
+                if not show_lot_no:
+                    return ''
+                return (getattr(line, lot_no_field, '') or '').strip()
+
             # All operation types reuse the picklist sort (PSI-anchored
             # groups, chronological dates): one pallet series = one physical
             # pallet, so its lines always render as one contiguous block —
@@ -2137,7 +2208,13 @@ class transfer_locations(models.Model):
                 if move.x_studio_expiration_date:
                     expiration_date = move.x_studio_expiration_date.strftime('%b%d.%Y').upper()
     
-                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+                # Lot No. joins the key so one printed Lot No. can never stand
+                # for a group that actually spans two lots. Always '' for
+                # clients that do not show it, leaving their grouping unchanged.
+                # Unlike the summary this cannot split a ROW - the per-pallet
+                # reports render one row per move line, so the key only decides
+                # when the description REPEATS. Pagination is untouched.
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}|{_line_lot_no(line)}"
                 unique_descriptions.add(description_key)
     
             # Check if we should hide details (only one pallet AND only one product)
@@ -2163,7 +2240,8 @@ class transfer_locations(models.Model):
                 if move.x_studio_expiration_date:
                     expiration_date = move.x_studio_expiration_date.strftime('%b%d.%Y').upper()
     
-                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+                lot_no = _line_lot_no(line)
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}|{lot_no}"
     
                 description_parts = []
                 def _wrap_text(text, max_chars=45):
@@ -2187,6 +2265,10 @@ class transfer_locations(models.Model):
                     description_parts.append(_wrap_text(product_name, max_chars=45))
                 if container_number:
                     description_parts.append(container_number)
+                # Between the container and the dates, matching where the
+                # summary prints it, so both reports read alike.
+                if lot_no:
+                    description_parts.append(f"LOT NO.: {lot_no}")
                 if production_date and expiration_date:
                     description_parts.append(f"{production_date} - {expiration_date}")
                 elif production_date:

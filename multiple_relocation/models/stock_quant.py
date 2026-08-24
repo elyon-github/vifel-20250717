@@ -1367,13 +1367,26 @@ class OverrideStockQuant(models.Model):
         'x_studio_record_reference', 'x_studio_special_holding', 'x_studio_sh_reason',
         'x_studio_pallet_series_id', 'bf_pallet_char', 'truck_type',
         'x_studio_building_dropped', 'original_record_reference',
+        'x_studio_remarks',
     ]
+
+    def _vifel_relocation_extra_fields(self):
+        """Hook: extra field names to carry onto the destination quant on
+        relocation.
+
+        Empty here. An optional add-on returns the names of the fields it owns,
+        so a pallet keeps them when it moves between bins or buildings. This is
+        a hook rather than more entries in _RELOCATION_STUDIO_FIELDS because
+        core must not name an add-on's fields (see the plug-and-play suite).
+        """
+        return []
 
     def _relocation_studio_vals(self):
         """Snapshot a source quant's studio/custom fields as writeable vals."""
         self.ensure_one()
         vals = {}
-        for fname in self._RELOCATION_STUDIO_FIELDS:
+        for fname in (self._RELOCATION_STUDIO_FIELDS
+                      + self._vifel_relocation_extra_fields()):
             field = self._fields.get(fname)
             if not field:
                 continue

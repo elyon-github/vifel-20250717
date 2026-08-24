@@ -61,6 +61,9 @@ counts, and a wrong pallet count is a wrong invoice.
         # transitive through multiple_relocation, but declared explicitly:
         # this module overrides its counting hooks.
         'pallet_kilos_record_model',
+        # this module declares its Lot No. / Batch # / Prodcode on
+        # stock.quant.history and extends the snapshot's copy list.
+        'stock_quant_history',
     ],
 
     'data': [

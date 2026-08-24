@@ -489,6 +489,7 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
             'x_studio_container_number': line.container_number or '',
             'client_lot_no': line.client_lot_no or False,
             'batch_no': line.batch_no or False,
+            'vifel_remarks': line.remarks or '',
             'x_studio_production_date': line.production_date,
             'x_studio_expiration_date': line.expiration_date,
             'x_studio_quantity_uom':
@@ -514,6 +515,7 @@ class FastEncodeWizardMergeHooks(models.TransientModel):
             'x_studio_container_number': line.container_number or '',
             'client_lot_no': line.client_lot_no or False,
             'batch_no': line.batch_no or False,
+            'vifel_remarks': line.remarks or '',
             'x_studio_production_date': line.production_date,
             'x_studio_expiration_date': line.expiration_date,
             'x_studio_quantity_uom':

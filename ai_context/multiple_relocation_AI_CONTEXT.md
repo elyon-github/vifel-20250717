@@ -3,8 +3,8 @@
 > **Module path**: `addons/custom_addons/vifel-20250717/multiple_relocation/`
 > **Odoo version**: 17 Enterprise
 > **Author**: Mark Angelo S. Templanza
-> **Depends on**: `base`, `stock`, `web`, `report_xlsx`
-> **Last updated**: 2026-06-16
+> **Depends on**: `base`, `stock`, `web`, `report_xlsx`, `pallet_kilos_record_model`
+> **Last updated**: 2026-08-22
 
 ---
 
@@ -362,3 +362,103 @@ them again.
 `ai_context/cr2_shell_tests/suite_f_plug_and_play.py` asserts that core source contains
 zero references to `is_pallet_merge`, `client_lot_no`, `vifel_premerge` or
 `pallet.merge.wizard`, and fails loudly if any reappears.
+
+## Update 2026-08-22 — Remarks column (CORE, unconditional)
+
+A free-text **Remarks** per pallet line. Typed on a receipt, stamped onto the quant at
+validation, read back read-only on a withdrawal. Same three-field shape as the client
+Lot No., but it lives **here in core** and **no per-client flag gates it**: every client,
+every operation type, always the last column.
+
+**Fields** (`models/stock_move.py`, class `stock_move_line_Override` at line 310 — NOT
+the second class of the same name at 1489):
+
+| Field | Storage | Role |
+|---|---|---|
+| `vifel_remarks` | stored Char | typed on RR/BFRR |
+| `vifel_remarks_display` | compute, **not** stored | read-back shown on WR/BFWR |
+| `vifel_remarks_frozen` | **stored** Char | snapshot so the value outlives the quant |
+
+All `copy=False`, so void mirrors and returns never inherit remarks.
+
+**The quant side reuses the existing Studio field `stock.quant.x_studio_remarks`.** No
+new quant field was added: the Studio one already existed, is already labelled
+"Remarks", and is already mirrored into `stock_quant_history`. A second field would have
+rendered two Remarks columns on the same quant list.
+
+**Flow** (mirrors the Lot No. machinery, see `vifel_client_fields.py`):
+1. `stock.picking.button_validate` → `_vifel_stamp_remarks()` **after** `super()`, writing
+   the quant matched on product + `location_dest_id` + lot + `result_package_id` + owner.
+2. `stock.picking._action_done` (a NEW override in core) →
+   `move_line_ids._vifel_freeze_remarks_readback()` **before** `super()`, because that is
+   where a full withdrawal consumes the source quant.
+3. `_compute_vifel_remarks_readback` prefers the snapshot, else searches the quant on the
+   SOURCE side (`location_id` + `package_id`). Receipts short-circuit with no query.
+
+Getting the direction backwards (destination on the stamp, source on the read-back) is
+the classic bug in this family.
+
+**Relocation carry-over.** `x_studio_remarks` was added to `_RELOCATION_STUDIO_FIELDS`
+(`stock_quant.py`), and a new neutral hook `_vifel_relocation_extra_fields()` (returns
+`[]` here) lets an add-on name its own fields. `vifel_client_requirements` overrides it
+with `client_lot_no` / `batch_no` / `prodcode`, which **were silently lost on every
+relocation before this** — a pallet kept its identity but lost the client's reference to
+it. The hook exists because core may not name the feature module's fields (suite F14).
+
+**Magic Wizard.** New `remarks` Char on `stock.move.line.fast_encode_rr.line`, seeded in
+`action_open_fast_encode_wizard` and written back on the normal path, the merge-locked
+path and the staged-merge path.
+
+**Bug fixed on the way**: the blast-freeze early return in `FastEncodeRR.action_confirm`
+built its own hardcoded write dict and never called `_vifel_line_write_vals`, so
+**`client_lot_no` and `batch_no` were silently dropped on every BFRR confirm**. That path
+now routes through the hook.
+
+**Views**: Pallet Breakdown (twin columns, mutually exclusive on `picking_code`) and
+`view_stock_quant_tree_custom_2` (Location Related Stocks, read-only). The **main
+Inventory quant list is deliberately NOT touched from code** — the Studio customization
+view already injects `x_studio_remarks` there, and an inherited xpath cannot reach a node
+another inheriting view contributes (verified: it raises "cannot be located in parent
+view"). Move that column to the end and set it visible + read-only **in Studio**.
+
+Tests: `ai_context/cr2_shell_tests/suite_au_remarks_lifecycle.py` (21 checks).
+
+## Update 2026-08-22b — Remarks is correctable, and two chain gaps closed
+
+Follow-up to the Remarks work above, driven by `PALLET_FIELD_CHAIN.md`.
+
+**Remarks is now a correctable value in the Correct Quants wizard**
+(`wizard/stock_quant_correction.py`). It had to be: the RR column locks at
+`state == 'done'` and the quant lists are read-only, so there was no sanctioned way to
+fix a Remarks typo after validation. It follows `x_studio_container_number` exactly:
+a field on `stock.quant.correction.line`, a seed in `_correction_line_vals`, one entry in
+each of the two `field_mapping` dicts, an `old_`/`new_` pair on
+`stock.quant.adjustment.line`, and an `optional="hide"` column in the wizard tree.
+
+**A Remarks-only correction is inert for the ledger**, verified not assumed:
+`_calculate_adjustment_values` keys only on `quantity` / `x_studio_2nd_uom` /
+`x_studio_total_units` / `package_id`, and `_psi_cascade_plan` skips lines whose
+`package_id` is unchanged. So no pallet leg, no KG movement, no PSI group move.
+
+**Correction history move lines** (both hand-maintained dicts, `:558` and `:640`) now
+carry `vifel_remarks` and spread the new neutral hook
+`_vifel_correction_line_extra_vals(quant)`, which
+`vifel_client_requirements/models/correction_lot_batch.py` fills with `client_lot_no` /
+`batch_no`. The dynamic `x_studio_` loop in `_create_correction_move` could NOT be relied
+on: it gates on `hasattr(stock.move.line, field_name)` and the two models name this field
+differently (`x_studio_remarks` vs `vifel_remarks`).
+
+**Returns** now carry Remarks: the two neutral hooks in `ReturnPackageWizard.py` are
+filled from core (reading `vifel_remarks_display`, which prefers the stored snapshot), and
+the add-on's Lot No. / Batch # overrides still chain through `super()`. No column is
+shown, matching how Lot No. rides that wizard.
+
+**Hardening**: `_format_field_value` now `html_escape`s free text. The adjustment
+"Changes" diff interpolates values straight into HTML on the approver's screen, and
+Remarks is free text. The deliberate `<em>Empty</em>` marker stays unescaped.
+
+**Do NOT add keys to the two quant snapshot builders** (`:382`, `:1889`). They must stay
+byte-identical, and a new key would make every existing stored snapshot mismatch its
+rebuilt version, flipping every open adjustment request to "Pallet Changed".
+
+Tests: `ai_context/cr2_shell_tests/suite_av_remarks_correction_return.py` (22 checks).
