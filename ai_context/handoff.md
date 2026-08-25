@@ -72,6 +72,42 @@ stays untracked). Latest additions beyond the earlier list:
 
 ## 4. Changes Made
 
+**Void identity guard at validation (2026-08-19, `stock_picking.py::button_validate`):**
+`button_validate` auto-voided ANY picking carrying `is_void_wr` / `is_void_return`,
+without checking it still reverses a voided parent, while the EDIT guard
+(`_void_mirror_source`) required the flag AND a resolvable parent. An orphaned void
+shell was therefore freely editable AND self-voiding. Found on **M/WR/08389**: a void
+shell left over from voiding GRJM's M/RR/05176 was repurposed by staff into a real
+MEATS SUPREME withdrawal (2 pallets / 1,310 kg of CHICKEN SKIN FAT, series UK-018312 /
+UK-018325 received on M/RR/02131 in May, nothing to do with GRJM's 41 pallets of
+SHOESTRING FRENCH FRIES, which M/WR/08439 reversed correctly). Validation stamped it
+VOIDED and archived PKR 16627, so the withdrawal never counted while its 310 kg return
+(M/RR/05717) still counted as a receipt. Nobody pressed Void: `x_studio_voided` flipped
+0 -> 1 in the same write that set the picking Done, which is why the "void the returns
+first" guard never fired (it lives in `void_transfer`, never called here).
+
+Fix: `_apply_void_identity_on_validation` + `_void_identity_status` +
+`_find_void_identity_by_content`. Auto-void only when identity is **intact**; when the
+pointer is lost but client + pallet series still mirror a voided document it is
+**recoverable** (link repaired, then auto-voided); when it mirrors nothing it is
+**stale** (flag cleared, ledger row kept, chatter note posted). Tests:
+`cr2_shell_tests/suite_at_void_identity_guard.py` (11/11; re-arms the incident
+in-transaction so it survives the data being repaired). Regression:
+`suite_t_merge_void_lifecycle.py` 9/9.
+
+Data repair: `ai_context/sa_fix_stale_void_markers.py`, paste-ready SA on stock.picking,
+Inventory Super Admin only (it calls `unvoid_transfer`). No prints, no dry-run flag, no
+chatter; it reports via the SA `log` helper and a sticky `display_notification`. It only
+unvoids where the tracking proves the auto-void signature, so a deliberate void is
+reported and never touched. **Applied on `vifel_08_18_2026`**: M/WR/08389 unvoided and
+disarmed (PKR 16627 back to active, 2 pallets / 1,310 kg), and 4 stale flags cleared
+(M/WR/08387 168 ENTERPRISES draft, M/WR/08390 PERMEX 2 confirmed, both siblings of the
+same 08-01 shell batch; M/RR/00362 COUNTRYWIDE whose parent M/WR/00434 is not voided;
+M/RR/04418 MOMMY LOIDA with no parent link at all). 105 healthy void docs untouched.
+M/RR/04017 was deliberately left alone as `recoverable`. **Production still needs both
+halves**: upgrade `multiple_relocation` for the guard AND run the SA, or repaired
+records can be damaged again.
+
 **Partial-Withdraw return sequencing guard (2026-07-29, `stock_picking.py::button_validate`):**
 a multi-truck withdrawal's Partial-Withdraw return, if validated BEFORE the partner WR empties
 the shared pallet, re-inflates the pallet so the partner reads `reserved_quantity_on_validation

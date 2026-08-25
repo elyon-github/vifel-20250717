@@ -61,9 +61,15 @@ class StockMoveLineVifelClientFields(models.Model):
         compute_sudo=True,
         help="The client Lot No. frozen onto this pallet at receiving, shown "
              "read-only on the withdrawal line.")
+    # Frozen snapshot captured at WR validation BEFORE the source quant is
+    # consumed. A full withdrawal empties that quant, so the live read-back
+    # below would blank the Lot No. / Prodcode after validation; once these are
+    # set the display uses them instead. Stored, copy=False.
+    vifel_lot_no_frozen = fields.Char(copy=False)
+    vifel_prodcode_frozen = fields.Char(copy=False)
 
     @api.depends('package_id', 'product_id', 'lot_id', 'location_id',
-                 'picking_code')
+                 'picking_code', 'vifel_lot_no_frozen', 'vifel_prodcode_frozen')
     def _compute_vifel_quant_readback(self):
         """Read the frozen Prodcode AND Lot No. off the quant this line
         withdraws from (one search, two display fields).
@@ -84,6 +90,13 @@ class StockMoveLineVifelClientFields(models.Model):
             line.vifel_lot_no_display = ''
             # only withdrawals read back from a quant; skip the rest cheaply
             if line.picking_code != 'outgoing':
+                continue
+            # Once frozen at validation, keep the frozen value: the source quant
+            # is gone after a full withdrawal, so the live read-back below can no
+            # longer resolve it and would blank the display.
+            if line.vifel_lot_no_frozen or line.vifel_prodcode_frozen:
+                line.vifel_lot_no_display = line.vifel_lot_no_frozen or ''
+                line.prodcode = line.vifel_prodcode_frozen or ''
                 continue
             # need at least a source package or location to identify the quant
             if not line.package_id and not line.location_id:
@@ -144,6 +157,34 @@ class StockMoveLineVifelClientFields(models.Model):
             line.vifel_lot_no_display = by_product_lot.get(
                 (line.product_id.id, line.lot_id.id), '')
 
+    def _vifel_freeze_wr_readback(self):
+        """Snapshot the withdrawal line's Lot No. / Prodcode off the source
+        quant onto stored fields, so they still display once that quant is
+        consumed at validation. Only outgoing lines with a resolvable quant;
+        idempotent (never overwrites an existing frozen value)."""
+        Quant = self.env['stock.quant']
+        for line in self:
+            if line.picking_code != 'outgoing':
+                continue
+            if not line.product_id or (
+                    not line.package_id and not line.location_id):
+                continue
+            quant = Quant.sudo().search([
+                ('product_id', '=', line.product_id.id),
+                ('location_id', '=', line.location_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('package_id', '=', line.package_id.id),
+            ], limit=1)
+            if not quant:
+                continue
+            vals = {}
+            if quant.client_lot_no and not line.vifel_lot_no_frozen:
+                vals['vifel_lot_no_frozen'] = quant.client_lot_no
+            if quant.prodcode and not line.vifel_prodcode_frozen:
+                vals['vifel_prodcode_frozen'] = quant.prodcode
+            if vals:
+                line.write(vals)
+
     # What the merge displaced, so un-merge can put back exactly that instead
     # of guessing. The generic restore keys off original_pallet_series_id and
     # x_studio_initial_location, and a line that had NEITHER yet — merged
@@ -174,3 +215,29 @@ class StockQuantVifelClientFields(models.Model):
         string='Prodcode', copy=False,
         help="Production code frozen at receiving: production date "
              "(DDMONYYYY) + Batch # + building short name, e.g. 18MAY202699M.")
+
+    def _vifel_quant_audit_vals(self):
+        """This feature's stamped values, as move-line vals, for an audit line
+        built from this quant.
+
+        Prodcode is deliberately absent: on stock.move.line it is a non-stored
+        compute (read back from the quant on withdrawals), so it cannot be
+        written onto a history line.
+        """
+        self.ensure_one()
+        return {'client_lot_no': self.client_lot_no or False,
+                'batch_no': self.batch_no or False}
+
+    def _vifel_relocation_extra_fields(self):
+        """Carry this feature's stamped values onto the destination quant when
+        a pallet is relocated.
+
+        Relocation builds a NEW quant at the destination and copies a fixed
+        list of fields onto it. These three were not on that list, so moving a
+        pallet between bins or buildings silently dropped the client's Lot No.,
+        Batch # and Prodcode — the pallet kept its identity but lost the
+        client's own reference to it. Core exposes the hook; the names stay
+        here because they belong to this module.
+        """
+        return super()._vifel_relocation_extra_fields() + [
+            'client_lot_no', 'batch_no', 'prodcode']

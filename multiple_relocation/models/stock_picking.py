@@ -566,6 +566,24 @@ class transfer_locations(models.Model):
         merged lines). Neutral no-op when the add-on is not installed."""
         return True
 
+    def _vifel_special_type_for_line(self, move_line):
+        """Hook: the client's special PSI type (a 'Multiple Special Pallet'
+        type) owning this line's pallet series, or a falsy value when the line
+        is on a normal pallet. Falsy in base so the report never references the
+        feature's models; the Multiple-Special-Pallet add-on overrides it to
+        split those pallets into their own summary rows."""
+        return False
+
+    def _vifel_report_show_lot_no(self):
+        """Hook: does this client's profile print the Lot No. on the summary?
+        False in base; the client-requirements add-on returns its profile flag."""
+        return False
+
+    def _vifel_report_lot_no(self, move_line):
+        """Hook: the client Lot No. to print for this summary line - typed on a
+        receipt, read back from the quant on a withdrawal. '' in base."""
+        return ''
+
     def _compute_transacted_pallet_count(self):
         # Count unique pallets transacted on this picking. Only validated
         # ('done') pickings contribute; mirrors the dedupe logic in
@@ -818,6 +836,128 @@ class transfer_locations(models.Model):
         if self.is_void_wr and self.void_source_picking_id:
             return self.void_source_picking_id, _('void withdrawal')
         return False, ''
+
+    def _find_void_identity_by_content(self):
+        """The voided document this one still mirrors, recognised by CONTENT
+        when the link is gone: same client, and at least one shared pallet
+        series. A void WR reverses a receipt, a void return reverses a
+        withdrawal, so the direction is fixed by which flag is set.
+
+        Ranked by how many series they share, so a pallet that legitimately
+        passed through several documents cannot outvote the real parent."""
+        self.ensure_one()
+        empty = self.env['stock.picking']
+        series = [s for s in self.move_line_ids.mapped(
+            'x_studio_pallet_series_id') if s]
+        if not series or not self.partner_id:
+            return empty
+
+        lines = self.env['stock.move.line'].search([
+            ('x_studio_pallet_series_id', 'in', series),
+            ('picking_id', '!=', self.id),
+            ('picking_id.x_studio_voided', '=', True),
+            ('picking_id.partner_id', '=', self.partner_id.id),
+            ('picking_id.picking_type_id.code', '=',
+             'incoming' if self.is_void_wr else 'outgoing'),
+        ])
+        if not lines:
+            return empty
+
+        tally = {}
+        for line in lines:
+            tally[line.picking_id] = tally.get(line.picking_id, 0) + 1
+        return max(tally, key=tally.get)
+
+    def _void_identity_status(self):
+        """Where this document's void identity stands, as (status, parent):
+
+        - ``intact``      the pointer resolves to a parent that is voided
+        - ``recoverable`` the pointer is gone but the content still mirrors
+                          a voided document, so the link can be rebuilt
+        - ``stale``       it mirrors nothing: the flag outlived its void
+
+        The edit guard (`_void_mirror_source`) already demands both the flag
+        AND a resolvable parent before it protects a document. Validation
+        used to demand only the flag, so an orphaned shell was at once
+        freely editable and self-voiding. This is the shared answer both
+        sides now key on."""
+        self.ensure_one()
+        empty = self.env['stock.picking']
+        if not (self.is_void_wr or self.is_void_return):
+            return 'stale', empty
+
+        parent = (self.return_id if self.is_void_return
+                  else self.void_source_picking_id)
+        if parent and parent.x_studio_voided:
+            return 'intact', parent
+
+        candidate = self._find_void_identity_by_content()
+        if candidate:
+            return 'recoverable', candidate
+        return 'stale', empty
+
+    def _apply_void_identity_on_validation(self):
+        """Auto-void a validated void equivalent, but only if it really is
+        one. Called by `button_validate`.
+
+        A void document exists to reverse another; voiding it archives its
+        PKR row, which is correct precisely because the pair cancels out.
+        Applied blindly it is destructive: a leftover shell that operators
+        repurposed into a real transfer gets stamped VOIDED on validation
+        and its ledger row archived, so genuine stock leaves the warehouse
+        and never reaches the client's book (M/WR/08389, MEATS SUPREME:
+        2 pallets / 1,310 kg lost this way)."""
+        self.ensure_one()
+        if not (self.is_void_wr or self.is_void_return):
+            return
+
+        status, parent = self._void_identity_status()
+        kind = "WR" if self.is_void_wr else "return RR"
+
+        if status == 'recoverable':
+            if self.is_void_wr:
+                self.void_source_picking_id = parent
+            elif not self.return_id:
+                self.return_id = parent
+            self.message_post(body=_(
+                "Void %(kind)s link repaired on validation: this document "
+                "mirrors voided %(parent)s, whose pointer had been lost.",
+                kind=kind, parent=parent.name))
+            _logger.info("Repaired lost void link on %s -> %s",
+                         self.name, parent.name)
+
+        if status in ('intact', 'recoverable'):
+            _logger.info(
+                "Auto-voiding void %s %s after validation", kind, self.name)
+            self.x_studio_voided = True
+            self._void_archive_pallet_kilos_record(self)
+            _logger.info("Successfully auto-voided void %s %s",
+                         kind, self.name)
+            return
+
+        # Stale: the flag outlived the void it belonged to and the document
+        # has since been used for real work. Void it and its ledger row
+        # disappears. Disarm it instead, loudly, and let it validate as
+        # whatever it now is.
+        stale_vals = {
+            'is_void_wr': False,
+            'is_void_return': False,
+            'void_source_picking_id': False,
+        }
+        if self.x_studio_source == 'VOIDED':
+            stale_vals['x_studio_source'] = False
+        if self.x_studio_manual_document_ == 'VOIDED':
+            stale_vals['x_studio_manual_document_'] = False
+        if (self.x_studio_remarks or '').startswith('Auto-created from voided '):
+            stale_vals['x_studio_remarks'] = False
+        self.with_context(skip_void_mirror_guard=True).write(stale_vals)
+
+        note = _(
+            "Stale void marker cleared on validation: this document carried "
+            "the void %(kind)s flag but reverses no voided record, so it was "
+            "NOT auto-voided. Its ledger row is kept.", kind=kind)
+        self.message_post(body=note)
+        _logger.warning("%s: %s", self.name, note)
 
     def _create_void_wr_from_rr(self, record):
         """
@@ -1172,6 +1312,13 @@ class transfer_locations(models.Model):
                 'stock_move_line': move_line.id,
                 'return_counter': move_line.x_studio_return_count,
                 'container_number': move_line.x_studio_container_number,
+                # This method builds the wizard lines by hand instead of going
+                # through _compute_location_and_packages, so it is a SEPARATE
+                # write path and the hook has to be applied here too. Without
+                # it a void return RR arrived with an empty Remarks / Lot No.
+                # while the withdrawal it mirrors carried them.
+                **self.env['return.package.wizard']
+                    ._vifel_return_wizard_line_vals(move_line),
                 'pack_uom_unit': move_line.x_studio_affected_2nd_uom,
                 'min_uom_unit': move_line.x_studio_withdraw_units,
                 'quantity': move_line.quantity,
@@ -1795,6 +1942,48 @@ class transfer_locations(models.Model):
             blockers |= siblings.mapped('picking_id')
         return blockers
 
+    def _vifel_stamp_remarks(self):
+        """Copy each receiving line's Remarks onto the quants it landed on.
+
+        Matched on the quant identity (product / DESTINATION location / lot /
+        package / owner) — the mirror image of the read-back on the withdrawal
+        side, which keys on the SOURCE location and package. Several lines
+        carrying different remarks can land on one quant: last write wins, the
+        same rule the client Lot No. stamp uses.
+        """
+        Quant = self.env['stock.quant']
+        for picking in self:
+            # Only cheap, always-correct guards here; empty lines short-circuit
+            # below. A present value is always persisted.
+            if picking.state != 'done':
+                continue
+            if picking.picking_type_id.code != 'incoming':
+                continue
+            for line in picking.move_line_ids:
+                remarks = (line.vifel_remarks or '').strip()
+                if not remarks:
+                    continue
+                quants = Quant.search([
+                    ('product_id', '=', line.product_id.id),
+                    ('location_id', '=', line.location_dest_id.id),
+                    ('lot_id', '=', line.lot_id.id),
+                    ('package_id', '=', line.result_package_id.id),
+                    ('owner_id', '=',
+                     line.owner_id.id or picking.partner_id.id),
+                ])
+                if quants:
+                    quants.write({'x_studio_remarks': remarks})
+
+    def _action_done(self):
+        # Snapshot the WR Remarks read-back onto the outgoing lines BEFORE the
+        # source quants are consumed here: a full withdrawal removes the quant
+        # the live read-back depends on, which would blank the Remarks on the
+        # validated withdrawal.
+        for picking in self.filtered(
+                lambda p: p.picking_type_id.code == 'outgoing'):
+            picking.move_line_ids._vifel_freeze_remarks_readback()
+        return super(transfer_locations, self)._action_done()
+
     def button_validate(self):
         """Override button_validate to auto-void WR pickings created from voided RRs after validation."""
         # SEQUENCE PARTIAL-WITHDRAW RETURNS BEHIND THEIR MULTI-TRUCK SIBLINGS.
@@ -1825,6 +2014,11 @@ class transfer_locations(models.Model):
 
         result = super(transfer_locations, self).button_validate()
 
+        # Stamp each receiving line's Remarks onto the stock it landed on, so a
+        # later withdrawal can read it back. Runs AFTER super() because it needs
+        # the destination quants to exist.
+        self._vifel_stamp_remarks()
+
         # After validation, check if any of these pickings are void WRs or void returns
         for record in self:
             if record.state == 'done':
@@ -1832,23 +2026,10 @@ class transfer_locations(models.Model):
                 if not record.validated_on:
                     record.validated_on = fields.Datetime.now()
 
-                # Auto-void WRs created from voiding RRs
-                if record.is_void_wr:
-                    _logger.info(
-                        "Auto-voiding void WR %s after validation", record.name)
-                    record.x_studio_voided = True
-                    record._void_archive_pallet_kilos_record(record)
-                    _logger.info(
-                        "Successfully auto-voided void WR %s", record.name)
-
-                # Auto-void return RRs created from voiding WRs
-                elif record.is_void_return:
-                    _logger.info(
-                        "Auto-voiding void return RR %s after validation", record.name)
-                    record.x_studio_voided = True
-                    record._void_archive_pallet_kilos_record(record)
-                    _logger.info(
-                        "Successfully auto-voided void return RR %s", record.name)
+                # Auto-void void equivalents (WRs from voided RRs, return RRs
+                # from voided WRs) - but only those whose void identity holds
+                # up. See _apply_void_identity_on_validation.
+                record._apply_void_identity_on_validation()
 
         return result
         
@@ -2265,6 +2446,7 @@ class transfer_locations(models.Model):
                 page_packs_by_uom[uom] += packs
  
         return page_packs_by_uom
+
     @staticmethod
     def _pdf_pallet_count_key(kind, identifier, line):
         """PDF pallet-count identity: the physical pallet PLUS the line's PSI.
@@ -2373,7 +2555,7 @@ class transfer_locations(models.Model):
             'production_date': None,
             'expiration_date': None,
             'container_number': None,
-            'client_lot_no': '',
+            'lot_no': '',
             'qty_demand': 0,
             'weight_demand': 0,
             'qty_actual': 0,
@@ -2385,6 +2567,16 @@ class transfer_locations(models.Model):
             'heads_uom': 0,
             'packaging_unit_name': '',
             'pallet_count': 0,
+            # main-row DISPLAY figures (normal pallets only). The un-suffixed
+            # fields above stay the FULL SKU totals, so the grand total and the
+            # pallet count are unchanged; only what the main row SHOWS uses
+            # these. special_rows holds the per-special-type breakdown rendered
+            # as sub-rows under the SKU.
+            'qty_actual_main': 0,
+            'weight_actual_main': 0,
+            'packaging_qty_main': 0,
+            'heads_actual_main': 0,
+            'special_rows': {},
             'package_ids': set(),
             'processed_moves': set()  # Track which moves we've already processed GLOBALLY
         })
@@ -2393,10 +2585,11 @@ class transfer_locations(models.Model):
         globally_processed_moves = set()
 
         package_ids = set()
-        # The client's own Lot No. is printed only when this client's profile
-        # asks for it. show_client_lot_no comes from vifel_client_requirements;
-        # getattr keeps this working when that module is not installed.
-        show_lot_no = bool(getattr(doc, 'show_client_lot_no', False))
+        # Whether to print the client Lot No., and the value itself, come from
+        # hooks the client-requirements add-on fills (a receipt uses the typed
+        # value; a withdrawal reads it back from the quant). Core references none
+        # of that feature's fields, so it stays installable on its own.
+        show_lot_no = doc._vifel_report_show_lot_no()
         # Process each move
         for move in doc.move_ids:
             # Process each move line within the move
@@ -2408,8 +2601,7 @@ class transfer_locations(models.Model):
                     move_line, 'x_studio_expiration_date') else None
                 cont_number = move_line.x_studio_container_number if hasattr(
                     move_line, 'x_studio_container_number') else None
-                lot_no = (getattr(move_line, 'client_lot_no', '')
-                          or '').strip() if show_lot_no else ''
+                lot_no = doc._vifel_report_lot_no(move_line) if show_lot_no else ''
 
                 # Convert dates to string for consistent grouping
                 prod_date_str = prod_date.strftime(
@@ -2439,25 +2631,28 @@ class transfer_locations(models.Model):
                         date_info.append(
                             f"- {exp_date.strftime('%b').upper()}.{exp_date.day}.{exp_date.year}")
 
-                    if date_info:
-                        if cont_number:
-                            grouped_moves[key][
-                                'product_name'] = f"{self._wrap_text(base_name, max_chars=45)} <br/>{cont_number} <br/>{' '.join(date_info)} "
-                        else:
-                            grouped_moves[key][
-                                'product_name'] = f"{self._wrap_text(base_name, max_chars=45)} <br/>{', '.join(date_info)} "
-                    else:
-                        grouped_moves[key]['product_name'] = self._wrap_text(base_name, max_chars=45)
-
-                    # Appended after the branches above so the Lot No. is the
-                    # last line of the description whichever shape it took.
+                    # Description lines in order: product, Container Number,
+                    # Lot No. (only when present), then the Prod-Exp dates. The
+                    # Lot No. now sits BETWEEN the container and the dates (moved
+                    # up from its old last-line spot). The date separator keeps
+                    # the legacy shapes - a space when a container precedes it, a
+                    # comma otherwise - so existing rows read the same.
+                    _name = self._wrap_text(base_name, max_chars=45)
+                    _parts = [_name]
+                    if cont_number:
+                        _parts.append(str(cont_number))
                     if lot_no:
-                        grouped_moves[key]['product_name'] += f"<br/>LOT NO.: {lot_no}"
+                        _parts.append(f"LOT NO.: {lot_no}")
+                    if date_info:
+                        _parts.append(' '.join(date_info) if cont_number
+                                      else ', '.join(date_info))
+                    grouped_moves[key]['product_name'] = (
+                        ' <br/>'.join(_parts) + (' ' if date_info else ''))
 
                     grouped_moves[key]['production_date'] = prod_date
                     grouped_moves[key]['expiration_date'] = exp_date
                     grouped_moves[key]['container_number'] = cont_number
-                    grouped_moves[key]['client_lot_no'] = lot_no
+                    grouped_moves[key]['lot_no'] = lot_no
                     grouped_moves[key]['uom_name'] = move.x_studio_packaging_unit.name if hasattr(
                         move, 'x_studio_packaging_unit') and move.x_studio_packaging_unit else ''
                     grouped_moves[key]['packaging_unit_name'] = move.x_studio_packaging_unit.name if hasattr(
@@ -2501,11 +2696,38 @@ class transfer_locations(models.Model):
                     qty_actual = 0
 
                 # Add move line specific quantities (actual quantities)
-                # These are added for each move line since they're line-specific
+                # These are added for each move line since they're line-specific.
+                # The un-suffixed fields stay the FULL SKU total (grand total is
+                # unchanged); the *_main fields and special_rows split those same
+                # figures into normal-pallet (main row) vs per-special-type rows.
+                _heads_val = (move_line.x_studio_total_units
+                              if move_line.x_studio_total_units
+                              else move_line.x_studio_withdraw_units)
                 grouped_moves[key]['qty_actual'] += qty_actual
                 grouped_moves[key]['weight_actual'] += weight_actual
                 grouped_moves[key]['packaging_qty'] += pack_qty
-                grouped_moves[key]['heads_actual'] += move_line.x_studio_total_units if move_line.x_studio_total_units else move_line.x_studio_withdraw_units
+                grouped_moves[key]['heads_actual'] += _heads_val
+
+                # A special pallet's qty/weight/packs are pulled into a per-type
+                # sub-row; a normal pallet's stay on the main row. The pallet
+                # COUNT (below) is untouched and still counts every pallet. The
+                # special-type lookup is a hook the Multiple-Special-Pallet
+                # add-on fills, so core never references that feature's models.
+                _ptype = doc._vifel_special_type_for_line(move_line)
+                if _ptype:
+                    sr = grouped_moves[key]['special_rows'].setdefault(
+                        _ptype.id, {
+                            'description': _ptype.name or _ptype.prefix or '',
+                            'quantity': 0, 'weight': 0, 'packs': 0, 'heads': 0})
+                    sr['quantity'] += qty_actual
+                    sr['weight'] += weight_actual
+                    sr['packs'] += pack_qty
+                    sr['heads'] += _heads_val
+                else:
+                    grouped_moves[key]['qty_actual_main'] += qty_actual
+                    grouped_moves[key]['weight_actual_main'] += weight_actual
+                    grouped_moves[key]['packaging_qty_main'] += pack_qty
+                    grouped_moves[key]['heads_actual_main'] += _heads_val
 
                 # WR withdrawn-pallet count = PHYSICAL emptying only, matching
                 # the PKR ledger and the on-screen Transacted Pallet Count. A
@@ -2564,6 +2786,11 @@ class transfer_locations(models.Model):
             # Remove set as it's not needed in template
             del data['package_ids']
             del data['processed_moves']  # Remove tracking set
+            # special-pallet breakdown: dict -> list, ordered by Description
+            data['special_rows'] = [
+                data['special_rows'][k] for k in sorted(
+                    data['special_rows'],
+                    key=lambda k: data['special_rows'][k]['description'])]
             processed_moves.append(data)
 
         # Sort by product name for consistent ordering

@@ -483,6 +483,98 @@ class stock_move_line_Override(models.Model):
     vifel_location_name = fields.Char(
         string="Vifel Location Name", related="location_id.vifel_location_name", readonly=True)
 
+    # --- Remarks -------------------------------------------------------
+    # Free text about a pallet line. TYPED on a receipt (RR/BFRR) and stamped
+    # onto the quant at validation; READ BACK read-only on a withdrawal
+    # (WR/BFWR), because an outgoing line is a fresh record that never carried
+    # it. Same three-field shape as the client Lot No. in
+    # vifel_client_requirements, except this one is universal: no per-client
+    # profile flag gates it.
+    #
+    # The quant side deliberately reuses the EXISTING Studio field
+    # stock.quant.x_studio_remarks ("Remarks") rather than adding a second
+    # one, so the quant lists never show two Remarks columns.
+    #
+    # copy=False on all three: void mirrors and returns start clean and must
+    # never inherit remarks from the document they mirror.
+    vifel_remarks = fields.Char(
+        string="Remarks", copy=False,
+        help="Free-text remarks for this pallet line. Typed on receiving and "
+             "stamped onto the stock at validation.")
+    vifel_remarks_display = fields.Char(
+        string="Remarks", compute='_compute_vifel_remarks_readback',
+        compute_sudo=True,
+        help="The remarks stamped onto this pallet at receiving, shown "
+             "read-only on the withdrawal line.")
+    # Snapshot captured at WR validation BEFORE the source quant is consumed.
+    # A full withdrawal removes that quant, so the live read-back below would
+    # blank the Remarks after validation; once this is set the display uses it.
+    # Stored, never placed on a view.
+    vifel_remarks_frozen = fields.Char(copy=False)
+
+    @api.depends('package_id', 'product_id', 'lot_id', 'location_id',
+                 'picking_code', 'vifel_remarks_frozen')
+    def _compute_vifel_remarks_readback(self):
+        """Read the Remarks off the quant this line withdraws from.
+
+        Non-stored: the value lives on the quant (stamped at the receiving
+        validation); the withdrawal line only displays it, keyed on the same
+        quant identity used everywhere else (product / SOURCE location / lot /
+        package). Receipts short-circuit with no quant query.
+        """
+        Quant = self.env['stock.quant']
+        for line in self:
+            # default first, so every branch leaves the field assigned
+            line.vifel_remarks_display = ''
+            # only withdrawals read back from a quant; skip the rest cheaply
+            if line.picking_code != 'outgoing':
+                continue
+            # Once snapshotted at validation, keep that value: the source quant
+            # is gone after a full withdrawal, so the live read-back below can
+            # no longer resolve it and would blank the display.
+            if line.vifel_remarks_frozen:
+                line.vifel_remarks_display = line.vifel_remarks_frozen
+                continue
+            # need at least a source package or location to identify the quant
+            if not line.package_id and not line.location_id:
+                continue
+            if not line.product_id:
+                continue
+            quant = Quant.search([
+                ('product_id', '=', line.product_id.id),
+                ('location_id', '=', line.location_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('package_id', '=', line.package_id.id),
+            ], limit=1)
+            if not quant:
+                continue
+            line.vifel_remarks_display = quant.x_studio_remarks or ''
+
+    def _vifel_freeze_remarks_readback(self):
+        """Snapshot the withdrawal line's Remarks off the source quant onto a
+        stored field, so it still displays once that quant is consumed at
+        validation. Only outgoing lines with a resolvable quant; idempotent
+        (never overwrites an existing snapshot)."""
+        Quant = self.env['stock.quant']
+        for line in self:
+            if line.picking_code != 'outgoing':
+                continue
+            if line.vifel_remarks_frozen:
+                continue
+            if not line.product_id or (
+                    not line.package_id and not line.location_id):
+                continue
+            quant = Quant.sudo().search([
+                ('product_id', '=', line.product_id.id),
+                ('location_id', '=', line.location_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('package_id', '=', line.package_id.id),
+            ], limit=1)
+            if not quant:
+                continue
+            if quant.x_studio_remarks:
+                line.vifel_remarks_frozen = quant.x_studio_remarks
+
     @api.depends('quant_id')
     def _compute_container_number(self):
         for record in self:
@@ -1757,6 +1849,7 @@ class stock_move_line_Override(models.Model):
                 'expiration_date': line.x_studio_expiration_date,
                 'quantity_uom': line.x_studio_quantity_uom.id if line.x_studio_quantity_uom else False,
                 'packs_uom': line.x_studio_min_quantity_uom.id if line.x_studio_min_quantity_uom else False,
+                'remarks': line.vifel_remarks or '',
                 'pre_wizard_pallet_series_id': line.x_studio_pallet_series_id or '',
                 'original_pallet_series_id': line.original_pallet_series_id or line.x_studio_pallet_series_id or '',
                 'original_location_dest_id': line.location_dest_id.id if line.location_dest_id.x_studio_is_an_aisle else (line.x_studio_initial_location if line.x_studio_initial_location else 7),

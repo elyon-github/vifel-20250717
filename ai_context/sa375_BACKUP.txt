@@ -1,0 +1,56 @@
+for record in records:
+    # ── Auto-sync To Pick from Actual (for special partners) ──
+    if not record.picking_id.x_studio_is_a_blast_freezer:
+        if record.picking_id.partner_id.x_studio_special_no_rr_return_needed and record.picking_code == 'outgoing' and record.state != 'done':
+            new_packaging = record.x_studio_actual_packaging or record.x_studio_affected_2nd_uom
+            new_qty       = record.x_studio_actual_kg or record.quantity
+            record.update({
+                'x_studio_affected_2nd_uom': new_packaging,
+                'quantity':                  new_qty,
+            })
+    
+        # ── Then run validation below using the updated values ──
+        pallet = record.x_studio_pallet_series_id or 'Unknown PSI'
+        dp = 3
+    
+        def r(val):
+            return round(val or 0.0, dp)
+    
+        fields = [
+            {'label': 'Packaging / Quantity', 'max': r(record.x_studio_max_2nd_uom),    'to_pick': r(record.x_studio_affected_2nd_uom), 'actual': r(record.x_studio_actual_packaging)},
+            {'label': 'Packs',                'max': r(record.x_studio_max_total_units),'to_pick': r(record.x_studio_withdraw_units),   'actual': r(record.x_studio_actual_min)},
+            {'label': 'Weight (KG)',          'max': r(record.x_studio_max_quant),      'to_pick': r(record.quantity),                  'actual': r(record.x_studio_actual_kg)},
+        ]
+    
+        if record.picking_type_id.code != 'outgoing':
+            continue
+    
+        active = [f for f in fields if f['max'] > 0 and f['to_pick'] > 0]
+    
+        def join_labels(labels):
+            if len(labels) == 1:
+                return labels[0]
+            return ', '.join(labels[:-1]) + ' and ' + labels[-1]
+    
+        sep = '─' * 25
+        hint = '\n\nIf you are stuck with this error, click the Discard button at the upper left of the screen.'
+    
+        actual_over_max = [f['label'] for f in active if f['actual'] > f['max']]
+        if actual_over_max:
+            raise UserError(f"PSI {pallet}\n{sep}\n{join_labels(actual_over_max)} exceeds the maximum allowed value.{hint}")
+    
+        over_max = [f['label'] for f in active if f['to_pick'] > f['max']]
+        if over_max:
+            raise UserError(f"PSI {pallet}\n{sep}\n{join_labels(over_max)} exceeds the maximum allowed value.{hint}")
+    
+        to_pick_reduced     = [f for f in active if f['to_pick'] < f['max']]
+        to_pick_not_reduced = [f for f in active if f['to_pick'] >= f['max']]
+        if to_pick_reduced and to_pick_not_reduced:
+            not_synced = [f['label'] for f in to_pick_not_reduced]
+            raise UserError(f"Please check Pallet Series ID: [{pallet}]\n{sep}\nTo keep records in sync, {join_labels(not_synced)} (To Pick) must also be reduced.{hint}")
+    
+        actual_reduced     = [f for f in active if f['actual'] < f['to_pick']]
+        actual_not_reduced = [f for f in active if f['actual'] >= f['to_pick']]
+        if actual_reduced and actual_not_reduced:
+            not_synced = [f['label'] for f in actual_not_reduced]
+            raise UserError(f"Please check Pallet Series ID: [{pallet}]\n{sep}\nTo keep records in sync, {join_labels(not_synced)} (Actual) must also be reduced.{hint}")

@@ -88,8 +88,14 @@ method nodes; `[model] …` hub nodes link both layers per Odoo model).
 - **Void** marks a transfer voided, archives its PKR row, and (for RR) builds a **void WR** that checks out the
   matching quants to reverse received inventory — module code: `void_transfer`, `void_transfer_simple`,
   `_create_void_wr_from_rr`, `_void_wr_quant_domain`, `_find_void_wr_quants` (with the package-drift fallback).
-  `button_validate` auto-voids WRs created from voided RRs. The old Studio **SA#471 "Void Transfer" is superseded**
-  (now unwired — verify before removing).
+  `button_validate` auto-voids void equivalents after validation, but only through
+  `_apply_void_identity_on_validation`, which first asks `_void_identity_status` whether the document really is
+  one: **intact** (pointer resolves to a voided parent), **recoverable** (pointer lost, but client + pallet series
+  still mirror a voided document, so the link is rebuilt) or **stale** (mirrors nothing, so the flag is cleared and
+  the document validates as what it now is). Auto-voiding on the flag alone destroyed a live withdrawal once, see
+  the repurposed-shell entry in `BUSINESS_CONTEXT_AND_LEARNINGS.md`. Repair action for damaged records:
+  `ai_context/sa_fix_stale_void_markers.py`. Tests: `cr2_shell_tests/suite_at_void_identity_guard.py`.
+  The old Studio **SA#471 "Void Transfer" is superseded** (now unwired — verify before removing).
 - **Return**: `ReturnPackageWizard` builds/extends a return picking for selected packages; a void WR can spawn a
   return RR (`_create_return_rr_from_wr`).
 

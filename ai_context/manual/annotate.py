@@ -62,10 +62,12 @@ CFG = {
     '02-03_can-merge-toggle.png': {
         'out': '02-03_can_merge.png', 'crop': (0, 455, 1252, 900),
         'boxes': [(30, 522, 235, 556)], 'badges': [(267, 539, '4')]},
-    '02-05_fixed-pallet-fields.png': {
-        'out': '02-05_fixed_mode.png', 'crop': (0, 690, 1226, 908),
-        'boxes': [(26, 708, 270, 784), (26, 806, 420, 892)],
-        'badges': [(298, 746, '5'), (452, 849, '6')]},
+    # NEW: Fixed Merge Pallet and PSI Support - one or more dedicated pallets,
+    # each with its own PSI (replaces the old single-field Fixed screenshot).
+    'Fixed Merge Pallet and PSI Support.png': {
+        'out': '02-05_fixed_mode.png', 'crop': (0, 226, 1347, 482),
+        'boxes': [(6, 262, 190, 308), (12, 372, 1332, 470)],
+        'badges': [(224, 285, '5'), (402, 405, '6')]},
     '02-06_multiple-psi-types.png': {
         'out': '02-06_multiple_mode.png', 'crop': (0, 358, 1259, 895),
         'boxes': [(26, 406, 270, 484), (30, 648, 1198, 886)],
