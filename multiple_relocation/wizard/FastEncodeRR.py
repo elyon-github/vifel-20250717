@@ -454,8 +454,8 @@ class FastEncodeRRWizardLine(models.TransientModel):
     stock_move_line = fields.Integer(string="Move Line ID")
     x_studio_ = fields.Integer(string="#", readonly=True, group_operator=False)
     
-    product_id = fields.Many2one('product.product', string="Products", readonly="1")
-    pallet_series_id = fields.Char(string='Pallet Series ID', readonly="1")
+    product_id = fields.Many2one('product.product', string="Products", readonly=True)
+    pallet_series_id = fields.Char(string='Pallet Series ID', readonly=True)
     result_package_id = fields.Many2one('stock.quant.package', string='RR Pallet #')
     pallet_number = fields.Many2one('stock.quant.package', string='BFRR Pallet #')
     bf_pallet_char = fields.Char(string="Pallet # - Text")

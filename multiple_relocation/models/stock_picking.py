@@ -25,6 +25,14 @@ class picking_type(models.Model):
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
+    # TRACKED so a Client change is never silent again. Re-clienting a
+    # WITHDRAWAL is allowed (staff genuinely have to correct it), but every
+    # return already created from that withdrawal keeps the OLD client, and
+    # with no tracking that drift left no trace anywhere - which is why it
+    # went unexplained for months. Only `tracking` is added here; every other
+    # attribute of the field is inherited untouched.
+    partner_id = fields.Many2one(tracking=True)
+
     is_void_wr = fields.Boolean(string="Is Void WR", default=False, copy=False,
                                 help="Marks this WR as auto-created by voiding an RR. Will auto-void after validation.")
     void_source_picking_id = fields.Many2one('stock.picking', string="Void Source Picking",
@@ -2006,6 +2014,32 @@ class transfer_locations(models.Model):
                             "and mis-count the withdrawal.") % {
                                 'wrs': ', '.join(blockers.mapped('name'))})
 
+        # RETURN CLIENT MUST STILL MATCH ITS WITHDRAWAL.
+        # The owner-change guard in write() is one-directional: it blocks
+        # re-clienting the RETURN, but nothing stops re-clienting the source
+        # WITHDRAWAL, and the return then silently keeps the old client.
+        # Validating in that state re-owns the returned stock to a client that
+        # never withdrew it (billing misattribution). Caught here because the
+        # drift happens long after the return was created.
+        if not self.env.context.get('skip_return_client_match_guard'):
+            for record in self:
+                src = record.return_id
+                if not src or not src.partner_id or not record.partner_id:
+                    continue
+                if record.partner_id == src.partner_id:
+                    continue
+                raise UserError(_(
+                    "%(doc)s says its Client is %(ret)s, but the transfer it "
+                    "returns (%(src)s) now says %(wr)s.\n\n"
+                    "The Client on the withdrawal was changed after this "
+                    "return was created, so the two no longer agree. "
+                    "Validating now would re-own the returned stock to a "
+                    "client that never withdrew it.\n\n"
+                    "Re-open the Return Pallets wizard on %(src)s, it will "
+                    "realign this return to %(wr)s, then validate.",
+                    doc=record.name, ret=record.partner_id.name,
+                    src=src.name, wr=src.partner_id.name))
+
         result = super(transfer_locations, self).button_validate()
 
         # Stamp each receiving line's Remarks onto the stock it landed on, so a
@@ -3483,7 +3517,46 @@ class transfer_locations(models.Model):
                 record.allowed_product_ids = self.env['product.product'].search(
                     [('sale_ok', '!=', False)])
 
+    def _vifel_resync_return_clients(self):
+        """Realign this transfer's UNVALIDATED returns to its current Client.
+
+        A return is born by copying its withdrawal, so it starts correct. If
+        the withdrawal is re-cliented afterwards the return is left pointing at
+        the old client, silently. Rather than block the (legitimate) withdrawal
+        edit, we heal the drift the next time the operator opens the Return
+        Pallets wizard, which is exactly when it matters.
+
+        Only unvalidated returns are touched: a done return has already counted
+        in the ledger, so re-owning it is a data-repair decision, not something
+        to do behind the operator's back. Those are reported by the validation
+        guard instead.
+
+        The Client write is logged automatically by the tracking on partner_id.
+        """
+        self.ensure_one()
+        if not self.partner_id:
+            return self.env['stock.picking']
+        stale = self.env['stock.picking'].search([
+            ('return_id', '=', self.id),
+            ('state', 'not in', ('done', 'cancel')),
+            ('partner_id', '!=', self.partner_id.id),
+        ])
+        for ret in stale:
+            # skip_return_owner_guard is deliberate here: the guard exists to
+            # stop a human silently re-owning a linked return, and this is the
+            # sanctioned opposite - forcing it back INTO agreement with its
+            # withdrawal.
+            ret.with_context(skip_return_owner_guard=True).write(
+                {'partner_id': self.partner_id.id})
+            lines = ret.move_line_ids.filtered(
+                lambda l: l.owner_id != self.partner_id)
+            if lines:
+                lines.write({'owner_id': self.partner_id.id})
+        return stale
+
     def action_return_packages(self):
+        # Heal any Client drift before the operator works on the return.
+        self._vifel_resync_return_clients()
         if self.partner_id.x_studio_special_no_rr_return_needed:
             raise UserError(
                 "You cannot create a return for Special No RR Return Needed customers. Please contact your Inventory Supervisor if you really think you need to create a return for this customer.")
@@ -3530,13 +3603,29 @@ class transfer_locations(models.Model):
                     location_dest_id.x_studio_is_reserved = False
                     location_dest_id.x_studio_receiving_report_id = ""
 
-    @api.onchange('result_package_id')
-    def _onchange_pallet_receipt(self):
-        for record in self:
-            if record.picking_type_id and record.picking_type_code == 'incoming':
-                for move_lines in record.move_line_ids:
-                    if move_lines.result_package_id:
-                        move_lines.result_package_id.x_studio_is_reserved = False
+    # DEAD CODE - kept commented so the intent stays discoverable.
+    #
+    # This onchange watches `result_package_id`, but the field lives on
+    # stock.move.line, NOT on stock.picking (this class). Odoo could not bind
+    # it and logged "@api.onchange('result_package_id',) parameters must be
+    # field names" on every startup, so the method has NEVER executed in
+    # production. Its intent was: on a receipt, release the chosen pallet's
+    # x_studio_is_reserved flag so the pallet stops reading as taken.
+    #
+    # Do NOT simply re-point the trigger at a real field. That would switch on
+    # writes that have never run and change which pallets encoders see as free.
+    # It is also redundant: the pallet reservation lifecycle is handled on the
+    # move-line side in stock_move.py, including the two WORKING
+    # result_package_id onchanges on stock.move.line. And an onchange writing to
+    # another record (the package, not self) does not persist reliably anyway.
+    #
+    # @api.onchange('result_package_id')
+    # def _onchange_pallet_receipt(self):
+    #     for record in self:
+    #         if record.picking_type_id and record.picking_type_code == 'incoming':
+    #             for move_lines in record.move_line_ids:
+    #                 if move_lines.result_package_id:
+    #                     move_lines.result_package_id.x_studio_is_reserved = False
 
     def action_detailed_operations(self):
         view_id = self.env.ref(

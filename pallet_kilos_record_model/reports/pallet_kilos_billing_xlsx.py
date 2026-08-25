@@ -12,6 +12,7 @@ _logger = logging.getLogger(__name__)
 
 class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_billing_report_2'
+    _description = 'Pallet Kilos Billing As of Date XLSX'
     _inherit = 'report.report_xlsx.abstract'
 
     def _get_kg_format_string(self):
@@ -326,6 +327,7 @@ class PalletKilosXlsx(models.AbstractModel):
 
 class PalletKilosXlsx_2(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_billing_report'
+    _description = 'Pallet Kilos Billing XLSX'
     _inherit = 'report.report_xlsx.abstract'
 
     def _define_formats(self, workbook):

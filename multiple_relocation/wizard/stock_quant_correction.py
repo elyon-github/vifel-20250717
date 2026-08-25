@@ -1304,12 +1304,13 @@ class StockQuantAdjustmentRequest(models.Model):
             record.has_conflicts = len(conflicted_lines) > 0
             record.conflict_count = len(conflicted_lines)
 
-    @api.model
-    def create(self, vals):
-        if vals.get('name', 'New') == 'New':
-            vals['name'] = self.env['ir.sequence'].next_by_code(
-                'stock.quant.adjustment.request') or 'New'
-        return super().create(vals)
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('name', 'New') == 'New':
+                vals['name'] = self.env['ir.sequence'].next_by_code(
+                    'stock.quant.adjustment.request') or 'New'
+        return super().create(vals_list)
 
     def action_submit_for_approval(self):
         self.ensure_one()
@@ -1659,7 +1660,11 @@ class StockQuantAdjustmentLine(models.Model):
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
         ('cancelled', 'Cancelled')
-    ], string='Line Status', default='draft', required=True, tracking=True)
+    # No tracking= here: this model is not a mail.thread (only the parent
+    # stock.quant.adjustment.request is), so Odoo discarded the parameter and
+    # warned about it on every startup. Line approvals and rejections are
+    # already posted to the REQUEST's chatter, so nothing is lost.
+    ], string='Line Status', default='draft', required=True)
 
     rejection_reason = fields.Text(string='Rejection Reason')
     approved_by = fields.Many2one(

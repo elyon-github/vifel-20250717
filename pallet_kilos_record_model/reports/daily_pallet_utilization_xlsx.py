@@ -11,6 +11,7 @@ _logger = logging.getLogger(__name__)
 
 class DailyPalletUtilizationXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.daily_pallet_utilization_xlsx'
+    _description = 'Daily Pallet Utilization XLSX'
     _inherit = 'report.report_xlsx.abstract'
 
     BUILDING_ORDER = ['MAIN', 'EXPANSION', 'ANNEX']
