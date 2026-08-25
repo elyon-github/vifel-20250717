@@ -22,16 +22,16 @@ import { kanbanView } from "@web/views/kanban/kanban_view";
 import { registry } from "@web/core/registry";
 
 const BF_FIELD = "is_blast_freeze_operation";
-const BAND_BLAST_FREEZE = "Blast Freeze";
-const BAND_NORMAL = "Normal";
+const BAND_BLAST_FREEZE = "Blast Freeze Inventory Operation";
+const BAND_NORMAL = "Normal Inventory Operation";
 
 export class VifelOverviewKanbanRenderer extends KanbanRenderer {
     /**
      * Turn a flat record list into records interleaved with band headings.
      *
      * Returns entries of one of two shapes:
-     *   { band: "Blast Freeze", key }   a heading to draw
-     *   { record, key }                 a card to draw
+     *   { band: "Blast Freeze Inventory Operation", key }   a heading to draw
+     *   { record, key }                                     a card to draw
      *
      * Degrades to the plain record list, with no headings at all, whenever
      * banding would be meaningless or wrong:
