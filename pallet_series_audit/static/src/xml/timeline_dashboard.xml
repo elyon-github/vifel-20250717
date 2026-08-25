@@ -36,23 +36,34 @@
                     </span>
                 </div>
                 <div class="psa-header-stats">
-                    <div class="psa-stat">
-                        <span class="psa-stat-value"><t t-esc="state.eventCount"/></span>
-                        <span class="psa-stat-label">Events</span>
+                    <div class="psa-stat" title="Events recorded in the log below — full history, not the current document.">
+                        <span class="psa-stat-value psa-stat-log"><t t-esc="state.eventCount"/></span>
+                        <span class="psa-stat-label">Events logged</span>
                     </div>
-                    <div class="psa-stat">
-                        <span class="psa-stat-value"><t t-esc="state.uniqueSeries"/></span>
-                        <span class="psa-stat-label">Series</span>
+                    <div class="psa-stat psa-stat-now" title="Distinct pallet series on this RR right now.">
+                        <span class="psa-stat-value"><t t-esc="state.currentSeries"/></span>
+                        <span class="psa-stat-label">Series now</span>
                     </div>
-                    <div class="psa-stat">
-                        <span class="psa-stat-value"><t t-esc="summaryStats.palletCount"/></span>
-                        <span class="psa-stat-label">Pallets</span>
+                    <div class="psa-stat psa-stat-now" t-att-title="state.palletsPending ? 'Pallets are only created when the RR is validated — nothing is missing.' : 'Distinct pallets on this RR right now.'">
+                        <span class="psa-stat-value">
+                            <t t-if="state.palletsPending">&#8212;</t>
+                            <t t-else=""><t t-esc="state.currentPallets"/></t>
+                        </span>
+                        <span class="psa-stat-label">Pallets now</span>
+                        <span t-if="state.palletsPending" class="psa-stat-note">on validation</span>
                     </div>
-                    <div class="psa-stat">
-                        <span class="psa-stat-value"><t t-esc="summaryStats.lineCount"/></span>
-                        <span class="psa-stat-label">Lines</span>
+                    <div class="psa-stat psa-stat-now" title="Move lines on this RR right now.">
+                        <span class="psa-stat-value"><t t-esc="state.currentLines"/></span>
+                        <span class="psa-stat-label">Lines now</span>
                     </div>
                 </div>
+            </div>
+
+            <!-- CURRENT-STATE BANNER: what the RR holds now, in words, so the
+                 history below is never mistaken for the live document. -->
+            <div t-attf-class="psa-state-banner psa-state-#{currentStateVerdict.level}">
+                <i t-attf-class="fa #{currentStateVerdict.icon} me-2"/>
+                <span><t t-esc="currentStateVerdict.message"/></span>
             </div>
 
             <!-- QUICK STATS BAR: clickable event type badges -->
