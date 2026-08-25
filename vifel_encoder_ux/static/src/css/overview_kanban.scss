@@ -1,0 +1,120 @@
+// Inventory Overview: bands, and the state picker's colour variants.
+//
+// Colours come from Odoo's own theme variables rather than hex, so the screen
+// follows whatever theme the backend is compiled with.
+
+// ---------------------------------------------------------------------------
+// Banded Overview
+//
+// Everything here is scoped to .o_vifel_overview_kanban, the class the primary
+// view carries, so no other kanban in the database is affected.
+//
+// Odoo's dashboard kanban is written for a flat layout: grouped, it renders each
+// group as a narrow fixed column with its cards stacked one per row. The client
+// wants the warehouse to read as a heading with its cards flowing beneath it, so
+// the column is widened to the full row and the cards are allowed to wrap.
+// ---------------------------------------------------------------------------
+.o_kanban_renderer.o_vifel_overview_kanban {
+
+    &.o_kanban_grouped {
+        // Groups stack down the page instead of side by side, so the warehouse
+        // name reads as a section heading rather than a column header.
+        flex-direction: column;
+        align-content: stretch;
+
+        .o_kanban_group {
+            width: 100%;
+            max-width: none;
+            flex: 0 0 auto;
+
+            // The cards inside a group flow left to right and wrap, which is
+            // what puts Blast Freeze IN and OUT side by side.
+            display: flex;
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 0.5rem;
+
+            // The group header and each band heading take a full row of their
+            // own, so the cards after them start on a fresh line.
+            > .o_kanban_header,
+            > .o_vifel_band {
+                flex: 0 0 100%;
+                width: 100%;
+            }
+
+            > .o_kanban_record {
+                flex: 0 1 320px;
+                margin: 0;
+            }
+        }
+    }
+
+    // Band heading. Deliberately quieter than the warehouse name above it: the
+    // warehouse is the section, the band is a divider inside it, and the two
+    // must not compete or the hierarchy stops reading.
+    .o_vifel_band {
+        margin: 0.75rem 0 0.15rem;
+        padding-bottom: 0.2rem;
+        border-bottom: 1px solid $border-color;
+
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $o-main-color-muted;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// State picker cards
+//
+// Same shape as the in/out variants in transfer_type_picker.scss, which is the
+// design this reuses. Colour carries the pipeline: nothing yet, blocked, go,
+// finished.
+// ---------------------------------------------------------------------------
+@mixin o-vifel-state-card($colour) {
+    border-top-color: $colour;
+
+    .o_vifel_picker_icon, .o_vifel_picker_count {
+        color: $colour;
+    }
+
+    &:hover, &:focus {
+        border-color: $colour;
+        background-color: rgba($colour, 0.06);
+        box-shadow: 0 4px 12px rgba($colour, 0.22);
+        transform: translateY(-2px);
+    }
+}
+
+.o_vifel_type_picker {
+
+    // Four cards rather than two, so let them wrap on a narrow dialog instead
+    // of forcing a fixed height that would clip them.
+    .o_vifel_picker_body.o_vifel_state_body {
+        height: auto;
+        min-height: 210px;
+    }
+
+    // Draft: started, not yet committed to. Muted, because a draft is not work
+    // anyone is waiting on.
+    .o_vifel_picker_card.o_vifel_state_draft {
+        @include o-vifel-state-card($o-main-color-muted);
+    }
+
+    // Waiting: confirmed but blocked.
+    .o_vifel_picker_card.o_vifel_state_waiting {
+        @include o-vifel-state-card($warning);
+    }
+
+    // Ready: reserved and workable now. The one an encoder usually wants.
+    .o_vifel_picker_card.o_vifel_state_ready {
+        @include o-vifel-state-card($success);
+    }
+
+    // Done: history. Present for lookups, never competing with live work.
+    .o_vifel_picker_card.o_vifel_state_done {
+        @include o-vifel-state-card($o-main-color-muted);
+        opacity: 0.85;
+    }
+}

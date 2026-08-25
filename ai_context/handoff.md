@@ -694,3 +694,93 @@ The Stock Inquiry column overlap. The custom list renderer written for it had no
 effect and was removed; its commit message claims the squeeze is "handled in SCSS
 instead", which is **false** - no such rule exists in either stylesheet. It needs a fresh
 approach.
+
+## 10. Update 2026-08-26 - banded Inventory Overview + operation state picker
+
+Client request: lay the Inventory Overview operation-type cards in bands under the warehouse
+name (Blast Freeze, then Normal) instead of one narrow column, and make clicking an operation
+type ask WHICH STATE rather than dumping every transfer of that type on screen. Both live in
+`vifel_encoder_ux`.
+
+### 10.1 The grouping is not in any view - it is a saved favourite
+
+`ir_filters` on `stock.picking.type`: id 1 "Inventory Overview" (user NULL, global, default)
+and id 2 "Overview" (user 2, default), both `{'group_by': ['warehouse_id']}` with domain
+`[("name","!=","Internal Transfers")]`. The action `stock.stock_picking_type_action` (id 267)
+had an EMPTY context and the kanban has no `default_group_by`. A default favourite's group_by
+beats a view default, so anything built here has to tolerate the favourite being changed or
+removed. **`fetch_database_context.py` does not dump views or actions, so this is only
+visible in the database.**
+
+### 10.2 Kanban cannot nest groups, so the second level is drawn
+
+`kanban_controller.js:173` sets `maxGroupByDepth: 1`, `dynamic_group_list.js:36` reads
+`groupBy[0]`, and `kanban_renderer.xml` iterates a group's RECORDS, never sub-groups. The
+warehouse level is already spent. So `static/src/js/overview_kanban.js` extends
+`KanbanRenderer` and walks each group's records emitting a band heading wherever
+`is_blast_freeze_operation` flips. Records arrive blast-freeze-first via `default_order` on
+the primary view, so two bands fall out of the ordering with no extra query.
+
+Degrades rather than breaks: no bands if the field is missing from the datapoint, no bands if
+every record is in one band, and the ungrouped case renders exactly as stock does. It is
+wrapped so a failure cannot take the view down.
+
+### 10.3 A primary view, not an edit of stock's kanban
+
+`stock.stock_picking_type_kanban` is shared with mrp, repair and stock_picking_batch, which
+all extend it. `vifel_encoder_ux.view_picking_type_kanban_vifel_overview` is `mode="primary"`
+inheriting it, bound to action 267 through `ir.actions.act_window.view` records owned by this
+module. Uninstalling drops the bindings and the standard Overview returns. Verified: core view
+683 still has no `js_class`.
+
+The action's context is set to `{'vifel_state_picker': True}`. That writes a field on a core
+record, so the key survives uninstall, but it is inert once the override is gone.
+
+### 10.4 State picker
+
+`wizard/picking_type_state_wizard.py`, a dialog reusing the client picker's card design, with
+four cards: DRAFT, WAITING, READY, DONE (the client mock had three; READY was added because it
+is the state the floor actually works from). WAITING is `state in ('confirmed','waiting')` to
+match what the Overview card already calls Waiting. There is no `count_picking_done` field and
+the `count_picking_*` fields are non-stored computes, so all four counts use `search_count`.
+
+The click is intercepted by overriding `get_stock_picking_action_picking_type` on
+`stock.picking.type`, **gated on the `vifel_state_picker` context key**. Without the key it
+calls `super()`, so that method is unchanged everywhere else. The "N To Process" button is
+deliberately left alone: it already means Ready.
+
+### 10.5 A real data bug fixed on the way
+
+Tagoloan's picking types 46 and 48 ("Blast Freeze - IN" / "- OUT") carried
+`is_blast_freeze_operation = False` while Meycauayan's 45 and 47 carried True. That flag drives
+`operation_type_checker` and `vifel_type_of_operation`
+(`multiple_relocation/models/stock_picking.py:510-528`), so a blast-freeze transfer raised at
+Tagoloan would have been classified **RR instead of BFRR**. It had not bitten because that
+warehouse has no transfers at all yet.
+
+`stock.picking.type.vifel_repair_blast_freeze_flags` fixes it, matching by NAME rather than id
+so it is portable, and idempotent so it is a no-op on every later update. Run from a
+`<function>` in `views/picking_type_overview_views.xml`.
+
+### 10.6 Verified on a clone of `vifel_verify_0821`
+
+Install clean: no traceback, no ParseError, no invalid custom views, no inconsistent states.
+
+- Repair idempotent (4 BF-flagged before and after a second run); both warehouses now order
+  blast-freeze first.
+- State picker for Meycauayan RECEIVING reads draft 98 / waiting 0 / ready 162 / done 5634,
+  and each card opens a list of exactly that many records.
+- The override is inert without the context key (returns `stock.picking`, target `current`)
+  and returns the wizard with it.
+- SCSS bundle compiles, 1.1 MB, containing `o_vifel_overview_kanban`, `o_vifel_band` and
+  `o_vifel_state_ready`.
+- OWL template inheritance resolves: the banded loop replaces the core loop in OUR template
+  only, core `web.KanbanRenderer` and the Clients kanban template are untouched.
+- RESOLVED arch carries `js_class="vifel_overview_kanban"` and the `default_order`, and action
+  267 serves view 1228 for kanban. This last check is the one that matters: the earlier
+  stock.quant column renderer passed its tests and still did nothing because its js_class
+  never reached the rendered view.
+
+**NOT verified: how the bands actually look in a browser.** `.o_kanban_dashboard` is written
+for a flat layout and the SCSS widens the group column and wraps the cards. Expect the layout
+to need iteration against a real screen.
