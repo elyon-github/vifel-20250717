@@ -35,8 +35,8 @@ What it adds
   no two contacts may share one.
 * **Read-only contact form for Documentation Staff.**
 """,
-    'author': 'VIFEL',
-    'website': 'https://github.com/elyon-github/vifel-20250717',
+    'author': "Mark Angelo Templanza",
+    'website': "https://templanza-portfolio.netlify.app/",
     'category': 'Inventory/Inventory',
     'version': '17.0.1.0.0',
     # multiple_relocation supplies the fields these screens read:
