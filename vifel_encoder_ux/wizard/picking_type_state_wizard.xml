@@ -58,13 +58,6 @@
                                 </span>
                                 <span class="o_vifel_picker_label">Ready</span>
                             </button>
-                            <!-- Encoding starts from paper, so the new document
-                                 is offered where the encoder already is. Placed
-                                 under Ready because that is the working state. -->
-                            <button name="action_new" type="object"
-                                    class="o_vifel_picker_new">
-                                <i class="fa fa-plus me-1" role="img"/>New
-                            </button>
                         </div>
                         <div class="o_vifel_picker_choice">
                             <button name="action_open_done" type="object"
@@ -78,7 +71,23 @@
                             </button>
                         </div>
                     </div>
+                    <!-- New sits under the row, centred, not inside it.
+                         Creating a document is not a fifth state, and hanging it
+                         off Ready made that column taller than the other three
+                         and threw the row off balance. -->
+                    <div class="o_vifel_picker_newrow">
+                        <button name="action_new" type="object"
+                                class="o_vifel_picker_new">
+                            <i class="fa fa-plus me-1" role="img"/>New
+                        </button>
+                    </div>
                 </div>
+                <!-- Nothing here is edited, so Odoo's default Save / Discard
+                     footer offered two buttons that either do nothing or read
+                     as if the numbers could be changed. One way out is enough. -->
+                <footer>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
             </form>
         </field>
     </record>

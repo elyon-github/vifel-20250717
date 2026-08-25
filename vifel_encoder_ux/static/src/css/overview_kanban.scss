@@ -69,8 +69,21 @@
 // State picker cards
 //
 // Same shape as the in/out variants in transfer_type_picker.scss, which is the
-// design this reuses. Colour carries the pipeline: nothing yet, blocked, go,
-// finished.
+// design this reuses.
+//
+// The colours are Odoo's own, taken from the state badge on the transfer list
+// (stock/views/stock_picking_views.xml, the decoration-* attributes on
+// field name="state"):
+//
+//     draft                      no decoration  ->  muted
+//     confirmed / waiting        warning        ->  $warning
+//     assigned  ("Ready")        info           ->  $info
+//     done                       success        ->  $success
+//     cancel                     danger         ->  $danger   (not shown here)
+//
+// Matching them matters more than picking prettier colours: the same transfer
+// carries the same colour on the badge in the list it opens, so the eye follows
+// one thing rather than relearning a second scheme.
 // ---------------------------------------------------------------------------
 @mixin o-vifel-state-card($colour) {
     border-top-color: $colour;
@@ -87,13 +100,44 @@
     }
 }
 
+// Just wide enough for four cards side by side, and no wider.
+//
+// "medium" wraps the fourth card onto its own line; "large" is the smallest
+// standard Odoo size that fits, but at 800px it leaves more empty margin than
+// this content needs. So the size stays large and the width is capped here.
+// :has() is unsupported on very old browsers, where this simply falls back to a
+// normal large dialog - wider than intended, never broken.
+.modal-dialog:has(.o_vifel_state_body) {
+    max-width: 740px;
+}
+
 .o_vifel_type_picker {
 
-    // Four cards rather than two, so let them wrap on a narrow dialog instead
-    // of forcing a fixed height that would clip them.
+    // The New row: centred under the four cards.
+    .o_vifel_picker_newrow {
+        display: flex;
+        justify-content: center;
+        margin-top: 0.9rem;
+
+        .o_vifel_picker_new {
+            min-width: 172px;   // one card wide, so it lines up with the row
+        }
+    }
+
+    // Four cards rather than two, so drop the fixed height that would clip them.
     .o_vifel_picker_body.o_vifel_state_body {
         height: auto;
         min-height: 210px;
+
+        // ONE row, always. Left to wrap, DONE dropped onto a line of its own
+        // and stopped reading as the last step of the same pipeline. The dialog
+        // opens at "large" to give the four cards room; the tighter gap keeps
+        // them clear of the edges even on a narrow laptop screen.
+        .o_vifel_picker_options {
+            flex-wrap: nowrap;
+            gap: 0.75rem;
+            align-items: flex-start;
+        }
     }
 
     // Draft: started, not yet committed to. Muted, because a draft is not work
@@ -107,14 +151,16 @@
         @include o-vifel-state-card($warning);
     }
 
-    // Ready: reserved and workable now. The one an encoder usually wants.
+    // Ready: reserved and workable now. Blue, because that is what Odoo puts on
+    // an assigned transfer - NOT green, which Odoo reserves for done.
     .o_vifel_picker_card.o_vifel_state_ready {
-        @include o-vifel-state-card($success);
+        @include o-vifel-state-card($info);
     }
 
-    // Done: history. Present for lookups, never competing with live work.
+    // Done: green, matching the badge. It is history rather than work, so it is
+    // last in the row, but it is no longer dimmed: a colour that agrees with the
+    // rest of Odoo beats one that is merely quieter.
     .o_vifel_picker_card.o_vifel_state_done {
-        @include o-vifel-state-card($o-main-color-muted);
-        opacity: 0.85;
+        @include o-vifel-state-card($success);
     }
 }

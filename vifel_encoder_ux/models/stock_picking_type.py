@@ -24,23 +24,13 @@ class StockPickingTypeOverview(models.Model):
     # ------------------------------------------------------------------
     # Overview card -> state picker
     # ------------------------------------------------------------------
-    def get_stock_picking_action_picking_type(self):
-        """Ask which state to open, instead of dropping straight into a list.
+    def _vifel_state_picker_action(self):
+        """The state picker dialog for this operation type.
 
-        Clicking an operation type used to open every transfer of that type at
-        once. The states are what an encoder actually chooses between, so this
-        asks first and then opens exactly that slice.
-
-        Gated on vifel_state_picker, a context key set ONLY by the Inventory
-        Overview action. Without it this method is Odoo's method unchanged, so
-        anything else in the system that calls it - now or later - behaves
-        exactly as it always did. The 'N To Process' button is deliberately not
-        routed through here: it already means Ready, so a picker would only add
-        a click to the commonest path.
+        Wide enough (large) that all four states sit on ONE row. At medium the
+        fourth card wrapped onto a line of its own, which read as a separate
+        thing rather than the last step of the same pipeline.
         """
-        if not self.env.context.get('vifel_state_picker'):
-            return super().get_stock_picking_action_picking_type()
-
         self.ensure_one()
         wizard = self.env['vifel_encoder_ux.picking.type.state.wizard'].create({
             'picking_type_id': self.id,
@@ -53,8 +43,42 @@ class StockPickingTypeOverview(models.Model):
             'view_mode': 'form',
             'views': [(False, 'form')],
             'target': 'new',
-            'context': dict(self.env.context, dialog_size='medium'),
+            'context': dict(self.env.context, dialog_size='large'),
         }
+
+    def get_stock_picking_action_picking_type(self):
+        """Card TITLE click: ask which state, instead of opening everything.
+
+        Clicking an operation type used to open every transfer of that type at
+        once. The states are what an encoder actually chooses between, so this
+        asks first and then opens exactly that slice.
+
+        Gated on vifel_state_picker, a context key set ONLY by the Inventory
+        Overview action. Without it this method is Odoo's method unchanged, so
+        anything else in the system that calls it - now or later - behaves
+        exactly as it always did.
+        """
+        if not self.env.context.get('vifel_state_picker'):
+            return super().get_stock_picking_action_picking_type()
+        return self._vifel_state_picker_action()
+
+    def get_action_picking_tree_ready(self):
+        """Card BUTTON click ('N To Process'): the same picker as the title.
+
+        The title and the button are one target as far as a user is concerned:
+        both mean "open this operation type", so both now land in the same
+        place. Ready is still one click away, on the READY card, and the count
+        on the button still tells the truth about how many there are.
+
+        The quieter links beside it - Waiting, Late, Back Orders - are left
+        alone. Each already names one specific slice, so routing them through a
+        chooser would only get in the way.
+
+        Same context gate as above, so the method is untouched everywhere else.
+        """
+        if not self.env.context.get('vifel_state_picker'):
+            return super().get_action_picking_tree_ready()
+        return self._vifel_state_picker_action()
 
     # ------------------------------------------------------------------
     # Data repair
