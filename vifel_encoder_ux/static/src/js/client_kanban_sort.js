@@ -22,10 +22,16 @@ import { useState } from "@odoo/owl";
 const ORDER_NAME = "complete_name asc";
 const ORDER_PENDING = "vifel_pending_transfer_count desc, complete_name asc";
 
+// The view opens on Most Pending (default_order on the kanban in
+// client_menu_views.xml). This has to agree with it: the button shows the sort
+// that is ACTUALLY applied, so starting it on "name" would label a
+// pending-sorted screen "A - Z" and the first click would appear to do nothing.
+const DEFAULT_MODE = "pending";
+
 export class VifelClientKanbanController extends KanbanController {
     setup() {
         super.setup();
-        this.vifelSort = useState({ mode: "name" });
+        this.vifelSort = useState({ mode: DEFAULT_MODE });
     }
 
     get vifelSortLabel() {

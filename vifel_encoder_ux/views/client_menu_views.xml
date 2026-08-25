@@ -39,8 +39,17 @@
         <field name="model">res.partner</field>
         <field name="arch" type="xml">
             <!-- js_class carries the control-panel sort toggle (A → Z /
-                 Most Pending), beside New. -->
-            <kanban sample="1" js_class="vifel_client_kanban">
+                 Most Pending), beside New.
+
+                 default_order opens the screen on Most Pending: the question
+                 this screen answers is "where is the outstanding work", so the
+                 clients with work waiting belong on the first card, not
+                 whoever happens to start with A. Read by kanban_arch_parser
+                 and resolved server-side in res.partner._search, which is why
+                 it names the same two keys as ORDER_PENDING in
+                 client_kanban_sort.js - keep the two in step. -->
+            <kanban sample="1" js_class="vifel_client_kanban"
+                    default_order="vifel_pending_transfer_count desc, complete_name asc">
                 <field name="id"/>
                 <field name="active"/>
                 <field name="is_company"/>
