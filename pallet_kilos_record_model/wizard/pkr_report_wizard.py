@@ -16,6 +16,11 @@ REPORT_MAP = {
 # Reports that take an as-of-now snapshot and don't need a date range
 SNAPSHOT_REPORTS = {'daily_pallet_utilization'}
 
+# Reports that must NOT show blast-freeze documents (BFRR / BFWR). Scoped to
+# Pallet Monitoring only - billing and the daily reports still account for BF
+# stock, so silently dropping it there would understate what the client owes.
+BLAST_FREEZE_EXCLUDED_REPORTS = {'pallet_monitoring'}
+
 
 class PkrReportWizard(models.TransientModel):
     _name = 'pallet_kilos_record_model.report.wizard'
@@ -102,6 +107,16 @@ class PkrReportWizard(models.TransientModel):
             domain.append(('owner_id', 'in', self.partner_ids.ids))
         if self.warehouse_ids:
             domain.append(('warehouse', 'in', self.warehouse_ids.ids))
+        if self.report_type in BLAST_FREEZE_EXCLUDED_REPORTS:
+            # Keep blast-freeze documents off the Pallet Monitoring statement:
+            # they live in their own running-balance partition, so their
+            # Beginning/Remaining figures belong to a different series. The
+            # report itself filters too (it is reachable from the list view
+            # without this wizard); excluding them here as well keeps the
+            # "no records found" message below honest.
+            # '!=' True, never '=' False: older rows have the flag as NULL and
+            # must still be included.
+            domain.append(('is_blast_freezer', '!=', True))
 
         records = self.env['pallet_kilos_record_model.pallet_kilos_record_model'].search(
             domain, order='start_time asc'

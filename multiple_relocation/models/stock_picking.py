@@ -2162,6 +2162,23 @@ class transfer_locations(models.Model):
             # Operation type decides the total_units field mapping further down
             is_outgoing = self.picking_type_id.code == 'outgoing'
 
+            # The client's own Lot No. prints only when this client's profile
+            # asks for it. show_client_lot_no comes from
+            # vifel_client_requirements; getattr keeps this working when that
+            # module is not installed. Same gate the summary reports use.
+            show_lot_no = bool(getattr(self, 'show_client_lot_no', False))
+            # Lot No. sits in a DIFFERENT field per operation type: a receiving
+            # line TYPES it into client_lot_no, a withdrawal line is a fresh
+            # record that never carried it and reads it back off the source
+            # quant (vifel_lot_no_display). Mirrors preprocess_stock_move_data.
+            lot_no_field = ('vifel_lot_no_display' if is_outgoing
+                            else 'client_lot_no')
+
+            def _line_lot_no(line):
+                if not show_lot_no:
+                    return ''
+                return (getattr(line, lot_no_field, '') or '').strip()
+
             # All operation types reuse the picklist sort (PSI-anchored
             # groups, chronological dates): one pallet series = one physical
             # pallet, so its lines always render as one contiguous block —
@@ -2191,7 +2208,13 @@ class transfer_locations(models.Model):
                 if move.x_studio_expiration_date:
                     expiration_date = move.x_studio_expiration_date.strftime('%b%d.%Y').upper()
     
-                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+                # Lot No. joins the key so one printed Lot No. can never stand
+                # for a group that actually spans two lots. Always '' for
+                # clients that do not show it, leaving their grouping unchanged.
+                # Unlike the summary this cannot split a ROW - the per-pallet
+                # reports render one row per move line, so the key only decides
+                # when the description REPEATS. Pagination is untouched.
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}|{_line_lot_no(line)}"
                 unique_descriptions.add(description_key)
     
             # Check if we should hide details (only one pallet AND only one product)
@@ -2217,7 +2240,8 @@ class transfer_locations(models.Model):
                 if move.x_studio_expiration_date:
                     expiration_date = move.x_studio_expiration_date.strftime('%b%d.%Y').upper()
     
-                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}"
+                lot_no = _line_lot_no(line)
+                description_key = f"{product_name}|{container_number}|{production_date}|{expiration_date}|{lot_no}"
     
                 description_parts = []
                 def _wrap_text(text, max_chars=45):
@@ -2241,6 +2265,10 @@ class transfer_locations(models.Model):
                     description_parts.append(_wrap_text(product_name, max_chars=45))
                 if container_number:
                     description_parts.append(container_number)
+                # Between the container and the dates, matching where the
+                # summary prints it, so both reports read alike.
+                if lot_no:
+                    description_parts.append(f"LOT NO.: {lot_no}")
                 if production_date and expiration_date:
                     description_parts.append(f"{production_date} - {expiration_date}")
                 elif production_date:
@@ -2412,6 +2440,7 @@ class transfer_locations(models.Model):
                 page_packs_by_uom[uom] += packs
  
         return page_packs_by_uom
+
     @staticmethod
     def _pdf_pallet_count_key(kind, identifier, line):
         """PDF pallet-count identity: the physical pallet PLUS the line's PSI.
