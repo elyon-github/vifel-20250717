@@ -1,6 +1,6 @@
 # VIFEL Session Handoff
 
-_Last updated: 2026-07-28. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
+_Last updated: 2026-08-25. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
 (Postgres localhost:5432, openpg/openpgpwd). Odoo 17 Enterprise, runs via nodemon
 (`python odoo-bin -c odoo.conf`), NOT the Windows service.
 **Business rules, per-client special cases, and hard-won learnings live in
@@ -626,3 +626,71 @@ NOTE: standard `name_create` is already broken on this DB (computed `name` →
 Caution: `nodemon.json` launches bare `python`, which on PATH resolves to
 **`C:\Odoo18\python\python.exe`**; VS Code's terminal activates the `.venv` instead.
 Its `-u pallet_kilos_record_log` looks like a typo for `pallet_kilos_record_model`.
+
+## 9. Update 2026-08-25 - encoder UI and client reports land on CR2-test
+
+CR2-test is the current line: it carries `vifel_client_requirements`,
+`vifel_utility_tools`, `pallet_series_audit` and `vifel_health_monitor`. The work
+below was built on CR-test and brought over on top of it.
+
+### 9.1 `vifel_encoder_ux` (NEW module)
+
+The encoder-facing screens, as their own installable module rather than woven into
+`multiple_relocation`. It adds no field to a stock document and changes no algorithm,
+so removing it takes the screens away and leaves receiving, withdrawal, relocation,
+voiding and billing untouched.
+
+Contents: Clients hub (Inventory landing page), Clients kanban with clickable count
+badges and an A-Z / Most Pending sort toggle, Find Transfer (search by RR/WR number,
+Pallet Series ID or Pallet #), the Receiving/Withdrawal picker with create-from-dialog,
+client smart buttons on the Contact form, the Client Unique Code uniqueness guard, and
+the read-only contact form for Documentation Staff.
+
+- Depends on `multiple_relocation` (reads `documentation_staff_id`,
+  `is_blast_freeze_operation`, `bf_pallet_char`). Nothing depends on it.
+- Install with `-i vifel_encoder_ux`. On a database that already had these screens
+  inside `multiple_relocation`, run `-u multiple_relocation -i vifel_encoder_ux` as ONE
+  command so the hand-over happens in a single transaction. CR2-test never had them, so
+  a plain install is enough here.
+- The wizard keeps its old `_name`, `multiple_relocation.client.transfer.type.wizard`.
+  Renaming would rebuild the table plus its ir_model and ACL rows for no gain.
+- `vifel_enable_quant_report_button` stays in `multiple_relocation` (the button it feeds
+  is there). CR2-test has no quant report button, so that split file is not carried here.
+
+### 9.2 Client reports
+
+Cherry-picked from CR-test (`d7cff37`, `41ef2ac`, `52fb971`):
+
+- **Inbound Log XLSX** (new). Rows are the UNION of receiving lines and live quants,
+  keyed `(PSI, Pallet #)` and scoped by `owner_id`, over the Inventory Overview domain.
+  This is the tally fix: the report used to be document-driven while the Overview is
+  stock-driven, so any pallet without a receipt for that client was invisible. It hid
+  2,755,542 kg across 52 clients. Opening-balance pallets now appear marked
+  `OPENING BALANCE`.
+- **Outbound Log XLSX** columns matched to `Odoo Client Inventory Format.xlsx`.
+- **`xlsx_log_style.py`** (new): shared muted house style, sage `#4F6F52` for inbound and
+  brick `#8C4A4A` for outbound, plus the INV/ZERO button bar and top totals strip.
+- Inbound is full history on purpose (`is_full_history_report`); a date range would cut
+  the balance. `date_to` defaults to today in Manila time.
+- **Client Inventory Summary** gains a Number of Pallets column with a header total,
+  counted DISTINCT over the owner (packages for normal, `bf_pallet_char` for BF). It is
+  not a sum of the column: that would double-count the mixed pallets.
+
+One conflict came up, in `pkr_report_wizard.xml`, purely because the CR-test commit that
+moved the Report selector above the filters was not picked. Resolved in favour of the
+CR-test layout (choose the report, then the filters), which loses nothing: CR2-test had
+made no change of its own to that file.
+
+### 9.3 Verified
+
+Clone of `vifel_verify_0821`, `-u pallet_kilos_record_model,multiple_relocation
+-i vifel_encoder_ux`: loads with no traceback, no ParseError, no invalid custom views
+and no inconsistent module states. Both menus land at sequence 0 and 1, both log report
+actions register, and `vifel_client_requirements` / `vifel_utility_tools` stay installed.
+
+### 9.4 Still open
+
+The Stock Inquiry column overlap. The custom list renderer written for it had no visible
+effect and was removed; its commit message claims the squeeze is "handled in SCSS
+instead", which is **false** - no such rule exists in either stylesheet. It needs a fresh
+approach.
