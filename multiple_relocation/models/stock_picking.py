@@ -3286,6 +3286,51 @@ class transfer_locations(models.Model):
                         doc=record.name, owner=record.create_uid.name or '?',
                         client=record.partner_id.display_name or '?'))
 
+        # PARENT-SIDE CLIENT LOCK ON LINKED RETURNS (COMP-2026-00046/47).
+        # The guard at the top of this method stops a return RR from changing
+        # its OWN Client while it is still linked to its WR. Nothing guarded
+        # the other end. Correcting the Client on the parent WR leaves any
+        # return already hanging off it sitting on the old client, and that
+        # return then re-receives the pallets under a client that never owned
+        # them: M/WR/09107 (LEGACY MEAT) against its return M/RR/05742 (MOMMY
+        # LOIDA) put pallet NB 40 back into MOMMY LOIDA's stock. 16 of 3331
+        # returns had drifted this way on the 2026-08-26 restore.
+        #
+        # A return still in draft with nothing encoded is CARRIED ALONG with
+        # its parent rather than blocking - that is the ordinary "wrong client
+        # picked, fix the WR" case, and moving an empty document owns no
+        # stock. Once anything is encoded, or the return has left draft, the
+        # pallets are attributed on the floor and the change is refused: the
+        # return has to be dealt with first.
+        returns_to_sync = {}
+        if ('partner_id' in vals and vals['partner_id']
+                and not self.env.context.get('skip_return_client_sync')):
+            for record in self:
+                if vals['partner_id'] == record.partner_id.id:
+                    continue          # not actually a change
+                live = record.return_ids.filtered(
+                    lambda r: r.state != 'cancel')
+                if not live:
+                    continue
+                encoded = live.filtered(
+                    lambda r: r.state != 'draft' or r.move_ids
+                    or r.move_line_ids)
+                if encoded:
+                    raise UserError(_(
+                        "%(doc)s already has the return %(ret)s standing "
+                        "against %(client)s, so its Client can no longer be "
+                        "changed here.\n\n"
+                        "The return would keep the old client and put the "
+                        "pallets back under a client that never owned "
+                        "them.\n\n"
+                        "Cancel or correct %(ret)s first, then change the "
+                        "Client.",
+                        doc=record.name,
+                        ret=", ".join(encoded.mapped('name')),
+                        client=record.partner_id.display_name or '?'))
+                returns_to_sync[record.id] = (
+                    live, record.partner_id.id, record.owner_id.id)
+
         # Capture old x_studio_edit_record values before super write
         old_edit_record_vals = {}
         if 'x_studio_edit_record' in vals:
@@ -3328,6 +3373,26 @@ class transfer_locations(models.Model):
                     client_change_psi = snap
 
             res = super(transfer_locations, record).write(vals)
+
+            # Carry an empty draft return along with its parent (COMP-46).
+            # Written one at a time on purpose: this method returns inside the
+            # per-record loop, so a write() on a multi-record set would only
+            # reach the first one.
+            sync = returns_to_sync.get(record.id)
+            if sync:
+                linked, old_partner_id, old_owner_id = sync
+                for ret in linked:
+                    ret_vals = {'partner_id': vals['partner_id']}
+                    # Follow the Owner only when it was in step with the
+                    # Client; an Owner deliberately set to someone else is
+                    # left alone.
+                    if ret.owner_id.id in (old_partner_id, old_owner_id):
+                        ret_vals['owner_id'] = vals['partner_id']
+                    ret.with_context(
+                        skip_return_owner_guard=True,
+                        skip_client_lock_guard=True,
+                        skip_return_client_sync=True,
+                    ).write(ret_vals)
 
             if client_change_psi:
                 record._vifel_reset_psi_after_client_change(client_change_psi)
