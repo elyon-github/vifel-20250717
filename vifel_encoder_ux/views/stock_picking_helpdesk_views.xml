@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Helpdesk from a transfer: raise a ticket about it, and see the ones
+        already raised.
+
+        Both live on the standard transfer form, because that is where a problem
+        is noticed. Making someone switch to the Helpdesk app and describe which
+        document went wrong is how the description ends up vague and the link
+        ends up missing.
+    -->
+    <record id="view_picking_form_vifel_helpdesk" model="ir.ui.view">
+        <field name="name">stock.picking.form.vifel.helpdesk</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Sits with the action buttons rather than after the status bar,
+                 which is where the eye already is. -->
+            <xpath expr="//header/field[@name='state'][1]" position="before">
+                <button name="action_vifel_create_ticket" type="object"
+                        string="Create Ticket"
+                        groups="base.group_user"
+                        invisible="not id"
+                        help="Raise a helpdesk ticket about this transfer"/>
+            </xpath>
+
+            <!-- Hidden until there is at least one, so a clean document stays
+                 clean. A zero here would be a button that promises a list and
+                 then shows nothing. -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_vifel_open_tickets" type="object"
+                        class="oe_stat_button"
+                        icon="fa-life-ring"
+                        invisible="helpdesk_ticket_count == 0">
+                    <field name="helpdesk_ticket_count" widget="statinfo"
+                           string="Tickets"/>
+                </button>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

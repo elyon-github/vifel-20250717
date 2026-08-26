@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        The transfer on a ticket, from the Helpdesk side.
+
+        The link has to work in both directions. Raised from a transfer it fills
+        itself in; raised here, someone picks the document by hand. Without this
+        half, a ticket opened in the Helpdesk app could never be tied back to
+        the transfer it is about.
+    -->
+    <record id="helpdesk_ticket_view_form_vifel_picking" model="ir.ui.view">
+        <field name="name">helpdesk.ticket.form.vifel.picking</field>
+        <field name="model">helpdesk.ticket</field>
+        <field name="inherit_id" ref="helpdesk.helpdesk_ticket_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='ticket_type_id']" position="after">
+                <field name="picking_id"
+                       options="{'no_create': True}"
+                       placeholder="e.g. M/RR/04376"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Searchable and group-able: "which transfers are generating tickets"
+         is the question this link exists to answer. -->
+    <record id="helpdesk_ticket_view_search_vifel_picking" model="ir.ui.view">
+        <field name="name">helpdesk.ticket.search.vifel.picking</field>
+        <field name="model">helpdesk.ticket</field>
+        <field name="inherit_id" ref="helpdesk.helpdesk_tickets_view_search_base"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="picking_id"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Off by default: useful when you are looking for it, noise otherwise. -->
+    <record id="helpdesk_ticket_view_tree_vifel_picking" model="ir.ui.view">
+        <field name="name">helpdesk.ticket.tree.vifel.picking</field>
+        <field name="model">helpdesk.ticket</field>
+        <field name="inherit_id" ref="helpdesk.helpdesk_tickets_view_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="picking_id" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

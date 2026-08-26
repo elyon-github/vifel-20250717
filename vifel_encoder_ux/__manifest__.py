@@ -42,11 +42,18 @@ What it adds
     # multiple_relocation supplies the fields these screens read:
     # stock.picking.documentation_staff_id, stock.picking.type
     # .is_blast_freeze_operation and stock.quant.bf_pallet_char.
+    # helpdesk is a HARD dependency, because the ticket link below adds a
+    # field to helpdesk.ticket and extends its views. Installing or upgrading
+    # this module on a database without Helpdesk will therefore install the
+    # whole Helpdesk app as a side effect. That is deliberate and agreed, but
+    # it is the reason to think twice before adding more app-level links here:
+    # the alternative is a small bridge module depending on both.
     'depends': [
         'base',
         'stock',
         'web',
         'multiple_relocation',
+        'helpdesk',
     ],
     # Order matters: client_picking_tree_views defines the tree view that
     # client_menu_views references by ref=.
@@ -60,6 +67,8 @@ What it adds
         'views/res_partner_client_buttons.xml',
         'views/client_menu_views.xml',
         'views/picking_type_overview_views.xml',
+        'views/stock_picking_helpdesk_views.xml',
+        'views/helpdesk_ticket_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

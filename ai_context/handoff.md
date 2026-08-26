@@ -784,3 +784,41 @@ Install clean: no traceback, no ParseError, no invalid custom views, no inconsis
 **NOT verified: how the bands actually look in a browser.** `.o_kanban_dashboard` is written
 for a flat layout and the SCSS widens the group column and wraps the cards. Expect the layout
 to need iteration against a real screen.
+
+## 11. Update 2026-08-26 - helpdesk tickets linked to transfers
+
+Raise a helpdesk ticket from the transfer it is about, and reach the ones already
+raised, without switching apps. Built in `vifel_encoder_ux` at the user's request.
+
+- `helpdesk.ticket.picking_id` (Many2one to stock.picking, indexed,
+  `ondelete='set null'`). A ticket outlives the document it complains about:
+  cascading would destroy the record of a problem exactly when someone wants it.
+- On `stock.picking`: `helpdesk_ticket_ids`, a batched `helpdesk_ticket_count`
+  (one grouped query for the whole recordset, same rule as the client kanban
+  counts), a **Create Ticket** button in the header and a **Tickets** smart
+  button that is hidden at zero.
+- Tickets raised from a transfer default to the **IT Support** team, resolved by
+  NAME not by id. Team ids differ per database (id 2 on `vifel_08_26_2026`, id 4
+  on a fresh install), so a hard-coded id would file tickets under whatever team
+  took that number. If the team is missing the default is left off and Odoo's own
+  default applies.
+- The subject is pre-filled `Issue on <document number>`, and the customer is
+  carried over when the transfer has one.
+- From the Helpdesk side, `picking_id` is on the ticket form, in the search view
+  and as a hidden-by-default list column, so a ticket opened there can be tied
+  back by hand.
+
+**`vifel_encoder_ux` now depends on `helpdesk`.** Installing or upgrading it on a
+database without Helpdesk installs the whole Helpdesk app as a side effect. That
+was agreed, but it is the reason to think twice before adding more app-level
+links to this module: the alternative is a small bridge module depending on both.
+
+Verified on a clone of `vifel_verify_0821` (helpdesk pulled in as a dependency):
+counts correct and scoped to the right picking, the smart button opens exactly
+those tickets, deleting a picking leaves its tickets alive with the link cleared,
+IT Support resolved by name over Customer Care, graceful fallback when no such
+team exists, and all four inherited views applied.
+
+NOT verified: how the ticket form looks inside a modal (`target='new'`). The
+helpdesk form carries a notebook and an Html description field, so it may want to
+be a full page instead.
