@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <!--
+        Replace the grouped record loop with a banded one.
+
+        Only the loop inside a group is touched. The ungrouped branch is left
+        alone: the Overview is grouped by Warehouse through a default favourite,
+        so ungrouped is the degraded case, and there it simply renders as stock
+        does rather than carrying a duplicate of KanbanRecord's whole prop list
+        that would silently drift from core on an upgrade.
+
+        The KanbanRecord props below are copied verbatim from web.KanbanRenderer,
+        with only `record` repointed at the band entry. Keep them in step if the
+        core template changes on a version upgrade.
+    -->
+    <t t-name="vifel_encoder_ux.VifelOverviewKanbanRenderer" t-inherit="web.KanbanRenderer">
+        <!--
+            Tag the root so the SCSS has something to scope to. Written out in
+            full rather than appended, because attribute `add` is not dependable
+            across asset-bundle template inheritance. The first three classes are
+            core's; only the last is ours. The sibling t-attf-class is untouched.
+        -->
+        <xpath expr="//div[hasclass('o_kanban_renderer')]" position="attributes">
+            <attribute name="class">o_kanban_renderer o_renderer d-flex o_vifel_overview_kanban</attribute>
+        </xpath>
+
+        <xpath expr="//t[@t-foreach='group.list.records']" position="replace">
+            <t t-foreach="vifelBandedItems(group.list.records)" t-as="item" t-key="item.key">
+                <div t-if="item.band" class="o_vifel_band" t-esc="item.band"/>
+                <KanbanRecord t-else=""
+                    archInfo="props.archInfo"
+                    Compiler="props.Compiler"
+                    canResequence="!isGroupProcessing and !isProcessing(item.record.id) and canResequenceRecords"
+                    forceGlobalClick="props.forceGlobalClick"
+                    group="group"
+                    list="props.list"
+                    deleteRecord="props.deleteRecord"
+                    openRecord="props.openRecord"
+                    readonly="props.readonly"
+                    record="item.record"
+                    templates="props.archInfo.templateDocs"
+                    progressBarState="props.progressBarState"
+                />
+            </t>
+        </xpath>
+    </t>
+
+</templates>

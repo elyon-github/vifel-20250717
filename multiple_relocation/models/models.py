@@ -179,12 +179,13 @@ class ProductTemplate(models.Model):
                 raise UserError("The Product Name you input '%s' already exists." % self.name)
             
 
-    @api.model
-    def create(self, vals):
+    @api.model_create_multi
+    def create(self, vals_list):
         # Convert name to uppercase before saving
-        if 'name' in vals and vals['name']:
-            vals['name'] = vals['name'].upper()
-        return super(ProductTemplate, self).create(vals)
+        for vals in vals_list:
+            if 'name' in vals and vals['name']:
+                vals['name'] = vals['name'].upper()
+        return super(ProductTemplate, self).create(vals_list)
 
     def write(self, vals):
         # Convert name to uppercase before saving
@@ -195,16 +196,18 @@ class ProductTemplate(models.Model):
 
 class ClientExpiryTable(models.Model):
     _name = 'client.expiry.table'
+    _description = 'Client Product Expiry Range'
 
     # Link to Product Template
     product_template_id = fields.Many2one('product.template', string='Product Template')
 
     # Many2many field for product attribute values
+    # `widget` is a VIEW attribute, never a valid field parameter - Odoo
+    # discarded it and warned on every startup. The tags widget and the real
+    # domain are both set where they belong, on the field in views.xml.
     line_attribute_value_ids = fields.Many2many(
         'product.attribute.value',
         string='Product Attributes',
-        widget='many2many_tags',  # Tags widget for easy selection
-        domain=[]  # Initial empty domain, will be dynamically set
     )
 
     # Client (partner) field - Many2many for selecting multiple partners

@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_client_transfer_type_wizard,multiple_relocation.client.transfer.type.wizard,model_multiple_relocation_client_transfer_type_wizard,base.group_user,1,1,1,1
+access_picking_type_state_wizard,vifel_encoder_ux.picking.type.state.wizard,model_vifel_encoder_ux_picking_type_state_wizard,base.group_user,1,1,1,1

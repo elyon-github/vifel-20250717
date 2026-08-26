@@ -8,6 +8,7 @@ _logger = logging.getLogger(__name__)
 
 class DailyInventoryXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.daily_inventory_report_xlsx'
+    _description = 'Daily Inventory XLSX'
     _inherit = 'report.report_xlsx.abstract'
 
     def _get_kg_format_string(self):

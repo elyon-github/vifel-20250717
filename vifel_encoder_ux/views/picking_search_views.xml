@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Search a transfer by what is ON it: the pallet, or the pallet series.
+
+        This is the other half of Find Transfer. That screen answers "where is
+        M/RR/04376?", but the paper coming back from the floor does not always
+        carry the document number - often the only identifier written down is a
+        pallet. Both live on the move lines (the Operations tab), so they are
+        reached through filter_domain.
+
+        A SEPARATE inherited view rather than an addition to the one in
+        multiple_relocation: Odoo happily applies several inherits to the same
+        parent, and keeping them apart means uninstalling this module takes its
+        own search entries with it and leaves that module's untouched.
+
+        The field NAME on each entry is only an anchor - what the user types is
+        matched by filter_domain, and what they see in the dropdown is the
+        string. Anchors must be fields not already used in this search view:
+        the parent already spends move_line_ids on "Package", and a second
+        entry with that name would collide.
+
+        Pallet # covers all three ways a pallet is identified here: the
+        destination package on a receiving, the source package on a withdrawal,
+        and bf_pallet_char for blast-freeze pallets, which have no package.
+    -->
+    <record id="stock_picking_view_search_vifel_find" model="ir.ui.view">
+        <field name="name">stock.picking.search.vifel.find.transfer</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_internal_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="move_line_ids_without_package" string="Pallet Series ID"
+                       filter_domain="[('move_line_ids.x_studio_pallet_series_id', 'ilike', self)]"/>
+                <field name="move_ids_without_package" string="Pallet #"
+                       filter_domain="['|', '|',
+                                       ('move_line_ids.result_package_id.name', 'ilike', self),
+                                       ('move_line_ids.package_id.name', 'ilike', self),
+                                       ('move_line_ids.bf_pallet_char', 'ilike', self)]"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

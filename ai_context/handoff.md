@@ -1,6 +1,6 @@
 # VIFEL Session Handoff
 
-_Last updated: 2026-07-28. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
+_Last updated: 2026-08-25. Repo: `elyon-github/vifel-20250717`. Debug DB: `vifel_07_21_2026`
 (Postgres localhost:5432, openpg/openpgpwd). Odoo 17 Enterprise, runs via nodemon
 (`python odoo-bin -c odoo.conf`), NOT the Windows service.
 **Business rules, per-client special cases, and hard-won learnings live in
@@ -626,3 +626,161 @@ NOTE: standard `name_create` is already broken on this DB (computed `name` →
 Caution: `nodemon.json` launches bare `python`, which on PATH resolves to
 **`C:\Odoo18\python\python.exe`**; VS Code's terminal activates the `.venv` instead.
 Its `-u pallet_kilos_record_log` looks like a typo for `pallet_kilos_record_model`.
+
+## 9. Update 2026-08-25 - encoder UI and client reports land on CR2-test
+
+CR2-test is the current line: it carries `vifel_client_requirements`,
+`vifel_utility_tools`, `pallet_series_audit` and `vifel_health_monitor`. The work
+below was built on CR-test and brought over on top of it.
+
+### 9.1 `vifel_encoder_ux` (NEW module)
+
+The encoder-facing screens, as their own installable module rather than woven into
+`multiple_relocation`. It adds no field to a stock document and changes no algorithm,
+so removing it takes the screens away and leaves receiving, withdrawal, relocation,
+voiding and billing untouched.
+
+Contents: Clients hub (Inventory landing page), Clients kanban with clickable count
+badges and an A-Z / Most Pending sort toggle, Find Transfer (search by RR/WR number,
+Pallet Series ID or Pallet #), the Receiving/Withdrawal picker with create-from-dialog,
+client smart buttons on the Contact form, the Client Unique Code uniqueness guard, and
+the read-only contact form for Documentation Staff.
+
+- Depends on `multiple_relocation` (reads `documentation_staff_id`,
+  `is_blast_freeze_operation`, `bf_pallet_char`). Nothing depends on it.
+- Install with `-i vifel_encoder_ux`. On a database that already had these screens
+  inside `multiple_relocation`, run `-u multiple_relocation -i vifel_encoder_ux` as ONE
+  command so the hand-over happens in a single transaction. CR2-test never had them, so
+  a plain install is enough here.
+- The wizard keeps its old `_name`, `multiple_relocation.client.transfer.type.wizard`.
+  Renaming would rebuild the table plus its ir_model and ACL rows for no gain.
+- `vifel_enable_quant_report_button` stays in `multiple_relocation` (the button it feeds
+  is there). CR2-test has no quant report button, so that split file is not carried here.
+
+### 9.2 Client reports
+
+Cherry-picked from CR-test (`d7cff37`, `41ef2ac`, `52fb971`):
+
+- **Inbound Log XLSX** (new). Rows are the UNION of receiving lines and live quants,
+  keyed `(PSI, Pallet #)` and scoped by `owner_id`, over the Inventory Overview domain.
+  This is the tally fix: the report used to be document-driven while the Overview is
+  stock-driven, so any pallet without a receipt for that client was invisible. It hid
+  2,755,542 kg across 52 clients. Opening-balance pallets now appear marked
+  `OPENING BALANCE`.
+- **Outbound Log XLSX** columns matched to `Odoo Client Inventory Format.xlsx`.
+- **`xlsx_log_style.py`** (new): shared muted house style, sage `#4F6F52` for inbound and
+  brick `#8C4A4A` for outbound, plus the INV/ZERO button bar and top totals strip.
+- Inbound is full history on purpose (`is_full_history_report`); a date range would cut
+  the balance. `date_to` defaults to today in Manila time.
+- **Client Inventory Summary** gains a Number of Pallets column with a header total,
+  counted DISTINCT over the owner (packages for normal, `bf_pallet_char` for BF). It is
+  not a sum of the column: that would double-count the mixed pallets.
+
+One conflict came up, in `pkr_report_wizard.xml`, purely because the CR-test commit that
+moved the Report selector above the filters was not picked. Resolved in favour of the
+CR-test layout (choose the report, then the filters), which loses nothing: CR2-test had
+made no change of its own to that file.
+
+### 9.3 Verified
+
+Clone of `vifel_verify_0821`, `-u pallet_kilos_record_model,multiple_relocation
+-i vifel_encoder_ux`: loads with no traceback, no ParseError, no invalid custom views
+and no inconsistent module states. Both menus land at sequence 0 and 1, both log report
+actions register, and `vifel_client_requirements` / `vifel_utility_tools` stay installed.
+
+### 9.4 Still open
+
+The Stock Inquiry column overlap. The custom list renderer written for it had no visible
+effect and was removed; its commit message claims the squeeze is "handled in SCSS
+instead", which is **false** - no such rule exists in either stylesheet. It needs a fresh
+approach.
+
+## 10. Update 2026-08-26 - banded Inventory Overview + operation state picker
+
+Client request: lay the Inventory Overview operation-type cards in bands under the warehouse
+name (Blast Freeze, then Normal) instead of one narrow column, and make clicking an operation
+type ask WHICH STATE rather than dumping every transfer of that type on screen. Both live in
+`vifel_encoder_ux`.
+
+### 10.1 The grouping is not in any view - it is a saved favourite
+
+`ir_filters` on `stock.picking.type`: id 1 "Inventory Overview" (user NULL, global, default)
+and id 2 "Overview" (user 2, default), both `{'group_by': ['warehouse_id']}` with domain
+`[("name","!=","Internal Transfers")]`. The action `stock.stock_picking_type_action` (id 267)
+had an EMPTY context and the kanban has no `default_group_by`. A default favourite's group_by
+beats a view default, so anything built here has to tolerate the favourite being changed or
+removed. **`fetch_database_context.py` does not dump views or actions, so this is only
+visible in the database.**
+
+### 10.2 Kanban cannot nest groups, so the second level is drawn
+
+`kanban_controller.js:173` sets `maxGroupByDepth: 1`, `dynamic_group_list.js:36` reads
+`groupBy[0]`, and `kanban_renderer.xml` iterates a group's RECORDS, never sub-groups. The
+warehouse level is already spent. So `static/src/js/overview_kanban.js` extends
+`KanbanRenderer` and walks each group's records emitting a band heading wherever
+`is_blast_freeze_operation` flips. Records arrive blast-freeze-first via `default_order` on
+the primary view, so two bands fall out of the ordering with no extra query.
+
+Degrades rather than breaks: no bands if the field is missing from the datapoint, no bands if
+every record is in one band, and the ungrouped case renders exactly as stock does. It is
+wrapped so a failure cannot take the view down.
+
+### 10.3 A primary view, not an edit of stock's kanban
+
+`stock.stock_picking_type_kanban` is shared with mrp, repair and stock_picking_batch, which
+all extend it. `vifel_encoder_ux.view_picking_type_kanban_vifel_overview` is `mode="primary"`
+inheriting it, bound to action 267 through `ir.actions.act_window.view` records owned by this
+module. Uninstalling drops the bindings and the standard Overview returns. Verified: core view
+683 still has no `js_class`.
+
+The action's context is set to `{'vifel_state_picker': True}`. That writes a field on a core
+record, so the key survives uninstall, but it is inert once the override is gone.
+
+### 10.4 State picker
+
+`wizard/picking_type_state_wizard.py`, a dialog reusing the client picker's card design, with
+four cards: DRAFT, WAITING, READY, DONE (the client mock had three; READY was added because it
+is the state the floor actually works from). WAITING is `state in ('confirmed','waiting')` to
+match what the Overview card already calls Waiting. There is no `count_picking_done` field and
+the `count_picking_*` fields are non-stored computes, so all four counts use `search_count`.
+
+The click is intercepted by overriding `get_stock_picking_action_picking_type` on
+`stock.picking.type`, **gated on the `vifel_state_picker` context key**. Without the key it
+calls `super()`, so that method is unchanged everywhere else. The "N To Process" button is
+deliberately left alone: it already means Ready.
+
+### 10.5 A real data bug fixed on the way
+
+Tagoloan's picking types 46 and 48 ("Blast Freeze - IN" / "- OUT") carried
+`is_blast_freeze_operation = False` while Meycauayan's 45 and 47 carried True. That flag drives
+`operation_type_checker` and `vifel_type_of_operation`
+(`multiple_relocation/models/stock_picking.py:510-528`), so a blast-freeze transfer raised at
+Tagoloan would have been classified **RR instead of BFRR**. It had not bitten because that
+warehouse has no transfers at all yet.
+
+`stock.picking.type.vifel_repair_blast_freeze_flags` fixes it, matching by NAME rather than id
+so it is portable, and idempotent so it is a no-op on every later update. Run from a
+`<function>` in `views/picking_type_overview_views.xml`.
+
+### 10.6 Verified on a clone of `vifel_verify_0821`
+
+Install clean: no traceback, no ParseError, no invalid custom views, no inconsistent states.
+
+- Repair idempotent (4 BF-flagged before and after a second run); both warehouses now order
+  blast-freeze first.
+- State picker for Meycauayan RECEIVING reads draft 98 / waiting 0 / ready 162 / done 5634,
+  and each card opens a list of exactly that many records.
+- The override is inert without the context key (returns `stock.picking`, target `current`)
+  and returns the wizard with it.
+- SCSS bundle compiles, 1.1 MB, containing `o_vifel_overview_kanban`, `o_vifel_band` and
+  `o_vifel_state_ready`.
+- OWL template inheritance resolves: the banded loop replaces the core loop in OUR template
+  only, core `web.KanbanRenderer` and the Clients kanban template are untouched.
+- RESOLVED arch carries `js_class="vifel_overview_kanban"` and the `default_order`, and action
+  267 serves view 1228 for kanban. This last check is the one that matters: the earlier
+  stock.quant column renderer passed its tests and still did nothing because its js_class
+  never reached the rendered view.
+
+**NOT verified: how the bands actually look in a browser.** `.o_kanban_dashboard` is written
+for a flat layout and the SCSS widens the group column and wraps the cards. Expect the layout
+to need iteration against a real screen.

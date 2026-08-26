@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Inventory Overview, banded by Blast Freeze.
+
+        The client asked for the operation-type cards to sit in bands under the
+        warehouse name - Blast Freeze first, then Normal - instead of stacking in
+        one narrow column.
+
+        Odoo's kanban cannot do that on its own: it groups exactly one level deep
+        (maxGroupByDepth: 1 in web/.../kanban/kanban_controller.js, and the
+        renderer iterates a group's RECORDS, never sub-groups). The warehouse
+        level is already spent, and it comes from a saved favourite rather than
+        from any view, so it cannot simply be moved aside either. The banding is
+        therefore done by a custom renderer; see overview_kanban.js.
+
+        A PRIMARY view rather than an edit of stock's own kanban: that record is
+        shared with mrp, repair and stock_picking_batch, which all extend it. A
+        primary view inherits their work but keeps ours off their screens, and
+        uninstalling this module removes the binding below and restores the
+        standard Overview.
+    -->
+    <record id="view_picking_type_kanban_vifel_overview" model="ir.ui.view">
+        <field name="name">stock.picking.type.kanban.vifel.overview</field>
+        <field name="model">stock.picking.type</field>
+        <field name="inherit_id" ref="stock.stock_picking_type_kanban"/>
+        <field name="mode">primary</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="attributes">
+                <attribute name="js_class">vifel_overview_kanban</attribute>
+                <!-- Blast freeze sorts to the top, so the renderer's two bands
+                     fall out of the ordering rather than needing a second pass.
+                     Ordering is not overridden by the Overview favourite, which
+                     only carries a group_by. -->
+                <attribute name="default_order">is_blast_freeze_operation desc, sequence, id</attribute>
+            </xpath>
+            <!-- A field absent from the arch is not loaded into the datapoint,
+                 and the renderer reads this one per card to decide its band. -->
+            <xpath expr="//field[@name='code']" position="after">
+                <field name="is_blast_freeze_operation"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!--
+        Point the standard Inventory Overview action at the view above.
+
+        The act_window.view records belong to this module, so uninstalling drops
+        them and the action falls back to stock's own kanban.
+    -->
+    <record id="action_vifel_overview_kanban" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">kanban</field>
+        <field name="view_id" ref="view_picking_type_kanban_vifel_overview"/>
+        <field name="act_window_id" ref="stock.stock_picking_type_action"/>
+    </record>
+
+    <record id="action_vifel_overview_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="stock.view_picking_type_form"/>
+        <field name="act_window_id" ref="stock.stock_picking_type_action"/>
+    </record>
+
+    <!--
+        vifel_state_picker turns the card's title click into the state picker
+        (see models/stock_picking_type.py). Setting it on the action confines
+        that behaviour to this screen: the same method called from anywhere else
+        sees no key and runs Odoo's version.
+
+        This writes a field on a core record, so the key survives uninstall. It
+        is inert once the override is gone - an unrecognised context key does
+        nothing - which is why this is preferred over redefining the action and
+        stealing the Overview menu from stock.
+    -->
+    <record id="stock.stock_picking_type_action" model="ir.actions.act_window">
+        <field name="context">{'vifel_state_picker': True}</field>
+    </record>
+
+    <!--
+        Make the blast-freeze flag agree with reality before the bands rely on
+        it. Idempotent, so running on every module update is a no-op.
+    -->
+    <function model="stock.picking.type" name="vifel_repair_blast_freeze_flags"/>
+
+</odoo>
