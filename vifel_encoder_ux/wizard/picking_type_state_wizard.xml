@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        State picker for an Inventory Overview operation type.
+
+        Reuses the card design of the client transfer-type picker
+        (o_vifel_type_picker and friends in transfer_type_picker.scss), which is
+        what the client asked for. The state colour variants are defined beside
+        the in/out ones in overview_kanban.scss.
+
+        Four cards, in pipeline order: a document is drafted, may wait, becomes
+        ready, then is done. Reading left to right follows the work.
+    -->
+    <record id="view_picking_type_state_wizard_form" model="ir.ui.view">
+        <field name="name">picking.type.state.wizard.form</field>
+        <field name="model">vifel_encoder_ux.picking.type.state.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Select State" class="o_vifel_type_picker">
+                <field name="picking_type_id" invisible="1"/>
+                <field name="title" invisible="1"/>
+
+                <div class="o_vifel_picker_body o_vifel_state_body">
+                    <p class="o_vifel_picker_hint">
+                        Pick what you need to work on. Each number is how many
+                        transfers of this operation are sitting in that state.
+                    </p>
+                    <div class="o_vifel_picker_options">
+                        <div class="o_vifel_picker_choice">
+                            <button name="action_open_draft" type="object"
+                                    class="o_vifel_picker_card o_vifel_state_draft"
+                                    title="Started but not confirmed yet">
+                                <i class="fa fa-pencil o_vifel_picker_icon" role="img"/>
+                                <span class="o_vifel_picker_count">
+                                    <field name="draft_count" nolabel="1" readonly="1"/>
+                                </span>
+                                <span class="o_vifel_picker_label">Draft</span>
+                            </button>
+                        </div>
+                        <div class="o_vifel_picker_choice">
+                            <button name="action_open_waiting" type="object"
+                                    class="o_vifel_picker_card o_vifel_state_waiting"
+                                    title="Confirmed, but not yet ready to work">
+                                <i class="fa fa-hourglass-half o_vifel_picker_icon" role="img"/>
+                                <span class="o_vifel_picker_count">
+                                    <field name="waiting_count" nolabel="1" readonly="1"/>
+                                </span>
+                                <span class="o_vifel_picker_label">Waiting</span>
+                            </button>
+                        </div>
+                        <div class="o_vifel_picker_choice">
+                            <button name="action_open_ready" type="object"
+                                    class="o_vifel_picker_card o_vifel_state_ready"
+                                    title="Ready to work now">
+                                <i class="fa fa-play o_vifel_picker_icon" role="img"/>
+                                <span class="o_vifel_picker_count">
+                                    <field name="ready_count" nolabel="1" readonly="1"/>
+                                </span>
+                                <span class="o_vifel_picker_label">Ready</span>
+                            </button>
+                        </div>
+                        <div class="o_vifel_picker_choice">
+                            <button name="action_open_done" type="object"
+                                    class="o_vifel_picker_card o_vifel_state_done"
+                                    title="Validated - look something up">
+                                <i class="fa fa-check o_vifel_picker_icon" role="img"/>
+                                <span class="o_vifel_picker_count">
+                                    <field name="done_count" nolabel="1" readonly="1"/>
+                                </span>
+                                <span class="o_vifel_picker_label">Done</span>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- New sits under the row, centred, not inside it.
+                         Creating a document is not a fifth state, and hanging it
+                         off Ready made that column taller than the other three
+                         and threw the row off balance. -->
+                    <div class="o_vifel_picker_newrow">
+                        <button name="action_new" type="object"
+                                class="o_vifel_picker_new">
+                            <i class="fa fa-plus me-1" role="img"/>New
+                        </button>
+                    </div>
+                </div>
+                <!-- Nothing here is edited, so Odoo's default Save / Discard
+                     footer offered two buttons that either do nothing or read
+                     as if the numbers could be changed. One way out is enough. -->
+                <footer>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

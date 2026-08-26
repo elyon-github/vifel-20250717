@@ -14,6 +14,7 @@ _logger = logging.getLogger(__name__)
 # Pallet Monitoring XLSX
 class PalletKilosXlsx(models.AbstractModel):
     _name = 'report.pallet_kilos_record_model.pallet_kilos_report_xlsx'
+    _description = 'Pallet Monitoring XLSX'
     _inherit = 'report.report_xlsx.abstract'
 
     def _get_kg_format_string(self):

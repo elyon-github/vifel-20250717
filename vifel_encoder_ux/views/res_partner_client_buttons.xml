@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- VIFEL client smart buttons on the Contact form -->
+    <record id="view_partner_form_vifel_client_buttons" model="ir.ui.view">
+        <field name="name">res.partner.form.vifel.client.buttons</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <!-- Inline <i> icons instead of icon="...": the attribute
+                     renders the default muted icon, this way they carry the
+                     same colors as the Clients kanban badges. -->
+                <button name="action_vifel_normal_transfers" type="object"
+                        class="oe_stat_button"
+                        invisible="not is_vifel_client">
+                    <i class="fa fa-fw o_button_icon fa-exchange text-success" title="Normal Transfers"/>
+                    <field name="vifel_normal_transfer_count" widget="statinfo"
+                           string="Normal Transfers"/>
+                </button>
+                <button name="action_vifel_bf_transfers" type="object"
+                        class="oe_stat_button"
+                        invisible="not is_vifel_client">
+                    <i class="fa fa-fw o_button_icon fa-snowflake-o text-info" title="Blast Freeze Transfers"/>
+                    <field name="vifel_bf_transfer_count" widget="statinfo"
+                           string="BF Transfers"/>
+                </button>
+                <button name="action_vifel_normal_stocks" type="object"
+                        class="oe_stat_button"
+                        invisible="not is_vifel_client">
+                    <i class="fa fa-fw o_button_icon fa-cubes text-primary" title="Normal Stock Inquiry"/>
+                    <div class="o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="vifel_normal_pallet_count"/> Pallets
+                        </span>
+                        <span class="o_stat_text">Normal Stock Inquiry</span>
+                    </div>
+                </button>
+                <button name="action_vifel_bf_stocks" type="object"
+                        class="oe_stat_button"
+                        invisible="not is_vifel_client">
+                    <i class="fa fa-fw o_button_icon fa-cube text-info" title="BF Stock Inquiry"/>
+                    <div class="o_stat_info">
+                        <span class="o_stat_value">
+                            <field name="vifel_bf_pallet_count"/> Pallets
+                        </span>
+                        <span class="o_stat_text">BF Stock Inquiry</span>
+                    </div>
+                </button>
+                <button name="action_vifel_locations" type="object"
+                        class="oe_stat_button"
+                        invisible="not is_vifel_client">
+                    <i class="fa fa-fw o_button_icon fa-map-marker text-danger" title="Occupied Locations"/>
+                    <field name="vifel_location_count" widget="statinfo"
+                           string="Locations"/>
+                </button>
+                <field name="is_vifel_client" invisible="1"/>
+            </div>
+            <!-- Clients are warehouse customers, not people with a job
+                 title — hide the person-ish fields for them. The attribute
+                 match pins the MAIN form's nodes (the child-contact
+                 sub-form uses a different invisible), so contact persons
+                 under a client keep their Job Position. -->
+            <xpath expr="//field[@name='function'][@invisible='is_company']"
+                   position="attributes">
+                <attribute name="invisible">is_company or is_vifel_client</attribute>
+            </xpath>
+            <xpath expr="//field[@name='title'][@invisible='is_company']"
+                   position="attributes">
+                <attribute name="invisible">is_company or is_vifel_client</attribute>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

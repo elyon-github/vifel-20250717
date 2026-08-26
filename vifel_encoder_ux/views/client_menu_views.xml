@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Clients hub: the entry point of the Inventory app.
+
+        Encoders start from the client, not from a document type — pick a
+        client here and every transfer, stock inquiry and occupied location
+        of theirs is one click away through the smart buttons on the form.
+        Uses the standard Contacts kanban/list/form, filtered to the
+        "Client" tag.
+    -->
+    <record id="action_vifel_clients" model="ir.actions.act_window">
+        <field name="name">Clients</field>
+        <field name="res_model">res.partner</field>
+        <field name="view_mode">kanban,tree,form</field>
+        <field name="domain">[('category_id.name', '=', 'Client')]</field>
+        <field name="search_view_id" ref="base.view_res_partner_filter"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Add a client</p>
+            <p>
+                Clients tagged <b>Client</b> appear here. Open one to see its
+                transfers, stocks and occupied locations.
+            </p>
+        </field>
+    </record>
+
+    <!--
+        Clients kanban: the standard contact card is CRM-ish and looks
+        empty for a warehouse client, so this one shows what encoders
+        care about — pallets on hand, locations occupied, transfer
+        volume, the latest Pallet Series issued — plus one-click
+        shortcuts to the Normal / BF transfer pickers (same actions and
+        icons as the form's smart buttons). Only used by the Clients hub;
+        the Contacts app keeps the standard card.
+    -->
+    <record id="view_vifel_clients_kanban" model="ir.ui.view">
+        <field name="name">res.partner.kanban.vifel.clients</field>
+        <field name="model">res.partner</field>
+        <field name="arch" type="xml">
+            <!-- js_class carries the control-panel sort toggle (A → Z /
+                 Most Pending), beside New.
+
+                 default_order opens the screen on Most Pending: the question
+                 this screen answers is "where is the outstanding work", so the
+                 clients with work waiting belong on the first card, not
+                 whoever happens to start with A. Read by kanban_arch_parser
+                 and resolved server-side in res.partner._search, which is why
+                 it names the same two keys as ORDER_PENDING in
+                 client_kanban_sort.js - keep the two in step. -->
+            <kanban sample="1" js_class="vifel_client_kanban"
+                    default_order="vifel_pending_transfer_count desc, complete_name asc">
+                <field name="id"/>
+                <field name="active"/>
+                <field name="is_company"/>
+                <field name="parent_id"/>
+                <field name="avatar_128"/>
+                <field name="is_vifel_client"/>
+                <field name="vifel_normal_pallet_count"/>
+                <field name="vifel_bf_pallet_count"/>
+                <field name="vifel_location_count"/>
+                <field name="vifel_normal_transfer_count"/>
+                <field name="vifel_bf_transfer_count"/>
+                <field name="vifel_pending_transfer_count"/>
+                <field name="vifel_has_activity"/>
+                <field name="vifel_latest_psi"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="oe_kanban_global_click o_kanban_record_has_image_fill o_res_partner_kanban">
+                            <t t-set="avatar_image" t-value="kanban_image('res.partner', 'avatar_128', record.id.raw_value)"/>
+                            <t t-if="!record.is_company.raw_value">
+                                <div class="o_kanban_image_fill_left d-none d-md-block">
+                                    <img t-attf-src="#{avatar_image}" t-att-alt="record.id.value"/>
+                                </div>
+                                <div class="o_kanban_image d-md-none d-block">
+                                    <img t-attf-src="#{avatar_image}" t-att-alt="record.id.value"/>
+                                </div>
+                            </t>
+                            <t t-else="">
+                                <div class="o_kanban_image_fill_left d-none d-md-block o_kanban_image_full">
+                                    <img t-attf-src="#{avatar_image}" role="img" t-att-alt="record.id.value"/>
+                                </div>
+                                <div class="o_kanban_image d-md-none d-block o_kanban_image_full">
+                                    <img t-attf-src="#{avatar_image}" role="img" t-att-alt="record.id.value"/>
+                                </div>
+                            </t>
+                            <div class="ribbon ribbon-top-right" invisible="active">
+                                <span class="text-bg-danger">Archived</span>
+                            </div>
+                            <div class="oe_kanban_details d-flex flex-column">
+                                <!-- Not fw-bold: Odoo remaps $font-weight-bold to 500,
+                                     the weight the title already has, and the class's
+                                     !important 500 would even override this style. -->
+                                <strong class="o_kanban_record_title oe_partner_heading"
+                                        style="font-weight: 700;">
+                                    <field name="display_name"/>
+                                </strong>
+                                <t t-if="record.is_vifel_client.raw_value">
+                                    <!-- PENDING FIRST, and loud. It is the only
+                                         actionable number on the card; the rest
+                                         describe stock. It used to be the
+                                         smallest badge, below reference trivia. -->
+                                    <div t-if="record.vifel_pending_transfer_count.raw_value"
+                                         class="mt-1">
+                                        <!-- Badges are buttons: each opens exactly
+                                             the records it counts. type="object"
+                                             inside a kanban card calls the method on
+                                             this record, same as a form smart button. -->
+                                        <button type="object" name="action_vifel_pending_transfers"
+                                                class="badge rounded-pill text-bg-warning border-0 o_vifel_badge_btn"
+                                                title="Show the transfers not yet validated">
+                                            <i class="fa fa-clock-o me-1"/><t t-esc="record.vifel_pending_transfer_count.raw_value"/> Pending
+                                        </button>
+                                    </div>
+                                    <!-- Zero badges are printed as loudly as real
+                                         figures, so a shell client reads as busy as
+                                         a real one. Each badge now appears only when
+                                         it has something to say. -->
+                                    <div class="d-flex flex-wrap mt-1" style="gap: 3px 6px;">
+                                        <button t-if="record.vifel_normal_pallet_count.raw_value"
+                                                type="object" name="action_vifel_normal_stocks"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show these pallets in Stock Inquiry">
+                                            <i class="fa fa-cubes text-primary me-1"/><t t-esc="record.vifel_normal_pallet_count.raw_value"/> Pallets
+                                        </button>
+                                        <button t-if="record.vifel_bf_pallet_count.raw_value"
+                                                type="object" name="action_vifel_bf_stocks"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show these blast freeze pallets">
+                                            <i class="fa fa-snowflake-o text-info me-1"/><t t-esc="record.vifel_bf_pallet_count.raw_value"/> BF
+                                        </button>
+                                        <button t-if="record.vifel_location_count.raw_value"
+                                                type="object" name="action_vifel_locations"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show the storage locations this client occupies">
+                                            <i class="fa fa-map-marker text-danger me-1"/><t t-esc="record.vifel_location_count.raw_value"/> Locations
+                                        </button>
+                                        <!-- Normal and BF kept apart: they are
+                                             different operations with different
+                                             screens, so one combined total could not
+                                             open a meaningful list. -->
+                                        <button t-if="record.vifel_normal_transfer_count.raw_value"
+                                                type="object" name="action_vifel_all_normal_transfers"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show all normal transfers of this client">
+                                            <i class="fa fa-exchange text-success me-1"/><t t-esc="record.vifel_normal_transfer_count.raw_value"/> Transfers
+                                        </button>
+                                        <button t-if="record.vifel_bf_transfer_count.raw_value"
+                                                type="object" name="action_vifel_all_bf_transfers"
+                                                class="badge rounded-pill text-bg-light border-0 o_vifel_badge_btn"
+                                                title="Show all blast freeze transfers of this client">
+                                            <i class="fa fa-snowflake-o text-info me-1"/><t t-esc="record.vifel_bf_transfer_count.raw_value"/> BF Transfers
+                                        </button>
+                                        <!-- One quiet line beats four zeros. -->
+                                        <span t-if="!record.vifel_has_activity.raw_value"
+                                              class="text-muted small fst-italic">
+                                            No stock or transfers yet
+                                        </span>
+                                    </div>
+                                    <!-- Reference, not action: kept, but no longer
+                                         competing with the numbers above. -->
+                                    <div t-if="record.vifel_latest_psi.raw_value and record.vifel_has_activity.raw_value"
+                                         class="text-muted small mt-1"
+                                         title="Most recently issued Pallet Series ID">
+                                        <i class="fa fa-barcode me-1"/>Latest PSI:
+                                        <t t-esc="record.vifel_latest_psi.raw_value"/>
+                                    </div>
+                                    <div class="d-flex mt-2" style="gap: 6px;">
+                                        <button type="object" name="action_vifel_normal_transfers"
+                                                class="btn btn-sm btn-primary py-0"
+                                                title="Normal Transfers — pick Receiving or Withdrawal">
+                                            <i class="fa fa-exchange me-1"/>Transfers
+                                        </button>
+                                        <!-- ALWAYS shown, even at zero: this is how a
+                                             client's FIRST blast-freeze transfer gets
+                                             created. Hiding it on clients with no BF
+                                             history made new BF work impossible to
+                                             start from the card. -->
+                                        <button type="object" name="action_vifel_bf_transfers"
+                                                class="btn btn-sm btn-info py-0"
+                                                title="Blast Freeze Transfers — pick BF IN or BF OUT">
+                                            <i class="fa fa-snowflake-o me-1"/>BF Transfers
+                                        </button>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="action_vifel_clients_kanban" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">kanban</field>
+        <field name="view_id" ref="view_vifel_clients_kanban"/>
+        <field name="act_window_id" ref="action_vifel_clients"/>
+    </record>
+
+    <record id="action_vifel_clients_tree" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="base.view_partner_tree"/>
+        <field name="act_window_id" ref="action_vifel_clients"/>
+    </record>
+
+    <record id="action_vifel_clients_form" model="ir.actions.act_window.view">
+        <field name="sequence">3</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="base.view_partner_form"/>
+        <field name="act_window_id" ref="action_vifel_clients"/>
+    </record>
+
+    <!-- Sequence 0: first child of Inventory, so the app opens here -->
+    <menuitem id="menu_vifel_clients"
+              name="Clients"
+              parent="stock.menu_stock_root"
+              action="action_vifel_clients"
+              sequence="0"/>
+
+    <!--
+        Find Transfer: the paper-in-hand door.
+
+        Work here is paper-driven — a Tally Sheet or Picklist comes back from
+        the Checker with its RR/WR number printed on it, and the encoder has
+        to reach that exact document. The Clients hub cannot answer that: it
+        searches res.partner, so a document number typed there matches
+        nothing, and the only other route (Operations > Transfers > Receiving)
+        costs three clicks before you can even type.
+
+        Deliberately unrestricted: every operation type, both directions, and
+        Blast Freeze too — the BF menu entries are archived, so this is the
+        only menu path that reaches a BF transfer at all.
+
+        NO default state filter, on purpose. This screen answers "where is
+        M/RR/04376?", and a Draft/Ready default would hide a document that has
+        already been validated, which reads to the user as "it does not
+        exist". Predictability beats pre-filtering here.
+    -->
+    <record id="action_vifel_find_transfer" model="ir.actions.act_window">
+        <field name="name">Find Transfer</field>
+        <field name="res_model">stock.picking</field>
+        <field name="view_mode">tree,kanban,form</field>
+        <field name="context">{'contact_display': 'partner_address'}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No transfer matches your search</p>
+            <p>
+                Type the <b>RR / WR number</b> printed on the paper — for
+                example <b>M/RR/04376</b> — in the search box above.
+                You can also search by client, container or truck plate.
+            </p>
+        </field>
+    </record>
+
+    <!-- Most recent first, and the Documentation Staff column instead of
+         Responsible (same primary view the client transfer lists use). -->
+    <record id="action_vifel_find_transfer_tree" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">tree</field>
+        <field name="view_id" ref="view_picking_tree_vifel_client"/>
+        <field name="act_window_id" ref="action_vifel_find_transfer"/>
+    </record>
+
+    <menuitem id="menu_vifel_find_transfer"
+              name="Find Transfer"
+              parent="stock.menu_stock_root"
+              action="action_vifel_find_transfer"
+              sequence="1"/>
+
+    <!--
+        Creating a client from this screen should tag it Client, otherwise
+        it vanishes from the list. The tag is a plain DB record with no XML
+        id, so the default is wired by name on module update.
+    -->
+    <function model="ir.actions.act_window" name="vifel_set_client_tag_default"/>
+
+</odoo>

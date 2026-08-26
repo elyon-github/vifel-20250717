@@ -1,0 +1,181 @@
+// Transfer-type picker dialog (Contact smart buttons → Normal / BF Transfers)
+//
+// Colours come from Odoo's own SCSS theme variables, so the dialog follows
+// whatever theme the backend is compiled with (light or dark) instead of
+// hard-coded hex values.
+
+.o_vifel_type_picker {
+
+    .o_vifel_picker_body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        // Fixed height so the dialog never resizes between clients
+        height: 210px;
+        padding: 0.5rem 0;
+    }
+
+    .o_vifel_picker_hint {
+        margin: 0;
+        color: $o-main-color-muted;
+        font-size: 0.9rem;
+        text-align: center;
+    }
+
+    .o_vifel_picker_options {
+        display: flex;
+        gap: 1.25rem;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    // Validated documents, kept quiet: useful as context, but this dialog is
+    // about what still needs doing, so it must never compete with the count.
+    .o_vifel_picker_done {
+        font-size: 0.72rem;
+        line-height: 1;
+        color: $text-muted;
+        margin-top: 0.15rem;
+    }
+
+    // One column per direction: the big card opens the existing transfers,
+    // the quiet link under it starts a new one. Creating is the commoner job
+    // (encoding starts from paper), but browsing is the safer default click,
+    // so the destructive-by-accident option stays the smaller of the two.
+    .o_vifel_picker_choice {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.4rem;
+    }
+
+    .o_vifel_picker_new {
+        border: 1px solid $border-color;
+        border-radius: 0.35rem;
+        background-color: transparent;
+        color: $o-main-text-color;
+        font-size: 0.85rem;
+        padding: 0.3rem 0.5rem;
+        transition: background-color 0.12s ease, border-color 0.12s ease;
+
+        &:hover, &:focus {
+            background-color: rgba($o-brand-primary, 0.08);
+            border-color: $o-brand-primary;
+            color: $o-brand-primary;
+        }
+    }
+
+    .o_vifel_picker_card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.15rem;
+
+        width: 172px;
+        height: 134px;
+        padding: 0.75rem;
+
+        background-color: $o-view-background-color;
+        color: $o-main-text-color;
+        border: 1px solid rgba($o-main-text-color, 0.15);
+        border-top: 3px solid transparent;
+        border-radius: 10px;
+        box-shadow: 0 1px 2px rgba(black, 0.06);
+        transition: border-color 0.12s ease, box-shadow 0.12s ease,
+                    transform 0.12s ease, background-color 0.12s ease;
+
+        &:active {
+            transform: translateY(0);
+        }
+    }
+
+    // Receiving — stock coming IN, green like a go signal
+    .o_vifel_picker_card.o_vifel_in {
+        border-top-color: $success;
+
+        .o_vifel_picker_icon, .o_vifel_picker_count {
+            color: $success;
+        }
+
+        &:hover, &:focus {
+            border-color: $success;
+            background-color: rgba($success, 0.06);
+            box-shadow: 0 4px 12px rgba($success, 0.22);
+            transform: translateY(-2px);
+        }
+    }
+
+    // Withdrawal — stock going OUT, red
+    .o_vifel_picker_card.o_vifel_out {
+        border-top-color: $danger;
+
+        .o_vifel_picker_icon, .o_vifel_picker_count {
+            color: $danger;
+        }
+
+        &:hover, &:focus {
+            border-color: $danger;
+            background-color: rgba($danger, 0.06);
+            box-shadow: 0 4px 12px rgba($danger, 0.22);
+            transform: translateY(-2px);
+        }
+    }
+
+    .o_vifel_picker_icon {
+        font-size: 1.3rem;
+        opacity: 0.9;
+        margin-bottom: 0.15rem;
+    }
+
+    .o_vifel_picker_count {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.1;
+
+        // the readonly integer field inside renders as a plain span
+        .o_field_widget, span {
+            font-size: inherit;
+            font-weight: inherit;
+            color: inherit;
+        }
+    }
+
+    .o_vifel_picker_label {
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: $o-main-text-color;
+        opacity: 0.75;
+        text-align: center;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Clickable count badges on the Clients kanban cards.
+//
+// Each badge is a <button>, so it opens exactly the records it counts. The
+// styling strips the button chrome and keeps the pill look, then adds the
+// affordances a plain badge lacks: a pointer cursor and a lift on hover, so
+// it reads as clickable rather than decorative.
+// ---------------------------------------------------------------------------
+.o_vifel_badge_btn {
+    cursor: pointer;
+    padding: 0.28em 0.62em;
+    line-height: 1;
+    transition: filter 0.12s ease, box-shadow 0.12s ease;
+
+    &:hover, &:focus {
+        filter: brightness(0.94);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+        text-decoration: none;
+    }
+
+    &:active {
+        filter: brightness(0.88);
+        box-shadow: none;
+    }
+}

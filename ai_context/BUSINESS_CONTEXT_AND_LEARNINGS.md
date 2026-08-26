@@ -369,9 +369,21 @@ make totals look right (the VERDURE −350 lesson: totals passed, every row was 
 - **Dual-layer system**: day-to-day behavior largely lives in DB Studio automations/server
   actions, NOT the repo. Always check both layers; the context dump under-reports
   (module=NULL Studio records).
-- **Odoo.sh auto-updates any module whose manifest version changes** in a push — versions
-  on client-trial are PINNED to MAIN's exact strings (quote styles differ per manifest —
-  diff quote-agnostically!). Real deploy must deliberately RE-BUMP.
+- **NEVER change a module's manifest `version` string** (user ruling, 2026-08-22 —
+  absolute, no exceptions). Not to "bump for a change", not to reflect new fields, not
+  as tidy-up. Odoo.sh **auto-updates any module whose version string changed** in a
+  push, so an incidental bump fires an unplanned upgrade on the platform; that has
+  already caused a failed build here. Versions on client-trial are PINNED to MAIN's
+  exact strings. Re-bumping is a **deliberate, human-decided deploy step**, never part
+  of a feature commit.
+  - Other manifest keys (`depends`, `data`, `assets`) are safe to edit — only
+    `version` triggers the auto-update.
+  - Before committing anything that touches a `__manifest__.py`, verify no version
+    moved, and diff **quote-agnostically**: some manifests use `'version'`, some
+    `"version"`, and a single-quote-only grep already missed one. Compare the PARSED
+    value across revisions rather than eyeballing the diff, e.g. regex
+    `['\"]version['\"]\s*:\s*['\"]([^'\"]*)['\"]` over `git show <rev>:<manifest>`
+    for every manifest in the tree.
 - **Git**: machine SSH key is a read-only deploy key — push via HTTPS. MAIN is
   assistant-read-only, always. Case-variant branches (MAIN/main, Consultant-test/
   consultant-test) are distinct — never check out case twins locally on Windows.
