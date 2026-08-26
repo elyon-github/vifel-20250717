@@ -25,10 +25,12 @@ class picking_type(models.Model):
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
 
-    # Track the Client in the chatter (COMP-2026-00044). It was NOT tracked, so
-    # a swap on a draft left no trace at all - which is why "another user used
-    # my series" could never be proved either way. The lock below prevents it;
-    # this makes any legitimate change (a Stock Administrator override) visible.
+    # TRACKED so a Client change is never silent again. Re-clienting a
+    # WITHDRAWAL is allowed (staff genuinely have to correct it), but every
+    # return already created from that withdrawal keeps the OLD client, and
+    # with no tracking that drift left no trace anywhere - which is why it
+    # went unexplained for months. Only `tracking` is added here; every other
+    # attribute of the field is inherited untouched.
     partner_id = fields.Many2one(tracking=True)
 
     is_void_wr = fields.Boolean(string="Is Void WR", default=False, copy=False,
@@ -3238,6 +3240,9 @@ class transfer_locations(models.Model):
                             "%(src)s.",
                             doc=record.name, src=link_name, kind=link_kind))
 
+        # The tracking on partner_id above is what makes an override of this
+        # lock visible: before it, a swap on a draft left no trace at all, so
+        # "another user used my series" could never be proved either way.
         # CLIENT LOCK (COMP-2026-00044). The RR/WR number is reserved the
         # moment the document is created, so a draft already owns its number.
         # Nothing stopped another user opening someone else's draft, swapping
