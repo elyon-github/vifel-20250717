@@ -50,6 +50,11 @@ export class PalletSeriesTimeline extends Component {
             pickingState: "",
             eventCount: 0,
             uniqueSeries: 0,
+            currentLines: 0,
+            currentSeries: 0,
+            currentPallets: 0,
+            linesWithoutSeries: 0,
+            palletsPending: false,
             events: [],
             groupMode: "timeline",   // "timeline" | "series" | "line" | "pallet" | "user"
             filterType: "",          // "" = all
@@ -81,13 +86,24 @@ export class PalletSeriesTimeline extends Component {
             const [header] = await this.orm.read(
                 "pallet.series.audit",
                 [this.state.auditId],
-                ["picking_name", "partner_id", "picking_state", "event_count", "unique_series_count"],
+                [
+                    "picking_name", "partner_id", "picking_state",
+                    "event_count", "unique_series_count",
+                    "current_line_count", "current_series_count",
+                    "current_pallet_count", "lines_without_series",
+                    "pallets_pending",
+                ],
             );
             this.state.pickingName  = header.picking_name || "";
             this.state.partnerName  = header.partner_id ? header.partner_id[1] : "";
             this.state.pickingState = header.picking_state || "";
             this.state.eventCount   = header.event_count || 0;
             this.state.uniqueSeries = header.unique_series_count || 0;
+            this.state.currentLines   = header.current_line_count || 0;
+            this.state.currentSeries  = header.current_series_count || 0;
+            this.state.currentPallets = header.current_pallet_count || 0;
+            this.state.linesWithoutSeries = header.lines_without_series || 0;
+            this.state.palletsPending = !!header.pallets_pending;
 
             /* events */
             const eventIds = await this.orm.search(
@@ -222,18 +238,63 @@ export class PalletSeriesTimeline extends Component {
     /* ------------------------------------------------------------------ */
     /*  Summary stats                                                      */
     /* ------------------------------------------------------------------ */
+    /* Plain-language verdict on the CURRENT document, shown above the log.
+       COMP-2026-00048: a supervisor read "0 Pallets" plus 43 "Line Deleted"
+       events as data loss on an RR that was already fully re-encoded.  The
+       log is history; this states what the RR holds now. */
+    get currentStateVerdict() {
+        const lines = this.state.currentLines;
+        const series = this.state.currentSeries;
+        const blank = this.state.linesWithoutSeries;
+        const name = this.state.pickingName || "This RR";
+
+        if (!lines) {
+            return {
+                level: "danger",
+                icon: "fa-exclamation-triangle",
+                message: `${name} has no move lines right now. The events below are history — nothing on this document currently carries a pallet series.`,
+            };
+        }
+        if (blank === lines) {
+            return {
+                level: "danger",
+                icon: "fa-exclamation-triangle",
+                message: `${name} has ${lines} line(s), none of which carry a pallet series. Run Assign Pallet Series to fix this.`,
+            };
+        }
+        if (blank) {
+            return {
+                level: "warning",
+                icon: "fa-exclamation-circle",
+                message: `${name} has ${lines} line(s), but ${blank} of them carry no pallet series. Assign the missing series before validating.`,
+            };
+        }
+        /* Note: series < lines is NOT a defect — several lines legitimately
+           share one pallet series (different products or batches on the same
+           pallet), so it is reported, never flagged. */
+        const shared = series < lines
+            ? ` ${series} distinct series are shared across those lines, which is normal.`
+            : "";
+        const pallets = this.state.palletsPending
+            ? " Pallets are only created on validation, so the pallet count is blank until then."
+            : "";
+        return {
+            level: "ok",
+            icon: "fa-check-circle",
+            message: `${name} currently holds ${lines} line(s), all carrying a pallet series.${shared} Any deletions below already happened and have since been re-encoded.${pallets}`,
+        };
+    }
+
     get summaryStats() {
         const evts = this.state.events;
         const byType = {};
         for (const ev of evts) {
             byType[ev.event_type] = (byType[ev.event_type] || 0) + 1;
         }
-        const pallets = new Set(evts.map(e => e.result_package_name).filter(Boolean));
-        const lines = new Set(evts.map(e => e.line_number).filter(Boolean));
+        // Pallet / line counts deliberately live on the header now: they are
+        // read off the picking, not inferred from the log (COMP-2026-00048).
         return {
             byType,
-            palletCount: pallets.size,
-            lineCount: lines.size,
             totalEvents: evts.length,
         };
     }

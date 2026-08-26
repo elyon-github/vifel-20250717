@@ -80,6 +80,42 @@
     letter-spacing: .5px;
 }
 
+.psa-stat-note {
+    font-size: 10px;
+    color: #adb5bd;
+    font-style: italic;
+    margin-top: -2px;
+}
+/* history-derived tile reads quieter than the live ones */
+.psa-stat-log {
+    color: #adb5bd;
+    font-weight: 600;
+}
+
+/* ================ CURRENT-STATE BANNER ================ */
+.psa-state-banner {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    font-size: 12.5px;
+    border-left: 4px solid transparent;
+}
+.psa-state-ok {
+    background: #ebfbee;
+    border-left-color: #37b24d;
+    color: #2b8a3e;
+}
+.psa-state-warning {
+    background: #fff9db;
+    border-left-color: #f59f00;
+    color: #e67700;
+}
+.psa-state-danger {
+    background: #fff5f5;
+    border-left-color: #f03e3e;
+    color: #c92a2a;
+}
+
 /* ================ QUICK STATS BAR ================ */
 .psa-quick-stats {
     display: flex;

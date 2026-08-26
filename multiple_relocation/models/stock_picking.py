@@ -3266,6 +3266,57 @@ class transfer_locations(models.Model):
                             "%(src)s.",
                             doc=record.name, src=link_name, kind=link_kind))
 
+        # The tracking on partner_id above is what makes an override of this
+        # lock visible: before it, a swap on a draft left no trace at all, so
+        # "another user used my series" could never be proved either way.
+        # CLIENT LOCK (COMP-2026-00044). The RR/WR number is reserved the
+        # moment the document is created, so a draft already owns its number.
+        # Nothing stopped another user opening someone else's draft, swapping
+        # the Client and encoding their own transaction into it - which is what
+        # "the active series is being used by other transactions" describes.
+        # The numbering itself is sound (a Postgres sequence, zero duplicates in
+        # 16395 documents), so a number only ever APPEARS to move because the
+        # DOCUMENT moved.
+        #
+        # Draft is a SOFT lock: the creator can still fix a mis-picked client
+        # without cancelling the document and burning an RR number - every draft
+        # is empty at that point, so nothing is corrupted by the change. From
+        # 'assigned' onward the pallet lines exist and re-attributing them to
+        # another client re-owns stock and misattributes billing, so it is shut
+        # to everyone. Stock Administrators can always override.
+        if 'partner_id' in vals and not self.env.context.get(
+                'skip_client_lock_guard'):
+            is_manager = self.env.user.has_group('stock.group_stock_manager')
+            for record in self:
+                if record.state in ('done', 'cancel'):
+                    continue          # core already blocks these
+                if (not vals['partner_id']
+                        or vals['partner_id'] == record.partner_id.id):
+                    continue          # not actually a change
+                if is_manager:
+                    continue
+                if record.state != 'draft':
+                    raise UserError(_(
+                        "%(doc)s is already %(state)s, so its Client can no "
+                        "longer be changed.\n\n"
+                        "Pallet lines have been encoded against %(client)s - "
+                        "moving them to another client would re-own the stock "
+                        "and misattribute the billing.\n\n"
+                        "Ask a Stock Administrator if this really has to "
+                        "change.",
+                        doc=record.name, state=record.state,
+                        client=record.partner_id.display_name or '?'))
+                if record.create_uid and record.create_uid != self.env.user:
+                    raise UserError(_(
+                        "%(doc)s was created by %(owner)s and is still in "
+                        "draft, so only they can change its Client.\n\n"
+                        "This document already reserves its number for "
+                        "%(client)s. If you need a transfer for a different "
+                        "client, create a new one rather than reusing this "
+                        "number.",
+                        doc=record.name, owner=record.create_uid.name or '?',
+                        client=record.partner_id.display_name or '?'))
+
         # Capture old x_studio_edit_record values before super write
         old_edit_record_vals = {}
         if 'x_studio_edit_record' in vals:
@@ -3824,7 +3875,10 @@ class transfer_locations(models.Model):
             and any(
                 hasattr(tracking_value, 'field_id')
                 and isinstance(tracking_value.field_id.name, str)
-                and 'x_studio' in tracking_value.field_id.name
+                # NOT restricted to x_studio_ any more (COMP-2026-00045):
+                # that excluded every native field - quantity, product, lot,
+                # scheduled date - and so excluded most real adjustments. The
+                # form is meant to show whatever changed.
                 and any(
                     getattr(tracking_value, field, False)
                     for field in ['old_value_text', 'old_value_integer', 'old_value_float', 'old_value_datetime', 'old_value_char']
@@ -3850,8 +3904,14 @@ class transfer_locations(models.Model):
                     old_value = getattr(tracking_value, field, None)
                     new_value = getattr(tracking_value, new_field, None)
                     if old_value or new_value:
+                        # a line change carries its own label ("Weight (KG) -
+                        # Pallet R 2951"); header changes fall back to the
+                        # field's own description.
+                        info = tracking_value.field_info or {}
+                        label = (info.get('label')
+                                 if isinstance(info, dict) else None)
                         Values.insert(0, {
-                            'field': tracking_value.field_id.field_description,
+                            'field': label or tracking_value.field_id.field_description,
                             'old_value': old_value,
                             'new_value': new_value if new_value else None
                         })

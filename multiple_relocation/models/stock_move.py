@@ -818,6 +818,220 @@ class stock_move_line_Override(models.Model):
     #     # Proceed with the deletion
     #     res = super(stock_move_line_Override, self).unlink()
 
+
+    # ------------------------------------------------------------------
+    # ONE PALLET NUMBER = ONE PALLET  (COMP-2026-00043)
+    # ------------------------------------------------------------------
+    # A pallet series identifies one physical pallet. It becomes free again
+    # only when that pallet has been withdrawn and its stock is gone - which is
+    # exactly what the client asked for: "once Pallet No. 001 has been assigned
+    # and used, it should not be reused unless the pallet has been withdrawn
+    # and is already available for reassignment".
+    #
+    # Enforced on the model rather than in the "Assign Pallet Series" server
+    # action (id 347), because that action lives in the DATABASE and would not
+    # travel with a merge - and because the Magic Wizard, imports and manual
+    # edits all write the field without going near it.
+
+    # ------------------------------------------------------------------
+    # ADJUSTMENT AUDIT TRAIL (COMP-2026-00045)
+    # ------------------------------------------------------------------
+    # The Adjustment Form prints its From / To columns from
+    # stock.picking.AuditTrail(), which reads the PICKING's chatter. Move lines
+    # carry no chatter of their own (0 tracked fields, 0 messages on
+    # stock.move.line), so adjusting a pallet's weight or quantity after
+    # validation left nothing for the form to print - the very change the form
+    # exists to document. Proven on M/RR/05775: editing a line's quantity from
+    # 644.000 to 651.500 produced byte-identical output.
+    #
+    # Every material change to a line of a VALIDATED document is therefore
+    # logged onto its picking, as real tracking values so the existing report
+    # code picks them up unchanged. Only done pickings are watched: before
+    # validation the document is still being encoded, and every keystroke would
+    # otherwise become an audit entry.
+    VIFEL_ADJUSTMENT_TRACKED_FIELDS = (
+        'quantity', 'x_studio_actual_kg',
+        'x_studio_2nd_uom', 'x_studio_actual_packaging',
+        'x_studio_total_units', 'x_studio_actual_min',
+        'x_studio_withdraw_units', 'x_studio_affected_2nd_uom',
+        'product_id', 'lot_id', 'x_studio_pallet_series_id',
+        'x_studio_container_number', 'x_studio_production_date',
+        'x_studio_expiration_date',
+    )
+
+    def _vifel_adjustment_label(self, field):
+        """'Weight (KG) - Pallet R 2951', so the form says WHICH pallet moved."""
+        self.ensure_one()
+        pallet = (self.result_package_id.name or self.package_id.name
+                  or self.x_studio_pallet_series_id or '')
+        desc = self._fields[field].string if field in self._fields else field
+        return '%s - Pallet %s' % (desc, pallet) if pallet else desc
+
+    @staticmethod
+    def _vifel_adjustment_display(record, field):
+        """Readable old/new value: a name for relations, the raw value else."""
+        value = record[field] if field in record._fields else None
+        if not value:
+            return ''
+        if hasattr(value, 'display_name'):
+            return value.display_name or ''
+        if isinstance(value, float):
+            return '%.3f' % value
+        return str(value)
+
+    def _vifel_log_adjustment(self, vals):
+        """Record post-validation line edits on the picking's chatter."""
+        watched = [f for f in self.VIFEL_ADJUSTMENT_TRACKED_FIELDS if f in vals]
+        if not watched or self.env.context.get('vifel_skip_adjustment_log'):
+            return {}
+        before = {}
+        for line in self:
+            if line.picking_id.state != 'done':
+                continue
+            before[line.id] = {f: self._vifel_adjustment_display(line, f)
+                               for f in watched}
+        return before
+
+    def _vifel_post_adjustment(self, before):
+        """Write the captured before/after pairs as tracking values."""
+        if not before:
+            return
+        Field = self.env['ir.model.fields'].sudo()
+        Tracking = self.env['mail.tracking.value'].sudo()
+        by_picking = {}
+        for line in self:
+            old = before.get(line.id)
+            if not old:
+                continue
+            for field, old_value in old.items():
+                new_value = self._vifel_adjustment_display(line, field)
+                if new_value == old_value:
+                    continue          # written but unchanged
+                by_picking.setdefault(line.picking_id, []).append(
+                    (line, field, old_value, new_value))
+        for picking, changes in by_picking.items():
+            body = _('Adjustment recorded on %d pallet line(s).') % len(changes)
+            message = picking.sudo().message_post(body=body)
+            for line, field, old_value, new_value in changes:
+                fid = Field._get(line._name, field)
+                Tracking.create({
+                    'mail_message_id': message.id,
+                    'field_id': fid.id if fid else False,
+                    'old_value_char': old_value[:250],
+                    'new_value_char': new_value[:250],
+                    # the form prefers this label, so it can name the pallet
+                    'field_info': {'label': line._vifel_adjustment_label(field)},
+                })
+
+    @staticmethod
+    def _vifel_series_spellings(series):
+        """Every zero-padded spelling of the same pallet number.
+
+        Padding is NOT consistent in the data: on the 2026-08-24 production
+        restore live stock carries 18341 six-digit series, 3605 five-digit, 142
+        four-digit and a handful shorter. GB-20809 and GB-020809 are the same
+        physical number written two ways, so an exact string match misses the
+        collision - 78 duplicates by raw string, 100 once padding is ignored
+        (TITAN alone holds CON-05461 and CON-5461 on two different pallets).
+
+        Returns every spelling so the lookup stays a plain indexed 'in' rather
+        than a scan. A series whose tail is not purely numeric is returned
+        as-is; there is nothing safe to normalise there.
+        """
+        s = (series or '').strip()
+        if not s or '-' not in s:
+            return [s] if s else []
+        prefix, _sep, tail = s.rpartition('-')
+        tail = tail.strip()
+        if not tail.isdigit():
+            return [s]
+        n = int(tail)
+        return sorted({s} | {'%s-%s' % (prefix, str(n).zfill(w))
+                             for w in range(1, 9)})
+
+    # Flows allowed to write a series that is already standing on stock.
+    def _vifel_series_guard_exempt(self):
+        # Data fixes and migration scripts opt out explicitly; nothing in the
+        # normal UI sets this.
+        return bool(self.env.context.get('vifel_skip_series_guard'))
+
+    def _vifel_assert_series_free(self, series_by_line):
+        """Refuse a pallet series that is live on a DIFFERENT pallet.
+
+        series_by_line: {line_or_None: (series, owner, own_package)}. Lines are
+        checked one by one so the error can name the offending pallet.
+        """
+        if self._vifel_series_guard_exempt():
+            return
+        Quant = self.env['stock.quant'].sudo()
+        for line, (series, owner, own_pkg) in series_by_line.items():
+            series = (series or '').strip()
+            if not series or not owner:
+                continue
+            # A merged line DELIBERATELY adopts a stocked pallet's number - that
+            # is the whole Merge Pallet feature. Blast freeze carries no series.
+            if line is not None and getattr(line, 'is_pallet_merge', False):
+                continue
+            busy = Quant.search([
+                ('x_studio_pallet_series_id', 'in',
+                 self._vifel_series_spellings(series)),
+                ('package_id', '!=', False),
+                ('quantity', '>', 0),
+                ('owner_id', '=', owner.id),
+            ]).mapped('package_id')
+            # its own pallet keeping its own number is not a collision, nor is a
+            # second line of the same receipt landing on that same pallet.
+            if own_pkg:
+                busy -= own_pkg
+            if busy:
+                pkg = busy[0]
+                where = pkg.location_id.complete_name if pkg.location_id else ''
+                raise UserError(_(
+                    "Pallet Series %(series)s is still in use.\n\n"
+                    "It is currently on pallet %(pallet)s%(where)s for "
+                    "%(client)s, which still holds stock. A pallet number can "
+                    "only be used again once that pallet has been withdrawn "
+                    "and is empty.\n\n"
+                    "Use a different Pallet Series for this line, or withdraw "
+                    "%(pallet)s first.",
+                    series=series, pallet=pkg.name or '?',
+                    where=(' at %s' % where) if where else '',
+                    client=owner.name or '?'))
+
+    def _vifel_guard_series_on_vals(self, vals, lines=None):
+        """Collect what a create/write is about to set, then check it."""
+        if 'x_studio_pallet_series_id' not in vals:
+            return
+        series = vals.get('x_studio_pallet_series_id')
+        if not series:
+            return
+        Package = self.env['stock.quant.package']
+        to_check = {}
+        if lines is None:
+            # create(): the picking decides direction and owner
+            picking = self.env['stock.picking'].browse(vals['picking_id'])                 if vals.get('picking_id') else self.env['stock.picking']
+            if picking.picking_type_id.code != 'incoming':
+                return
+            if picking.x_studio_is_a_blast_freezer:
+                return
+            owner = self.env['res.partner'].browse(vals['owner_id'])                 if vals.get('owner_id') else picking.partner_id
+            pkg_id = vals.get('result_package_id') or vals.get('package_id')
+            to_check[None] = (series, owner, Package.browse(pkg_id) if pkg_id else Package)
+        else:
+            for line in lines:
+                picking = line.picking_id
+                if picking.picking_type_id.code != 'incoming':
+                    continue
+                if picking.x_studio_is_a_blast_freezer:
+                    continue
+                owner = line.owner_id or picking.partner_id
+                pkg_id = vals.get('result_package_id') or vals.get('package_id')
+                pkg = Package.browse(pkg_id) if pkg_id else (
+                    line.result_package_id or line.package_id)
+                to_check[line] = (series, owner, pkg)
+        if to_check:
+            self._vifel_assert_series_free(to_check)
+
     @api.model_create_multi
     def create(self, vals_list):
         # VOID-MIRROR GUARD: no manual pallet lines may be ADDED to a linked,
@@ -830,6 +1044,9 @@ class stock_move_line_Override(models.Model):
                 if source:
                     self._void_mirror_raise(
                         picking, source, kind, _('add pallet lines to it'))
+        # ONE PALLET NUMBER = ONE PALLET (COMP-2026-00043)
+        for vals in vals_list:
+            self._vifel_guard_series_on_vals(vals)
         return super().create(vals_list)
 
     def unlink(self):
@@ -858,6 +1075,10 @@ class stock_move_line_Override(models.Model):
         # VOID-MIRROR GUARD: KG / Packaging / Packs on a linked, unvalidated
         # void equivalent must stay identical to the voided document
         self._void_mirror_guard_write(vals)
+
+        # ONE PALLET NUMBER = ONE PALLET (COMP-2026-00043). Only fires when the
+        # series itself is being written, so unrelated edits are untouched.
+        self._vifel_guard_series_on_vals(vals, lines=self)
 
         # Skip when called from action_confirm (wizard already handles everything)
         if self.env.context.get('skip_pallet_series_sync'):
@@ -1580,6 +1801,17 @@ class stock_move_line_Override(models.Model):
 
 class stock_move_line_Override(models.Model):
     _inherit = 'stock.move.line'
+
+    def write(self, vals):
+        """Record post-validation pallet edits for the Adjustment Form.
+
+        Wraps the whole write chain from the later class so the several
+        early returns in the other override cannot skip the log.
+        """
+        before = self._vifel_log_adjustment(vals)
+        res = super().write(vals)
+        self._vifel_post_adjustment(before)
+        return res
     _order = 'product_id asc'
 
     def action_open_fast_encode_wizard(self):
