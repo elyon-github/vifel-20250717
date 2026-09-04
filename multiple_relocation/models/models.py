@@ -20,7 +20,63 @@ class ResPartner(models.Model):
     # JSON field to store pallet series IDs
     unused_pallet_series_ids = fields.Json("Unused Pallet Series IDs", default=[])
 
+    def _vifel_lock_pallet_pool(self):
+        """Serialise pallet-number issuance for this client (COMP-2026-00043).
+
+        Both the recycle pool and the counter are read-modify-write: read the
+        JSON / the counter, compute, write back. Under Odoo's default READ
+        COMMITTED two concurrent "Assign Pallet Series" clicks each read the
+        SAME state and are handed the SAME numbers - the second write simply
+        overwrites the first. That is one of the ways one number ends up on
+        two pallets.
+
+        Taking the client's row first makes the whole read-compute-write
+        atomic. Plain FOR UPDATE, never NOWAIT: waiting a moment is correct
+        here, whereas failing outright would surface on the floor as the
+        LockNotAvailable crash the client already reported elsewhere. The lock
+        is released at commit and the section it protects is a few statements
+        long.
+
+        The cache is dropped after the lock so the values are re-read from the
+        row we now hold, not from whatever was cached before we waited.
+        """
+        if not self.ids:
+            return
+        self.env.cr.execute(
+            'SELECT id FROM res_partner WHERE id IN %s FOR UPDATE',
+            (tuple(self.ids),))
+        self.invalidate_recordset(
+            ['unused_pallet_series_ids', 'x_studio_pallet_series_id'])
+
+    def _vifel_numbers_in_use(self):
+        """The pallet NUMBERS this client still has standing on stocked pallets.
+
+        Returned as bare ints so padding cannot hide a match: the data holds the
+        same number written several ways (GB-20809 and GB-020809 are one pallet
+        number), so comparing formatted strings misses collisions.
+
+        One query per call, not one per candidate - "Assign Pallet Series" can
+        ask for 50 numbers at once.
+        """
+        self.ensure_one()
+        self.env.cr.execute("""
+            SELECT DISTINCT trim(q.x_studio_pallet_series_id)
+              FROM stock_quant q
+             WHERE q.owner_id = %s
+               AND q.package_id IS NOT NULL
+               AND q.x_studio_pallet_series_id IS NOT NULL
+               AND trim(q.x_studio_pallet_series_id) <> ''
+               AND q.quantity > 0
+        """, (self.id,))
+        used = set()
+        for (raw,) in self.env.cr.fetchall():
+            tail = (raw or '').rpartition('-')[2].strip()
+            if tail.isdigit():
+                used.add(int(tail))
+        return used
+
     def push_unused_pallet(self, pallet_series_id):
+        self._vifel_lock_pallet_pool()
         # Extract the integer part after the hyphen
         try:
             series_number = int(pallet_series_id.split('-')[-1])
@@ -30,6 +86,18 @@ class ResPartner(models.Model):
 
         # Get the current list of IDs or initialize it as an empty list if None
         pallet_series_list = self.unused_pallet_series_ids or []
+
+        # A number only becomes reusable once its pallet has been withdrawn
+        # (COMP-2026-00043). "Assign Pallet Series" recycles every line's
+        # current number before re-assigning, with no regard for whether that
+        # pallet is still stocked - so without this check simply re-running the
+        # button poisons the pool with live numbers, which are then dealt back
+        # out to other lines. That is how one number ends up on two pallets.
+        if series_number in self._vifel_numbers_in_use():
+            _logger.info(
+                "Pallet number %s not recycled for %s: still on a stocked "
+                "pallet", pallet_series_id, self.display_name)
+            return
 
         # Add the new series number if it's not already in the list
         if series_number not in pallet_series_list:
@@ -43,14 +111,20 @@ class ResPartner(models.Model):
 
 
     def get_smallest_pallet_series_ids(self, count):
+        self._vifel_lock_pallet_pool()
         # Get the current list of IDs or return an empty list if None
         pallet_series_list = self.unused_pallet_series_ids or []
     
         # Sort the list in ascending order to ensure correct order
         sorted_list = sorted(pallet_series_list)
-    
-        # Get the first 'count' elements, but not more than the available items in the list
-        smallest_ids = sorted_list[:min(count, len(sorted_list))]
+
+        # Skip anything still standing on a stocked pallet and take the next
+        # free number instead. The operator only clicks a button - they cannot
+        # choose a different number - so the system picks the next usable one
+        # rather than stopping them. Skipped numbers STAY in the pool: they
+        # become available again the moment that pallet is withdrawn.
+        in_use = self._vifel_numbers_in_use()
+        smallest_ids = [n for n in sorted_list if n not in in_use][:max(count, 0)]
         if not self.x_studio_client_unique_code_1:
             raise UserError(f"\nIt seems like Client: {self.name} does NOT have a client unique code set. \n\nPlease set it first before we can generate Pallet Series ID.")
         # Prefix each ID with 'JBL-' and return the list
@@ -66,10 +140,24 @@ class ResPartner(models.Model):
         Increments the counter on res.partner after generating.
         Returns the new series ID string (e.g. 'BGZ-000042').
         """
+        self._vifel_lock_pallet_pool()
         if not self.x_studio_client_unique_code_1:
             raise UserError(f"\nIt seems like Client: {self.name} does NOT have a client unique code set. \n\nPlease set it first before we can generate Pallet Series ID.")
         
         current_counter = int(self.x_studio_pallet_series_id or 0)
+        # Walk past any number the client still has standing on a stocked
+        # pallet (COMP-2026-00043). The counter can lag behind reality after an
+        # opening-balance import or a manual correction, so minting blindly can
+        # hand out a number that is already on the floor.
+        in_use = self._vifel_numbers_in_use()
+        skipped = 0
+        while current_counter in in_use:
+            current_counter += 1
+            skipped += 1
+        if skipped:
+            _logger.info(
+                "Pallet counter for %s advanced past %d live number(s) to %d",
+                self.display_name, skipped, current_counter)
         new_series = f"{self.x_studio_client_unique_code_1}-{str(current_counter).zfill(6)}"
         self.x_studio_pallet_series_id = current_counter + 1
         return new_series
@@ -95,6 +183,7 @@ class ResPartner(models.Model):
         Returns:
             list: Single-item list with the pallet series ID
         """
+        self._vifel_lock_pallet_pool()
         # Extract the integer part after the hyphen
         try:
             series_number = int(pallet_series_id.split('-')[-1])

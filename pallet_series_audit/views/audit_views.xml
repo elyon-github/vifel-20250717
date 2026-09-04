@@ -273,6 +273,27 @@
                         </group>
                     </group>
 
+                    <!-- The counts above summarise the LOG.  These summarise
+                         the RR as it stands now — COMP-2026-00048. -->
+                    <group string="Document Right Now">
+                        <group>
+                            <field name="current_line_count"/>
+                            <field name="current_series_count"/>
+                            <field name="lines_without_series"/>
+                        </group>
+                        <group>
+                            <field name="pallets_pending" invisible="1"/>
+                            <field name="current_pallet_count"
+                                   invisible="pallets_pending"/>
+                            <div colspan="2" class="text-muted fst-italic"
+                                 invisible="not pallets_pending">
+                                Pallets are only created when the RR is
+                                validated, so there is no pallet count yet.
+                                This says nothing about the pallet series.
+                            </div>
+                        </group>
+                    </group>
+
                     <div class="d-flex align-items-center gap-2 mb-3 mt-2">
                         <h3 class="mb-0">Event Log</h3>
                         <button name="action_view_timeline" type="object"

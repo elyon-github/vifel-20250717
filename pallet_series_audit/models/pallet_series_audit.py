@@ -70,6 +70,35 @@ class PalletSeriesAudit(models.Model):
     last_event_date = fields.Datetime(
         string='Last Event', compute='_compute_stats', store=True,
     )
+    # --- CURRENT state of the document (not the event log) -------------
+    # The counts above summarise the LOG.  These summarise the RR as it
+    # stands right now, which is what someone asking "did I lose my
+    # series?" actually needs.  COMP-2026-00048: a supervisor read the
+    # log-derived "0 Pallets" on an unvalidated RR as data loss and filed
+    # a ticket for a document that was already fully re-encoded.
+    current_line_count = fields.Integer(
+        string='Lines Now', compute='_compute_current_state',
+    )
+    current_series_count = fields.Integer(
+        string='Series Now', compute='_compute_current_state',
+    )
+    current_pallet_count = fields.Integer(
+        string='Pallets Now', compute='_compute_current_state',
+    )
+    lines_without_series = fields.Integer(
+        string='Lines Without Series', compute='_compute_current_state',
+        help='Lines on the RR that carry no pallet series at all.  Note that '
+             'several lines legitimately SHARE one series (different products '
+             'or batches on the same pallet), so a series count lower than the '
+             'line count is normal and is not flagged.',
+    )
+    pallets_pending = fields.Boolean(
+        string='Pallets Not Yet Created', compute='_compute_current_state',
+        help='True while the RR is not validated.  Pallets (packages) are '
+             'only created on validation, so a zero pallet count before '
+             'that is expected and says nothing about the pallet series.',
+    )
+
     _sql_constraints = [
         ('picking_uniq', 'unique(picking_id)', 'Only one audit record per RR transfer.'),
     ]
@@ -85,6 +114,29 @@ class PalletSeriesAudit(models.Model):
             rec.unique_series_count = len(set(events.mapped('pallet_series_id')))
             dates = events.mapped('event_date')
             rec.last_event_date = max(dates) if dates else False
+
+    def _compute_current_state(self):
+        """Live counts read off the picking, so the dashboard header can show
+        what the RR holds now instead of what the log remembers."""
+        for rec in self:
+            picking = rec.picking_id
+            lines = picking.move_line_ids if picking else picking
+            rec.current_line_count = len(lines)
+            rec.current_series_count = len(set(
+                (ml.x_studio_pallet_series_id or '').strip()
+                for ml in lines
+            ) - {''})
+            rec.current_pallet_count = len(set(
+                ml.result_package_id.id for ml in lines if ml.result_package_id
+            ))
+            # Only a BLANK series is a defect.  Lines sharing a series is a
+            # normal VIFEL pattern (175 of 1,785 audited RRs do it), so
+            # comparing series count to line count would cry wolf.
+            rec.lines_without_series = sum(
+                1 for ml in lines
+                if not (ml.x_studio_pallet_series_id or '').strip()
+            )
+            rec.pallets_pending = bool(picking) and picking.state != 'done'
 
     # ------------------------------------------------------------------
     # Actions
