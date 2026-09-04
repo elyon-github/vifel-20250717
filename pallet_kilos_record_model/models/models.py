@@ -1326,12 +1326,6 @@ class PalletKilosRecordModel(models.Model):
                     FROM stock_quant_adjustment_line al
                     WHERE al.line_state='approved'
                       AND al.pallet_kilos_record_id = ANY(%s)
-                      -- a correction written back onto the receiving
-                      -- document is already counted in that document's
-                      -- received figures, which _populate_operations_data
-                      -- re-reads above; posting its delta here too would
-                      -- add the same kilos to the ledger a second time
-                      AND COALESCE(al.applied_to_document, false) = false
                     GROUP BY 1
                 """, (prows.ids or [0],))
                 for row_id, d_packs, d_units, d_kilos in \
@@ -1498,42 +1492,29 @@ class PalletKilosRecordModel(models.Model):
                            COALESCE(al.new_x_studio_total_units,0)
                            - COALESCE(al.old_x_studio_total_units,0),
                            COALESCE(al.new_quantity,0)
-                           - COALESCE(al.old_quantity,0),
-                           COALESCE(al.applied_to_document, false),
-                           COALESCE(dp.name, '')
+                           - COALESCE(al.old_quantity,0)
                     FROM stock_quant_adjustment_line al
                     JOIN stock_quant_adjustment_request r
                       ON r.id = al.request_id
-                    LEFT JOIN stock_picking dp
-                      ON dp.id = al.applied_document_id
                     WHERE al.line_state = 'approved'
                       AND al.pallet_kilos_record_id = ANY(%s)
                     ORDER BY al.create_date
                 """, (prows.ids or [0],))
-                for rid, bno, bdate, psi_l, dp_, du, dk, on_doc, doc_name in \
+                for rid, bno, bdate, psi_l, dp, du, dk in \
                         self.env.cr.fetchall():
-                    if not round(dp_, 3) and not round(du, 3) \
+                    if not round(dp, 3) and not round(du, 3) \
                             and not round(dk, 3):
                         continue
                     amount = ' / '.join(filter(None, [
-                        '%+g pkg' % dp_ if round(dp_, 3) else '',
+                        '%+g pkg' % dp if round(dp, 3) else '',
                         '%+g pcs' % du if round(du, 3) else '',
                         '%+g kg' % dk if round(dk, 3) else '']))
-                    # a written-back correction is NOT in the adjustment
-                    # buckets (the query above skips it); it is listed here
-                    # so the row still explains where the figure came from
-                    why = (
-                        'quantity correction batch %s approved on %s — '
-                        'written back onto %s, so it is counted in that '
-                        'document\'s received figures, not as an adjustment'
-                        % (bno or '?', bdate, doc_name or 'the receipt')
-                    ) if on_doc else (
-                        'quantity correction batch %s approved on %s — '
-                        'posted from its recorded audit line'
-                        % (bno or '?', bdate))
                     html_rows.setdefault(rid, []).append((
                         ('PSI %s' % psi_l) if psi_l else 'Correction',
-                        amount, why))
+                        amount,
+                        'quantity correction batch %s approved on %s — '
+                        'posted from its recorded audit line'
+                        % (bno or '?', bdate)))
 
                 grp = self.read_group(
                     [('owner_id', '=', owner.id), ('warehouse', '=', wh_id),
