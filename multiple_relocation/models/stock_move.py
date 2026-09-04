@@ -65,6 +65,22 @@ class StockMove(models.Model):
     automatically_added = fields.Boolean()
     reason_for_adjustment = fields.Char(string="Reason for Adjustment")
 
+    # The Deviation Report prints one row per ITEM (one per move) and has
+    # always carried a "Concern/Remarks" column -- but nothing in Odoo ever
+    # filled it, so it printed blank on every copy and the sheet could not be
+    # used (COMP-2026-00050). The only remarks that existed were the
+    # document-wide x_studio_ncr_remarks, which is the "Description of
+    # Deviation" box at the top, not the per-item column.
+    #
+    # Deliberately still writable on a done picking: the Deviation Report is
+    # printed AFTER the receipt is verified, so locking this at done would
+    # leave the column blank exactly when it is needed. Free text, no ledger
+    # or stock meaning.
+    vifel_deviation_remarks = fields.Char(
+        string="Concern/Remarks", copy=False,
+        help="Concern or remarks for this item, printed in the "
+             "Concern/Remarks column of the Deviation Report.")
+
     def _compute_quant_ids_multiple_withdrawal(self):
         for record in self:
             if record.picking_id.picking_type_code != 'outgoing':
@@ -501,6 +517,7 @@ class stock_move_line_Override(models.Model):
         string="Remarks", copy=False,
         help="Free-text remarks for this pallet line. Typed on receiving and "
              "stamped onto the stock at validation.")
+
     vifel_remarks_display = fields.Char(
         string="Remarks", compute='_compute_vifel_remarks_readback',
         compute_sudo=True,

@@ -917,6 +917,10 @@
         
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="after">
             <field name="x_studio_kg_variance" string="Variance" optional="show" column_invisible="False" invisible="False" widget="badge" decoration-danger="x_studio_kg_variance &lt; 0" decoration-success="x_studio_kg_variance &gt; 0"/>
+            <!-- Concern/Remarks per item: the column the Deviation Report
+                 prints. Stays editable once the receipt is done, because the
+                 Deviation Report is printed after verification. -->
+            <field name="vifel_deviation_remarks" string="Concern/Remarks" optional="show" readonly="parent.state == 'cancel'"/>
 
       </xpath>
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]" position="after">
