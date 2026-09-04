@@ -44,7 +44,33 @@
         <field name="users" eval="[(4, 66)]"/>
     </record>
 
-    
+    <!-- Special Holding Authority: who may SEE and SET Special Holding and
+         SH Reason. The client asked that Documentation Staff no longer have
+         it and that it belong to authorised Inventory Analysts only
+         (COMP-2026-00052).
+
+         A GROUP, deliberately, not a list of names in the code. Staff change;
+         a hardcoded name would only be found and removed when a developer went
+         looking, which is precisely the behaviour to avoid. Membership is a
+         plain checkbox on the user form (module_category_hidden gives no
+         implied chain, so it renders as a checkbox rather than a radio), so a
+         supervisor adds or removes people with no deployment at all.
+
+         The seed below is (4, id), LINK only, never (6, 0, [...]) which
+         would REPLACE. So whoever is ticked in the UI stays ticked across
+         every module upgrade; this list only decides who starts with it, and
+         admin is included so the authority can never be locked out entirely.
+         Seeded: TUMULAC J. (67), MORENOS M.V. (50), SALIPOT A. (54),
+         TRANQUILINO K.R. / Macapaz C. (52), the four Inventory Analysts,
+         plus admin (2). The Warehouse Manager is deliberately NOT seeded. -->
+    <record id="group_special_holding_authority" model="res.groups">
+        <field name="name">Special Holding Authority</field>
+        <field name="category_id" ref="base.module_category_hidden"/>
+        <field name="comment">Members can see and set Special Holding and SH Reason on pallet lines and quants. Intended for authorised Inventory Analysts; Documentation Staff are excluded. Add or remove members here — no code change is needed.</field>
+        <field name="users" eval="[(4, 2), (4, 67), (4, 50), (4, 54), (4, 52)]"/>
+    </record>
+
+
     <!-- Sequence for Adjustment Requests -->
     <record id="seq_stock_quant_adjustment_request" model="ir.sequence">
         <field name="name">Stock Quant Adjustment Request</field>

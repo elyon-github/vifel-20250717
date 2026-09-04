@@ -107,6 +107,12 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         # after data.xml: the quant-detail actions reference the
         # inventory_super_admin group defined there
         'views/stock_quant_views.xml',
+        # also after data.xml, and LAST: every field node in here is gated on
+        # group_special_holding_authority, which data.xml defines, and it
+        # inherits views declared above. A view whose groups xmlid does not
+        # resolve stops that whole screen rendering for everyone, Pallet
+        # Breakdown included, so this order is mandatory.
+        'views/special_holding_restrict.xml',
 
     ],
     # only loaded in demonstration mode

@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Special Holding / SH Reason, visible only to the Special Holding
+        Authority group (COMP-2026-00052: Documentation Staff must no longer
+        see or set them).
+
+        WHY VIEW-LEVEL AND NOT FIELD-LEVEL
+        ==================================
+        The obvious mechanism, Field Access Groups on the field itself, is a
+        SILENT NO-OP for Studio fields in Odoo 17. IrModelFields._instanciate_attrs()
+        builds a manual field from field_description / help / index / copied /
+        related / required / readonly / store / company_dependent; `groups` is
+        not in that list, so the row lands in ir_model_fields_group_rel and the
+        registry never reads it. Proven on a production restore: with the rel
+        rows present and after a real service restart, a non-member could still
+        read(), search(), reach the value from a server action and see it in
+        fields_get(). And base (code-declared) fields cannot be given `groups`
+        from the UI at all: ir.model.fields.write refuses with "Properties of
+        base fields cannot be altered in this manner!".
+
+        View-level `groups` on the field NODE is therefore the mechanism. It has
+        a second property that matters here: it never touches the ORM, so no
+        automation or server action can break. That was decisive: server
+        actions 293 / 295 / 317 all read x_studio_special_holding as the acting
+        user with no sudo(), and automations 2 / 4 / 15 fire on ordinary picking
+        save and validation by Documentation Staff. A field-level restriction
+        would have made those crash for Docs Staff.
+
+        RESTRICT THE TWO FIELDS AS A PAIR, NEVER ONE ALONE
+        ==================================================
+        In the picking form, SH Reason carries
+        readonly="not x_studio_special_holding or ...". Both nodes must drop
+        together or that modifier references a field no longer in the view.
+
+        KNOWN LIMITATION, ACCEPTED
+        ==========================
+        View-level is UI-only. The values stay reachable by export, RPC or a
+        dev-mode custom filter to anyone who knows the technical field name.
+        Closing that needs groups= on the Python fields in this module PLUS
+        .sudo() on the reads in SA 293 / 295 / 317.
+
+        stock.quant.history also exposes both fields, and is deliberately NOT
+        restricted here: Documentation Staff have no ACL on that model at all,
+        so the screen is already unreachable for them.
+    -->
+
+    <record id="view_stock_move_line_ops_sh_restrict" model="ir.ui.view">
+        <field name="name">stock.move.line.ops.sh.restrict</field>
+        <field name="model">stock.move.line</field>
+        <field name="inherit_id" ref="multiple_relocation.view_stock_move_line_detailed_operation_tree_inherit"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='x_studio_special_holding']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_sh_reason']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_stock_picking_form_sh_restrict" model="ir.ui.view">
+        <field name="name">stock.picking.form.sh.restrict</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="multiple_relocation.view_stock_picking_form_custom"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='x_studio_special_holding']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_sh_reason']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_select_quant_wizard_sh_restrict" model="ir.ui.view">
+        <field name="name">select.quant.wizard.sh.restrict</field>
+        <field name="model">select_quant.wizard</field>
+        <field name="inherit_id" ref="multiple_relocation.select_quant_wizard"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='x_studio_special_holding']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_sh_reason']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_stock_quant_tree_simple_sh_restrict" model="ir.ui.view">
+        <field name="name">stock.quant.tree.sh.restrict</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id" ref="stock.view_stock_quant_tree_simple"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='x_studio_special_holding']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_sh_reason']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_stock_quant_tree_custom_2_sh_restrict" model="ir.ui.view">
+        <field name="name">stock.quant.tree.custom2.sh.restrict</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id" ref="multiple_relocation.view_stock_quant_tree_custom_2"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='x_studio_special_holding']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+            <xpath expr="//field[@name='x_studio_sh_reason']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- This one carries Special Holding only; there is no SH Reason node to
+         restrict, so it must not xpath for one. -->
+    <record id="view_stock_quant_tree_highlighting_sh_restrict" model="ir.ui.view">
+        <field name="name">stock.quant.tree.highlighting.sh.restrict</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id" ref="multiple_relocation.view_stock_quant_tree_highlighting"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='x_studio_special_holding']" position="attributes">
+                <attribute name="groups">multiple_relocation.group_special_holding_authority</attribute>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
