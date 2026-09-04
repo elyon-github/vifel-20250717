@@ -66,20 +66,47 @@ class StockMove(models.Model):
     reason_for_adjustment = fields.Char(string="Reason for Adjustment")
 
     # The Deviation Report prints one row per ITEM (one per move) and has
-    # always carried a "Concern/Remarks" column -- but nothing in Odoo ever
-    # filled it, so it printed blank on every copy and the sheet could not be
-    # used (COMP-2026-00050). The only remarks that existed were the
-    # document-wide x_studio_ncr_remarks, which is the "Description of
-    # Deviation" box at the top, not the per-item column.
+    # always carried a "Concern/Remarks" column -- but in the Studio template
+    # that cell was a self-closing, permanently EMPTY <td>, so it printed blank
+    # on every copy ever produced and the sheet could not be used
+    # (COMP-2026-00050). The only remarks that existed were the document-wide
+    # x_studio_ncr_remarks, which is the "Description of Deviation" box at the
+    # top, not the per-item column.
     #
-    # Deliberately still writable on a done picking: the Deviation Report is
-    # printed AFTER the receipt is verified, so locking this at done would
-    # leave the column blank exactly when it is needed. Free text, no ledger
-    # or stock meaning.
+    # What fills it is the Remarks the encoders already type per PALLET in the
+    # Pallet Breakdown, gathered up to the item the report prints -- one place
+    # to type, one meaning of "Remarks". An item can span many pallets, so
+    # identical remarks collapse to one and genuinely different ones are listed
+    # in the order the pallets appear.
+    #
+    # Not stored: it is a view onto the pallet lines, so there is no second
+    # copy that can drift out of step with them.
+    #
+    # It KEEPS its original name even though it no longer holds typed text.
+    # Renaming or dropping a field that a stored view still references breaks
+    # the upgrade itself: Odoo validates the views in file order, so a view
+    # early in views.xml is checked while a later one still holds its previous
+    # arch naming the vanished field, and the whole module load aborts with
+    # 'Field "..." does not exist in model "stock.move"'. That would fail the
+    # build on every database already carrying the earlier revision.
     vifel_deviation_remarks = fields.Char(
-        string="Concern/Remarks", copy=False,
-        help="Concern or remarks for this item, printed in the "
-             "Concern/Remarks column of the Deviation Report.")
+        string="Concern/Remarks", compute='_compute_vifel_deviation_remarks',
+        compute_sudo=True, copy=False,
+        help="The Remarks typed against this item's pallets in the Pallet "
+             "Breakdown. This is what prints in the Deviation Report's "
+             "Concern/Remarks column.")
+
+    @api.depends('move_line_ids.vifel_remarks')
+    def _compute_vifel_deviation_remarks(self):
+        for move in self:
+            seen = []
+            for line in move.move_line_ids:
+                remark = (line.vifel_remarks or '').strip()
+                # identical remarks across a SKU's pallets are the normal case
+                # and must print once, not forty times
+                if remark and remark not in seen:
+                    seen.append(remark)
+            move.vifel_deviation_remarks = ' · '.join(seen) or False
 
     def _compute_quant_ids_multiple_withdrawal(self):
         for record in self:
