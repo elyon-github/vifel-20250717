@@ -10,6 +10,46 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
+# ----------------------------------------------------------------------
+# Writing a correction back onto the receiving document
+#
+# A correction fixes the QUANT, but the pallet line on the RR that received
+# that pallet -- the "Pallet Breakdown" the encoders read and print -- kept
+# whatever was typed at receiving, so a corrected pallet still showed the
+# wrong weight/quantity/date there forever (COMP-2026-00055).
+#
+# These are the fields an applied correction now also writes onto that line.
+# Keys are the quant's field names, values the move line's field of the same
+# meaning (the two models name Remarks differently).
+VIFEL_BREAKDOWN_SYNC_FIELDS = {
+    'quantity': 'quantity',
+    'x_studio_2nd_uom': 'x_studio_2nd_uom',
+    'x_studio_total_units': 'x_studio_total_units',
+    'x_studio_quantity_uom': 'x_studio_quantity_uom',
+    'x_studio_min_quantity_uom': 'x_studio_min_quantity_uom',
+    'x_studio_production_date': 'x_studio_production_date',
+    'x_studio_expiration_date': 'x_studio_expiration_date',
+    'x_studio_container_number': 'x_studio_container_number',
+    'x_studio_remarks': 'vifel_remarks',
+}
+
+# Deliberately NOT in the map above:
+#   package_id / bf_pallet_char -- pallet IDENTITY. The Pallet Kilos Record
+#     counts pallets off those two columns and the correction already posts
+#     its own pallet leg (_package_change_pallet_delta); rewriting them on
+#     the RR would make the same pallet move twice in the ledger, and the
+#     pallet-number reuse guard reads the document lines as history.
+#   owner_id / location_id -- they decide WHICH PKR partition a line belongs
+#     to, so changing them on the receipt would move the receipt itself.
+#   product_id / lot_id -- already carried onto the document line by the
+#     product branch of _apply_changes below.
+#
+# Three of the synced fields (quantity, 2nd UOM, total units) are quantities
+# the Pallet Kilos Record sums off the document in _populate_operations_data,
+# so once the document line carries the corrected figure they must NOT also
+# be posted into the adjustment bucket -- see _update_pallet_kilos_record.
+
+
 class StockQuantCorrectionWizard(models.TransientModel):
     _name = 'stock.quant.correction.wizard'
     _description = 'Stock Quant Correction Wizard'
@@ -500,6 +540,8 @@ class StockQuantCorrectionWizard(models.TransientModel):
                     'pallet_kilos_record_id': (pallet_record.id
                                                if pallet_record else False),
                 })
+                adj_line._vifel_stamp_applied_to_document(
+                    line, pallet_record)
 
                 self._release_pallet_if_emptied(line, changes)
 
@@ -861,17 +903,27 @@ class StockQuantCorrectionWizard(models.TransientModel):
 
         update_vals = {}
 
-        if 'kilos' in adjustment_values:
-            update_vals['adjustment_kilos'] = (
-                pallet_record.adjustment_kilos or 0) + adjustment_values['kilos']
-
-        if 'packaging' in adjustment_values:
-            update_vals['adjustment_packaging'] = (
-                pallet_record.adjustment_packaging or 0) + adjustment_values['packaging']
-
-        if 'units' in adjustment_values:
-            update_vals['adjustment_heads'] = (
-                pallet_record.adjustment_heads or 0) + adjustment_values['units']
+        # Where the quantity legs go depends on whether the correction was
+        # written back onto this row's own document. If it was, the row's
+        # RECEIVED figures are what changed -- the ledger reads them straight
+        # off those document lines -- so the delta belongs there and posting
+        # it into the adjustment bucket as well would count it twice. Only
+        # this row's own document qualifies; a correction written onto some
+        # other RR keeps the old adjustment-bucket behaviour.
+        synced_line = line.vifel_synced_line_id
+        posts_to_received = bool(synced_line) and \
+            synced_line.picking_id == pallet_record.effective_document
+        leg_to_field = {
+            'kilos': ('kilos_received', 'adjustment_kilos'),
+            'packaging': ('packaging_received', 'adjustment_packaging'),
+            'units': ('units_received', 'adjustment_heads'),
+        }
+        for leg, (received_field, adjustment_field) in leg_to_field.items():
+            if leg not in adjustment_values:
+                continue
+            target = received_field if posts_to_received else adjustment_field
+            update_vals[target] = (
+                pallet_record[target] or 0) + adjustment_values[leg]
 
         if 'pallets' in adjustment_values:
             update_vals['adjustment_pallets'] = (
@@ -902,6 +954,25 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 pallet_record.write({
                     'adjustment_reason_html':
                         (pallet_record.adjustment_reason_html or '') + entry})
+            if posts_to_received:
+                # a received figure moving AFTER validation is surprising on
+                # its own, so say on the row why it did
+                moved = ' / '.join(
+                    '%+g %s' % (adjustment_values[leg], label)
+                    for leg, label in (('kilos', 'kg'), ('packaging', 'pkg'),
+                                       ('units', 'pcs'))
+                    if leg in adjustment_values)
+                pallet_record.write({
+                    'adjustment_reason_html':
+                        (pallet_record.adjustment_reason_html or '')
+                        + ('<p><b>%s</b> — batch %s, PSI %s: correction '
+                           'written back onto %s, so the received figures '
+                           'follow the document instead of being posted as '
+                           'an adjustment.</p>'
+                           % (html_escape(moved),
+                              html_escape(str(batch_number or '')),
+                              html_escape(str(self._pallet_label(quant))),
+                              html_escape(synced_line.picking_id.name or '')))})
             pallet_record._recalculate_running_balances(
                 pallet_record.warehouse.id,
                 pallet_record.is_blast_freezer,
@@ -1080,6 +1151,12 @@ class StockQuantCorrectionLine(models.TransientModel):
     x_studio_building_dropped = fields.Char(string="Building RR")
     display_pallet_series_id = fields.Char(
         string='Pallet Series ID', compute="_compute_display_payllet_series_id", store=True)
+    # The receiving-document pallet line this correction was written back
+    # onto, set by _apply_changes. Read afterwards by the caller so the same
+    # figures are not ALSO posted into the Pallet Kilos Record's adjustment
+    # bucket. Empty when no single source line could be identified.
+    vifel_synced_line_id = fields.Many2one(
+        'stock.move.line', string='Synced Breakdown Line', readonly=True)
 
     def _compute_display_payllet_series_id(self):
         for record in self:
@@ -1164,10 +1241,107 @@ class StockQuantCorrectionLine(models.TransientModel):
 
         return changes
 
+    def _vifel_breakdown_line(self):
+        """The single pallet line on the receiving document that brought this
+        quant in -- the row the encoders see in the RR's Pallet Breakdown.
+
+        Must be called BEFORE the quant is written, because the pallet
+        identity it matches on (package / BF pallet #) is part of what a
+        correction can change. Returns an empty recordset unless exactly one
+        line matches: an ambiguous match is never guessed at, the correction
+        just leaves the document alone as it always did.
+        """
+        self.ensure_one()
+        MoveLine = self.env['stock.move.line']
+        quant = self.quant_id
+        picking = quant.original_record_reference or \
+            quant.x_studio_record_reference
+        if not picking or picking.state != 'done':
+            return MoveLine
+        if picking.picking_type_id.code != 'incoming':
+            return MoveLine
+        lines = picking.move_line_ids.filtered(
+            lambda ml: ml.state == 'done'
+            and ml.product_id == quant.product_id
+            and ml.lot_id == quant.lot_id)
+        if quant.package_id:
+            lines = lines.filtered(
+                lambda ml: ml.result_package_id == quant.package_id)
+        elif quant.bf_pallet_char:
+            lines = lines.filtered(
+                lambda ml: ml.bf_pallet_char == quant.bf_pallet_char)
+        else:
+            # no pallet identity to key on (opening-balance stock): the
+            # document cannot be pinpointed, so it is left untouched
+            return MoveLine
+        return lines if len(lines) == 1 else MoveLine
+
+    def _vifel_is_departure_not_correction(self, changes):
+        """True when this correction zeroes a pallet that held stock.
+
+        The warehouse uses adjust-to-0 to record that a pallet LEFT without a
+        withdrawal (that is what the -1 pallet leg below is for), NOT to say
+        the receipt over-stated what arrived. Rewriting the receipt to 0 in
+        that case would deny a delivery that really happened and wipe the
+        handling kilos it is billed on, so the document is left alone and the
+        departure keeps posting into the adjustment bucket as it always has.
+
+        Evaluated BEFORE the quant is written, so the quant still holds the
+        pre-correction values.
+        """
+        self.ensure_one()
+        quant = self.quant_id
+        if 'quantity' not in changes:
+            return False
+        old_qty, new_qty = changes['quantity']
+        if (new_qty or 0) != 0:
+            return False
+        old_packaging, new_packaging = changes.get(
+            'x_studio_2nd_uom',
+            (quant.x_studio_2nd_uom, quant.x_studio_2nd_uom))
+        if (new_packaging or 0) != 0:
+            return False
+        return (old_qty or 0) > 0 or (old_packaging or 0) > 0
+
+    def _vifel_sync_breakdown_line(self, line, changes):
+        """Write the corrected values onto the receiving document's pallet
+        line, so the RR's Pallet Breakdown stops showing the value the
+        correction replaced."""
+        self.ensure_one()
+        move_line_vals = {}
+        for quant_field, ml_field in VIFEL_BREAKDOWN_SYNC_FIELDS.items():
+            if quant_field in changes:
+                move_line_vals[ml_field] = changes[quant_field][1]
+        if not move_line_vals:
+            return self.env['stock.move.line']
+
+        # _write() and not write(): on a DONE line the ORM's write undoes and
+        # re-applies the line's quant movement, which would apply this same
+        # correction to stock a SECOND time (the quant was just corrected
+        # above). The document is being brought into line with stock that is
+        # already right, so only the columns are written -- the same reason
+        # the product branch below uses _write().
+        line.sudo()._write(move_line_vals)
+        line.invalidate_recordset(list(move_line_vals))
+        # stock.move.quantity is a stored compute over the lines' quantity and
+        # _write() does not trigger it; the RR header total and the Deviation
+        # Report both read it.
+        line.modified(list(move_line_vals))
+        self.vifel_synced_line_id = line.id
+        _logger.info(
+            "Correction on quant %s written back to %s line %s: %s",
+            self.quant_id.id, line.picking_id.name, line.id, move_line_vals)
+        return line
+
     def _apply_changes(self, changes):
         """Apply changes to the original quant"""
         self.ensure_one()
         quant = self.quant_id
+
+        # both resolved before the quant moves: the match keys on pallet
+        # identity, and the test reads the pre-correction quantities
+        breakdown_line = self._vifel_breakdown_line()
+        is_departure = self._vifel_is_departure_not_correction(changes)
 
         update_vals = {}
         for field, (old_val, new_val) in changes.items():
@@ -1202,6 +1376,9 @@ class StockQuantCorrectionLine(models.TransientModel):
 
         if update_vals:
             quant.write(update_vals)
+
+        if breakdown_line and not is_departure:
+            self._vifel_sync_breakdown_line(breakdown_line, changes)
 
 
 # models/stock_quant_adjustment_request.py
@@ -1662,6 +1839,21 @@ class StockQuantAdjustmentLine(models.Model):
     ], string='Line Status', default='draft', required=True, tracking=True)
 
     rejection_reason = fields.Text(string='Rejection Reason')
+    # Set when applying this line also rewrote the pallet line on the
+    # receiving document. Its quantity deltas then live in that document's
+    # own received figures, so the Pallet Kilos Record re-sync must leave
+    # them out when it rebuilds the adjustment buckets from these lines --
+    # otherwise the re-sync would add the same kilos back a second time.
+    # False on every line approved before this behaviour existed, so old
+    # requests keep re-syncing exactly as they always did.
+    applied_to_document = fields.Boolean(
+        string='Written Back to Document', readonly=True, copy=False,
+        help="The corrected values were written onto the receiving "
+             "document's pallet line, so this line's quantity change is "
+             "already counted there and is not posted as an adjustment.")
+    applied_document_id = fields.Many2one(
+        'stock.picking', string='Corrected Document', readonly=True,
+        copy=False, ondelete='set null')
     approved_by = fields.Many2one(
         'res.users', string='Approved By', readonly=True)
     approved_date = fields.Datetime(string='Approved Date', readonly=True)
@@ -2034,6 +2226,25 @@ class StockQuantAdjustmentLine(models.Model):
             'approved_date': fields.Datetime.now()
         })
 
+    def _vifel_stamp_applied_to_document(self, correction_line, pallet_record):
+        """Record on the audit line that its figures were written onto the
+        receiving document, so the PKR re-sync knows not to post them again.
+
+        Only counts when the corrected document is the one the PKR row is
+        built from — that is the row whose received figures absorbed the
+        change.
+        """
+        self.ensure_one()
+        synced_line = correction_line.vifel_synced_line_id
+        if not synced_line or not pallet_record:
+            return
+        if synced_line.picking_id != pallet_record.effective_document:
+            return
+        self.write({
+            'applied_to_document': True,
+            'applied_document_id': synced_line.picking_id.id,
+        })
+
     def _apply_adjustment(self, batch_number, reason):
         # Same implementation as before - this part doesn't change
         self.ensure_one()
@@ -2085,6 +2296,8 @@ class StockQuantAdjustmentLine(models.Model):
             # link the approved line to the PKR row it was posted to — the
             # approved lines are the PKR's adjustment audit trail
             self.pallet_kilos_record_id = pallet_record.id
+
+        self._vifel_stamp_applied_to_document(correction_line, pallet_record)
 
         wizard._release_pallet_if_emptied(correction_line, changes)
 
