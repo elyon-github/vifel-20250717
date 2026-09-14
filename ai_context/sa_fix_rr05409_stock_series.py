@@ -84,13 +84,20 @@ FIXES = [
 
 
 def spellings(series):
-    # CDP-13433 and CDP-013433 are the same pallet number
+    # CDP-13433 and CDP-013433 are the same pallet number.
+    # Plain loop on purpose: a comprehension inside a function is a closure on
+    # Python < 3.12, and Odoo's server-action sandbox refuses closures
+    # ("forbidden opcode(s) in 'lambda': STORE_DEREF, LOAD_CLOSURE").
     prefix, sep, tail = series.rpartition('-')
     if not tail.isdigit():
         return [series]
     number = int(tail)
-    return list(set([series] + ['%s-%s' % (prefix, str(number).zfill(w))
-                                for w in range(1, 9)]))
+    result = [series]
+    for width in range(1, 9):
+        spelled = '%s-%s' % (prefix, str(number).zfill(width))
+        if spelled not in result:
+            result.append(spelled)
+    return result
 
 
 Quant = env['stock.quant'].sudo()
