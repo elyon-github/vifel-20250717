@@ -328,7 +328,7 @@
                         <field name="x_studio_max_total_units" string="Original Units" readonly="1" column_invisible="context.get('picking_code') != 'outgoing'" sum="Total"/>
                         <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs" width="120" readonly="1" class="fw-bolder"/>
                         <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
-            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs UOM" required="False" width="120" readonly="state == 'done'"/>
+            <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs Unit" required="False" width="120" readonly="state == 'done'"/>
             <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120" options="{'no_create': True, 'no_open':True}"/>
         </xpath>
                 <xpath expr="//tree//field[@name='quantity']" position="after">
