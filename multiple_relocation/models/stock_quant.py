@@ -44,7 +44,7 @@ class multiple_relocation(models.TransientModel):
                 for line in wizard.quant_relocation_line_ids
             )
 
-    @api.depends('building', 'quant_relocation_line_ids.warehouse_id', 'quant_relocation_line_ids.x_studio_is_a_blast_freezer')
+    @api.depends('building', 'quant_relocation_line_ids.warehouse_id', 'quant_relocation_line_ids.x_studio_is_a_blast_freezer', 'quant_relocation_line_ids.quant_id')
     def _compute_allowed_location_ids(self):
         # ONE search per unique (warehouse, BF) key across all lines.
         # - BF quants: any leaf location under the chosen building, regardless
@@ -83,7 +83,28 @@ class multiple_relocation(models.TransientModel):
                                 ('x_studio_is_reserved', '=', False),
                     ]
                 result |= Location.search(base_domain)
-            wizard.allowed_location_ids = result
+
+            # A slot THIS batch is emptying must be selectable too. The search
+            # above is a snapshot taken when the wizard opens, so a location
+            # another line is about to vacate still looks occupied and is left
+            # out - which is why the floor has to park a pallet in an aisle and
+            # come back in a second transfer to fill the freed slot.
+            # Offered only when EVERY quant standing there is one this wizard
+            # is moving away: a partially emptied location stays excluded, and
+            # the location must still sit in the building the user picked.
+            own_quants = wizard.quant_relocation_line_ids.mapped('quant_id')
+            vacating = Location
+            for loc in own_quants.mapped('location_id'):
+                if not loc or loc in result or loc.child_ids:
+                    continue
+                if loc.x_studio_building != wizard.building:
+                    continue
+                staying = loc.quant_ids.filtered(
+                    lambda q: q.quantity > 0 and q not in own_quants)
+                if not staying:
+                    vacating |= loc
+
+            wizard.allowed_location_ids = result | vacating
     
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
