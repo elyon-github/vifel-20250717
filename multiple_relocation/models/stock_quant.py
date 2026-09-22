@@ -34,6 +34,13 @@ class multiple_relocation(models.TransientModel):
         'stock.location',
         string="Allowed Destinations",
         compute='_compute_allowed_location_ids')
+    # Slots this wizard's own lines are about to empty. Kept apart from the
+    # live search because it depends on the batch, not on the database - the
+    # "To Location" domain combines the two (see the view).
+    vacating_location_ids = fields.Many2many(
+        'stock.location',
+        string="Locations This Batch Vacates",
+        compute='_compute_vacating_location_ids')
 
     @api.depends('quant_relocation_line_ids.x_studio_is_a_blast_freezer')
     def _compute_is_a_blast_freezer(self):
@@ -84,27 +91,31 @@ class multiple_relocation(models.TransientModel):
                     ]
                 result |= Location.search(base_domain)
 
-            # A slot THIS batch is emptying must be selectable too. The search
-            # above is a snapshot taken when the wizard opens, so a location
-            # another line is about to vacate still looks occupied and is left
-            # out - which is why the floor has to park a pallet in an aisle and
-            # come back in a second transfer to fill the freed slot.
-            # Offered only when EVERY quant standing there is one this wizard
-            # is moving away: a partially emptied location stays excluded, and
-            # the location must still sit in the building the user picked.
-            own_quants = wizard.quant_relocation_line_ids.mapped('quant_id')
-            vacating = Location
-            for loc in own_quants.mapped('location_id'):
-                if not loc or loc in result or loc.child_ids:
-                    continue
-                if loc.x_studio_building != wizard.building:
-                    continue
-                staying = loc.quant_ids.filtered(
-                    lambda q: q.quantity > 0 and q not in own_quants)
-                if not staying:
-                    vacating |= loc
+            wizard.allowed_location_ids = result | wizard.vacating_location_ids
 
-            wizard.allowed_location_ids = result | vacating
+    @api.depends('building', 'quant_relocation_line_ids.quant_id')
+    def _compute_vacating_location_ids(self):
+        # A slot THIS batch is emptying must be selectable too: it still looks
+        # occupied until the transfer runs, which is why the floor used to park
+        # a pallet in an aisle and come back in a second transfer to fill the
+        # freed slot. Offered only when EVERY quant standing there is one this
+        # wizard is moving away: a partially emptied location stays excluded,
+        # and the location must still sit in the building the user picked.
+        Location = self.env['stock.location']
+        for wizard in self:
+            vacating = Location
+            if wizard.building:
+                own_quants = wizard.quant_relocation_line_ids.mapped('quant_id')
+                for loc in own_quants.mapped('location_id'):
+                    if not loc or loc.child_ids:
+                        continue
+                    if loc.x_studio_building != wizard.building:
+                        continue
+                    staying = loc.quant_ids.filtered(
+                        lambda q: q.quantity > 0 and q not in own_quants)
+                    if not staying:
+                        vacating |= loc
+            wizard.vacating_location_ids = vacating
     
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
