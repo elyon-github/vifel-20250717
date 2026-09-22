@@ -74,6 +74,7 @@ counts, and a wrong pallet count is a wrong invoice.
         'views/stock_picking_views.xml',
         'views/fast_encode_views.xml',
         'views/stock_quant_views.xml',
+        'views/stock_quant_correction_views.xml',
     ],
 
     # Loads after multiple_relocation's own backend assets (this module depends
