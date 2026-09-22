@@ -1686,6 +1686,7 @@
                         <field name="is_multi_location" invisible="1"/>
                         <field name="is_a_blast_freezer" invisible="1"/>
                         <field name="allowed_location_ids" invisible="1"/>
+                        <field name="vacating_location_ids" invisible="1"/>
 
                         <notebook invisible="not building">
                             <page string="Relocation Lines" name="relocation_lines">
@@ -1703,7 +1704,7 @@
                                         <field name="x_studio_pallet_series_id" readonly="1" force_save="1" options="{'no_create': True, 'no_open': True}" column_invisible="parent.is_a_blast_freezer"/>
                                         <field name="bf_pallet_char" readonly="1" string="BF Pallet #" force_save="1" column_invisible="not parent.is_a_blast_freezer"/>
                                         <field name="current_location" readonly="1" string="From Location" force_save="1" options="{'no_create': True, 'no_open': True}"/>
-                                        <field name="new_location" force_save="1" options="{'no_create': True, 'no_open': True}" domain="[('id', 'in', parent.allowed_location_ids)]" string="To Location" readonly="False"/>
+                                        <field name="new_location" force_save="1" options="{'no_create': True, 'no_open': True}" domain="[('child_ids', '=', False), ('location_id.location_id.location_id.location_id', '!=', False), ('warehouse_id', '=', warehouse_id), ('x_studio_building', '=', parent.building), ('x_studio_is_a_blast_freezer', '=', x_studio_is_a_blast_freezer), '|', '|', '|', ('x_studio_is_a_blast_freezer', '=', True), ('x_studio_is_an_aisle', '=', True), ('id', 'in', parent.vacating_location_ids), '&amp;', '&amp;', ('x_studio_receiving_report_id', '=', False), '|', ('x_studio_total_quantity', '=', 0), ('x_studio_total_quantity', '=', False), ('x_studio_is_reserved', '=', False)]" string="To Location" readonly="False"/>
                                         <field name="x_studio_expiration_date" readonly="1" force_save="1"/>
                                         <field name="x_studio_2nd_uom" readonly="1" string="Quantity" force_save="1"/>
                                         <field name="x_studio_quantity_uom" readonly="1" string="Quantity UOM" force_save="1" options="{'no_create': True, 'no_open': True}"/>
