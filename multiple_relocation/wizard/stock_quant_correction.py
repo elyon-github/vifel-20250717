@@ -196,7 +196,15 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'lot_id': quant.lot_id.id,
             'owner_id': quant.owner_id.id,
             'x_studio_return_count': quant.x_studio_return_count,
+            **self._vifel_correction_line_prefill(quant),
         }
+
+    @api.model
+    def _vifel_correction_line_prefill(self, quant):
+        """Hook: extra wizard-line values read off the quant, for fields an
+        optional add-on makes correctable here. Empty in core - core must not
+        name an add-on's fields (see the plug-and-play suite)."""
+        return {}
 
     def _psi_cascade_plan(self):
         """Group-move plan enforcing pallet-series integrity.
@@ -470,9 +478,15 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'new_x_studio_remarks': wizard_line.x_studio_remarks,
             'display_pallet_series': quant.x_studio_pallet_series_id or '',
             'display_location': quant.location_id.complete_name or '',
+            **self._vifel_adjustment_line_extra_vals(quant, wizard_line),
         }
 
         return self.env['stock.quant.adjustment.line'].create(line_vals)
+
+    def _vifel_adjustment_line_extra_vals(self, quant, wizard_line):
+        """Hook: extra old_/new_ values for the approval line, for fields an
+        optional add-on makes correctable. Empty in core."""
+        return {}
 
     def _apply_corrections_immediately(self):
         """OLD BEHAVIOR: Apply corrections immediately (when skip_approval is checked)"""
@@ -1214,6 +1228,7 @@ class StockQuantCorrectionLine(models.TransientModel):
             'x_studio_container_number': ('x_studio_container_number', str),
             'x_studio_remarks': ('x_studio_remarks', str),
         }
+        field_mapping.update(self._vifel_extra_correction_fields())
 
         for wizard_field, (quant_field, converter) in field_mapping.items():
             old_value = getattr(quant, quant_field)
@@ -1309,7 +1324,9 @@ class StockQuantCorrectionLine(models.TransientModel):
         correction replaced."""
         self.ensure_one()
         move_line_vals = {}
-        for quant_field, ml_field in VIFEL_BREAKDOWN_SYNC_FIELDS.items():
+        sync_fields = dict(VIFEL_BREAKDOWN_SYNC_FIELDS,
+                           **self._vifel_extra_breakdown_sync_fields())
+        for quant_field, ml_field in sync_fields.items():
             if quant_field in changes:
                 move_line_vals[ml_field] = changes[quant_field][1]
         if not move_line_vals:
@@ -1332,6 +1349,16 @@ class StockQuantCorrectionLine(models.TransientModel):
             "Correction on quant %s written back to %s line %s: %s",
             self.quant_id.id, line.picking_id.name, line.id, move_line_vals)
         return line
+
+    def _vifel_extra_correction_fields(self):
+        """Hook: {wizard field: (quant field, converter)} for fields an
+        optional add-on makes correctable. Empty in core."""
+        return {}
+
+    def _vifel_extra_breakdown_sync_fields(self):
+        """Hook: {quant field: receiving move-line field} an optional add-on
+        wants written back onto the RR's Pallet Breakdown. Empty in core."""
+        return {}
 
     def _apply_changes(self, changes):
         """Apply changes to the original quant"""
@@ -2003,6 +2030,7 @@ class StockQuantAdjustmentLine(models.Model):
                 'x_studio_remarks': 'Remarks',
                 'bf_pallet_char': 'BF Pallet #',
             }
+            field_labels.update(line._vifel_extra_change_labels())
 
             for field_name, (old_val, new_val) in changes.items():
                 label = field_labels.get(
@@ -2151,6 +2179,7 @@ class StockQuantAdjustmentLine(models.Model):
             'x_studio_container_number': ('x_studio_container_number', str),
             'x_studio_remarks': ('x_studio_remarks', str),
         }
+        field_mapping.update(self._vifel_extra_adjustment_fields())
 
         for base_field, (field_name, converter) in field_mapping.items():
             old_value = getattr(self, f'old_{base_field}')
@@ -2177,6 +2206,16 @@ class StockQuantAdjustmentLine(models.Model):
                 changes[field_name] = (old_converted, new_converted)
 
         return changes
+
+    def _vifel_extra_adjustment_fields(self):
+        """Hook: {base field: (quant field, converter)}, compared through the
+        old_<base> / new_<base> pair an optional add-on declares on this
+        line. Empty in core."""
+        return {}
+
+    def _vifel_extra_change_labels(self):
+        """Hook: {quant field: label} for the approver's Changes diff."""
+        return {}
 
     def _check_approver_rights(self):
         """Approval/rejection is reserved for the Adjustment Approvers

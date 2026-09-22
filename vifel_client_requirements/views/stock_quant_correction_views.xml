@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Lot No. column in Adjust Pallet Details, so a pallet whose client Lot
+         No. was never typed (or was lost on a return) can be given one. Shown
+         by default because entering it is the point of the column. -->
+
+    <record id="view_stock_quant_correction_wizard_lot_no" model="ir.ui.view">
+        <field name="name">stock.quant.correction.wizard.client.lot.no</field>
+        <field name="model">stock.quant.correction.wizard</field>
+        <field name="inherit_id"
+               ref="multiple_relocation.view_stock_quant_correction_wizard"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='line_ids']/tree/field[@name='x_studio_container_number']"
+                   position="before">
+                <field name="client_lot_no" string="Lot No." optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
