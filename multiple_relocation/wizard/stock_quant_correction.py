@@ -376,6 +376,19 @@ class StockQuantCorrectionWizard(models.TransientModel):
         else:
             return self._create_adjustment_request()
 
+    def _default_inventory_analyst(self):
+        """The analyst to pre-fill on the request, read off the referenced RRs.
+
+        Only when the corrected quants all point at ONE analyst. A correction
+        spanning RRs handled by different analysts is left blank on purpose —
+        an empty signature line is correct, naming one of several is not. The
+        RR is only READ here; it is never written back to.
+        """
+        self.ensure_one()
+        analysts = self.line_ids.mapped(
+            'quant_id.x_studio_record_reference.x_studio_inventory_analyst')
+        return analysts.id if len(analysts) == 1 else False
+
     def _create_adjustment_request(self):
         """Create an adjustment request with all lines for approval workflow"""
         self.ensure_one()
@@ -404,6 +417,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
         request_vals = {
             'reason_for_adjustment': self.reason_for_adjustment,
             'requested_by': self.env.user.id,
+            'inventory_analyst_id': self._default_inventory_analyst(),
             'requested_date': fields.Datetime.now(),
             'is_blast_freeze': self.is_blast_freeze,
         }
@@ -519,6 +533,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'reason_for_adjustment': (self.reason_for_adjustment or
                                       'Correction') + ' (applied immediately)',
             'requested_by': self.env.user.id,
+            'inventory_analyst_id': self._default_inventory_analyst(),
             'requested_date': fields.Datetime.now(),
             'is_blast_freeze': self.is_blast_freeze,
             'batch_number': batch_number,
@@ -1435,6 +1450,19 @@ class StockQuantAdjustmentRequest(models.Model):
         string='Reason for Adjustment', required=True, tracking=True)
     requested_by = fields.Many2one('res.users', string='Requested By',
                                    default=lambda self: self.env.user, readonly=True, required=True)
+    # The name the Adjustment Form PRINTS under PREPARED BY. Deliberately NOT
+    # requested_by: adjustments are cut through one shared inventory login, so
+    # requested_by names the same person on every form. Deliberately not the
+    # referenced RR's own x_studio_inventory_analyst either - editing that would
+    # rewrite the receiving document. This field is local to the adjustment and
+    # is only ever READ from the RR, never written back to it.
+    inventory_analyst_id = fields.Many2one(
+        'res.partner', string='Inventory Analyst',
+        domain="[('category_id.name', '=', 'Inventory Analyst')]",
+        tracking=True,
+        help="Inventory Analyst printed under PREPARED BY on the Adjustment "
+             "Form. Defaults to the analyst on the referenced RR; changing it "
+             "here does NOT change the RR.")
     requested_date = fields.Datetime(
         string='Request Date', default=fields.Datetime.now, readonly=True, required=True)
     approved_by = fields.Many2one(
