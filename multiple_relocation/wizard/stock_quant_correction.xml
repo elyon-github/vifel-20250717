@@ -182,6 +182,7 @@ else:
                     
                     <field name="name" string="Request #"/>
                     <field name="requested_by" widget="many2one_avatar_user"/>
+                    <field name="inventory_analyst_id" optional="show"/>
                     <field name="requested_date" widget="date"/>
                     <field name="reason_for_adjustment"/>
                     <field name="line_count" string="Total Lines"/>
@@ -331,6 +332,9 @@ else:
                             <group>
                                 <field name="name" readonly="1"/>
                                 <field name="requested_by" widget="many2one_avatar_user" readonly="1"/>
+                                <field name="inventory_analyst_id"
+                                       options="{'no_create': True, 'no_open': True}"
+                                       readonly="state not in ['draft', 'pending']"/>
                                 <field name="requested_date" readonly="1"/>
                                 <field name="reason_for_adjustment" readonly="state != 'draft'"/>
                             </group>
