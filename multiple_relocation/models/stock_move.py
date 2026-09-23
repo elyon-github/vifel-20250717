@@ -658,6 +658,20 @@ class stock_move_line_Override(models.Model):
                 return 'A'
         return ''
 
+    def _adjustment_request_analyst(self, batch_number):
+        """Name of the Inventory Analyst chosen on the adjustment request.
+
+        The request and its move lines share one batch number
+        (``request.batch_number`` == ``move_line.adjustment_batch_number``).
+        Returns '' when the batch predates the field or none was picked, so
+        the caller falls back to the referenced RR's own analyst.
+        """
+        if not batch_number or batch_number == 'Unknown Batch':
+            return ''
+        request = self.env['stock.quant.adjustment.request'].search(
+            [('batch_number', '=', batch_number)], limit=1)
+        return request.inventory_analyst_id.name or ''
+
     def build_adjustment_change_map(self, move_lines):
         """
         Build structured change data grouped by batch_number -> owner_id -> adjustment_reference_id -> timestamp.
@@ -690,6 +704,9 @@ class stock_move_line_Override(models.Model):
         from collections import defaultdict
         import re
 
+        # one request lookup per batch, not one per line
+        analyst_by_batch = {}
+
         # Create nested defaultdict structure
         result = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: {
             'reference_document_name': '',
@@ -715,13 +732,18 @@ class stock_move_line_Override(models.Model):
             # Set reference document name (only needs to be set once per group)
             if not result[batch_number][client][reference_id]['reference_document_name']:
                 result[batch_number][client][reference_id]['reference_document_name'] = reference_name
-                # Same group, same referenced RR, so the analyst is set here
-                # too. Left empty when the adjustment has no referenced RR, or
-                # the RR has no analyst recorded - an empty signature line is
+                # PREPARED BY: the analyst CHOSEN on the adjustment request wins,
+                # so the team can name the right person without touching the RR.
+                # Falls back to the referenced RR's own analyst, which is what
+                # every adjustment cut before this field existed still prints.
+                # Left empty when neither is set - an empty signature line is
                 # correct, naming the wrong person is not.
-                result[batch_number][client][reference_id]['inventory_analyst'] = (
-                    line.adjustment_reference_id.x_studio_inventory_analyst.name or ''
-                    if line.adjustment_reference_id else '')
+                if batch_number not in analyst_by_batch:
+                    analyst_by_batch[batch_number] = self._adjustment_request_analyst(batch_number)
+                analyst = analyst_by_batch[batch_number]
+                if not analyst and line.adjustment_reference_id:
+                    analyst = line.adjustment_reference_id.x_studio_inventory_analyst.name or ''
+                result[batch_number][client][reference_id]['inventory_analyst'] = analyst or ''
 
             # Parse reference field for changes
             ref = line.reference or ''

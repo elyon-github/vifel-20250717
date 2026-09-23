@@ -336,6 +336,32 @@ class StockQuantCorrectionWizard(models.TransientModel):
         else:
             return self._create_adjustment_request()
 
+    def _default_inventory_analyst(self):
+        """Who to pre-fill as Requested By on the adjustment request.
+
+        The logged-in user's own contact when that contact is an Inventory
+        Analyst, otherwise BLANK so the person names themselves.
+
+        Deliberately does NOT fall back to the referenced RR's analyst: that
+        is whoever handled the RECEIPT, not whoever is requesting this
+        adjustment, and quietly printing them is the very complaint this field
+        exists to fix. The RR remains the fallback on the REPORT side only, so
+        adjustments cut before this field still print what they always did.
+
+        Blank is the RIGHT answer for a SHARED login: inventory.analyst4 is
+        one account for two people ("TRANQUILINO K.R. / Macapaz C."), and its
+        contact is deliberately not in the Inventory Analyst list, so the real
+        person must pick instead of the account naming them wrongly.
+        """
+        self.ensure_one()
+        me = self.env.user.partner_id
+        return me.id if self._is_inventory_analyst(me) else False
+
+    @api.model
+    def _is_inventory_analyst(self, partner):
+        """True when the contact carries the Inventory Analyst tag."""
+        return bool(partner) and 'Inventory Analyst' in partner.category_id.mapped('name')
+
     def _create_adjustment_request(self):
         """Create an adjustment request with all lines for approval workflow"""
         self.ensure_one()
@@ -364,6 +390,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
         request_vals = {
             'reason_for_adjustment': self.reason_for_adjustment,
             'requested_by': self.env.user.id,
+            'inventory_analyst_id': self._default_inventory_analyst(),
             'requested_date': fields.Datetime.now(),
             'is_blast_freeze': self.is_blast_freeze,
         }
@@ -479,6 +506,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'reason_for_adjustment': (self.reason_for_adjustment or
                                       'Correction') + ' (applied immediately)',
             'requested_by': self.env.user.id,
+            'inventory_analyst_id': self._default_inventory_analyst(),
             'requested_date': fields.Datetime.now(),
             'is_blast_freeze': self.is_blast_freeze,
             'batch_number': batch_number,
@@ -1254,8 +1282,27 @@ class StockQuantAdjustmentRequest(models.Model):
 
     reason_for_adjustment = fields.Char(
         string='Reason for Adjustment', required=True, tracking=True)
-    requested_by = fields.Many2one('res.users', string='Requested By',
+    # The LOGIN that cut the adjustment. Kept as the audit record and as the
+    # key action_cancel checks - it is NOT the person's name, because several
+    # analysts share one account (inventory.analyst4 is literally
+    # "TRANQUILINO K.R. / Macapaz C."). The person is inventory_analyst_id.
+    requested_by = fields.Many2one('res.users', string='Account Used',
                                    default=lambda self: self.env.user, readonly=True, required=True)
+    # The name the Adjustment Form PRINTS under PREPARED BY. Deliberately NOT
+    # requested_by: adjustments are cut through one shared inventory login, so
+    # requested_by names the same person on every form. Deliberately not the
+    # referenced RR's own x_studio_inventory_analyst either - editing that would
+    # rewrite the receiving document. This field is local to the adjustment and
+    # is only ever READ from the RR, never written back to it.
+    inventory_analyst_id = fields.Many2one(
+        'res.partner', string='Requested By',
+        domain="[('category_id.name', '=', 'Inventory Analyst')]",
+        tracking=True,
+        help="The Inventory Analyst who requested this adjustment, printed "
+             "under PREPARED BY on the Adjustment Form. Pre-filled from the "
+             "logged-in user when that person is an Inventory Analyst, "
+             "otherwise from the referenced RR. Changing it here does NOT "
+             "change the RR.")
     requested_date = fields.Datetime(
         string='Request Date', default=fields.Datetime.now, readonly=True, required=True)
     approved_by = fields.Many2one(
