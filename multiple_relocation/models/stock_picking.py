@@ -768,7 +768,7 @@ class transfer_locations(models.Model):
                 picks.append((label, quant, holding))
         return picks
 
-    def _void_rr_release_pending_picks(self, record, picks):
+    def _void_rr_release_pending_picks(self, record, picks, is_blast_freeze):
         """Take the voided RR's pallets out of the withdrawals that picked them
         but are not validated yet, so the void WR can check them out.
 
@@ -789,7 +789,7 @@ class transfer_locations(models.Model):
                 blocked.append((label, ', '.join(sorted(set(
                     moves.mapped('picking_id.name')))) or _("another active withdrawal")))
         if blocked:
-            id_label = "Pallet"
+            id_label = "BF Pallet #" if is_blast_freeze else "Pallet"
             details = '\n'.join(
                 [f"  - {id_label} {lbl} → reserved in {wr}" for lbl, wr in blocked])
             raise UserError(_(
@@ -1486,7 +1486,8 @@ class transfer_locations(models.Model):
                 pending_picks = record._void_rr_pending_picks(
                     record, is_blast_freeze)
                 if pending_picks:
-                    record._void_rr_release_pending_picks(record, pending_picks)
+                    record._void_rr_release_pending_picks(
+                        record, pending_picks, is_blast_freeze)
 
             if is_receiving and is_blast_freeze:
                 # BFRR Guard Rail (lot-based): blast-freeze pallets have no pallet
