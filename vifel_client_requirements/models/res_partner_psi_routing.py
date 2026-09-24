@@ -84,6 +84,10 @@ class ResPartnerPsiRouting(models.Model):
         # Still on the floor: recycling it would duplicate live stock.
         if self._vifel_series_is_stocked(pallet_series_id):
             return
+        # Already put into the warehouse once (voided or withdrawn since):
+        # the number is spent - re-issuing it puts one series on two pallets.
+        if self._vifel_series_was_received(pallet_series_id):
+            return
 
         # Special PSI types own their prefix — the number goes back to that
         # type's own recyclable numbers, never the client's normal ones.
