@@ -90,11 +90,19 @@ class StockMove(models.Model):
     # 'Field "..." does not exist in model "stock.move"'. That would fail the
     # build on every database already carrying the earlier revision.
     vifel_deviation_remarks = fields.Char(
-        string="Concern/Remarks", compute='_compute_vifel_deviation_remarks',
+        string="Pallet Remarks", compute='_compute_vifel_deviation_remarks',
         compute_sudo=True, copy=False,
         help="The Remarks typed against this item's pallets in the Pallet "
              "Breakdown. This is what prints in the Deviation Report's "
              "Concern/Remarks column.")
+
+    # Typed per item in the Operations tab. This, not the pallet remarks above,
+    # is what the Deviation Report's Concern/Remarks column prints; the
+    # document-level NCR-Remarks stays in the Description of Deviation box.
+    vifel_concern_remarks = fields.Char(
+        string="Concern/Remarks", copy=False,
+        help="Concern or remarks for this item. Prints in the Deviation "
+             "Report's Concern/Remarks column.")
 
     @api.depends('move_line_ids.vifel_remarks')
     def _compute_vifel_deviation_remarks(self):
