@@ -707,22 +707,39 @@ class transfer_locations(models.Model):
             _logger.warning(
                 "No pallet kilos record found for transfer: %s", record.name)
 
-    def _void_rr_reservation_conflicts(self, record, is_blast_freeze):
-        """Return [(pallet_label, wr_name), ...] for the RR's received stock that is
-        currently reserved/picked into an active (non-done, non-voided) withdrawal.
+    def _void_rr_pallet_domain(self, ml):
+        """What identifies the pallet an RR line received, as a domain on
+        stock.quant / stock.move.line.
+
+        Pallet series numbers get REUSED: MY-02068 of MAYON is two different
+        pallets (lots ...-93926 and ...-94161). Matching the series alone lands
+        on whichever pallet is found first, so M/RR/06745 was blocked by, and
+        told to void, an unrelated June withdrawal (M/WR/05590). The lot is
+        unique per pallet and set on all but a handful of receipt lines; the
+        series is only the fallback for a line without one."""
+        if ml.lot_id:
+            return [('lot_id', '=', ml.lot_id.id)]
+        return [('x_studio_pallet_series_id', '=', ml.x_studio_pallet_series_id)]
+
+    def _void_rr_pending_picks(self, record, is_blast_freeze):
+        """Return [(pallet_label, quant, holding_moves), ...] for the RR's received
+        stock that is currently reserved/picked into a withdrawal that is not
+        validated yet.
 
         A quant can still be on-hand yet already reserved by a draft/assigned WR; the
         existence guard would pass but the void WR would fight over the same stock.
         Reservation is detected by the standard ``reserved_quantity`` on the quant;
         the holding WR is resolved via the custom ``stock.move.quant_ids_picked`` link.
+        ``holding_moves`` is empty when the reservation belongs to something that
+        link does not explain.
         """
-        conflicts = []
+        picks = []
         Move = self.env['stock.move']
         Quant = self.env['stock.quant']
         for ml in record.move_line_ids:
-            if not ml.lot_id:
-                continue
             if is_blast_freeze:
+                if not ml.lot_id:
+                    continue
                 label = ml.bf_pallet_char or _("Lot %s") % ml.lot_id.name
                 quant = Quant.search([
                     ('lot_id', '=', ml.lot_id.id),
@@ -734,8 +751,10 @@ class transfer_locations(models.Model):
                 if not ml.x_studio_pallet_series_id:
                     continue
                 label = ml.x_studio_pallet_series_id
-                quant = Quant.search([
-                    ('x_studio_pallet_series_id', '=', ml.x_studio_pallet_series_id),
+                # internal only: a lot also has quants in Partners/Customers
+                # and Inventory adjustment, which are not the pallet on hand
+                quant = Quant.search(self._void_rr_pallet_domain(ml) + [
+                    ('location_id.usage', '=', 'internal'),
                     ('quantity', '>', 0),
                 ], limit=1)
             if quant and quant.reserved_quantity > 0:
@@ -746,10 +765,78 @@ class transfer_locations(models.Model):
                     ('picking_id.x_studio_voided', '=', False),
                     ('picking_id', '!=', record.id),
                 ])
-                wr_name = ', '.join(sorted(set(holding.mapped('picking_id.name')))) \
-                    or _("another active withdrawal")
-                conflicts.append((label, wr_name))
-        return conflicts
+                picks.append((label, quant, holding))
+        return picks
+
+    def _void_rr_release_pending_picks(self, record, picks):
+        """Take the voided RR's pallets out of the withdrawals that picked them
+        but are not validated yet, so the void WR can check them out.
+
+        Nothing has left the warehouse on a pending WR, so unpicking is what an
+        operator would do by hand: drop the pallet from the move's picked quants,
+        delete its lines (which frees the reservation), lower the move's demand
+        by what was picked and drop the move if nothing is left. Both documents
+        get a chatter note.
+
+        Raises instead of guessing when the reservation cannot be explained or
+        the holder is itself a void document (those must stay an exact mirror
+        of what they reverse)."""
+        blocked = []
+        for label, quant, moves in picks:
+            if not moves or any(
+                    m.picking_id.is_void_wr or m.picking_id.is_void_return
+                    for m in moves):
+                blocked.append((label, ', '.join(sorted(set(
+                    moves.mapped('picking_id.name')))) or _("another active withdrawal")))
+        if blocked:
+            id_label = "Pallet"
+            details = '\n'.join(
+                [f"  - {id_label} {lbl} → reserved in {wr}" for lbl, wr in blocked])
+            raise UserError(_(
+                "Cannot void this receiving record.\n\n"
+                "The following pallet(s) are currently reserved/picked in an active withdrawal record:\n"
+                "%(details)s\n\n"
+                "Please unpick the pallet from that withdrawal record first, "
+                "then void this receiving record.",
+                details=details,
+            ))
+
+        released = []
+        for label, quant, moves in picks:
+            for move in moves:
+                wr = move.picking_id
+                lines = move.move_line_ids.filtered(
+                    lambda l: l.lot_id == quant.lot_id
+                    and l.package_id == quant.package_id
+                    and l.location_id == quant.location_id)
+                kg = sum(lines.mapped('quantity'))
+                boxes = sum(lines.mapped('x_studio_actual_packaging') or [0])
+                move.write({'quant_ids_picked': [(3, quant.id)]})
+                lines.unlink()
+                new_demand = max(move.product_uom_qty - kg, 0.0)
+                if move.quant_ids_picked or move.move_line_ids:
+                    move.product_uom_qty = new_demand
+                else:
+                    product = move.product_id.display_name
+                    move.unlink()
+                    _logger.info("Void %s: dropped emptied move of %s on %s",
+                                 record.name, product, wr.name)
+                wr.message_post(body=_(
+                    "Pallet %(pallet)s (%(kg)s kg, %(boxes)s box) was removed from this "
+                    "withdrawal because %(rr)s, which received it, was voided.",
+                    pallet=label, kg=kg, boxes=boxes, rr=record.name))
+                released.append(_("%(pallet)s from %(wr)s (%(kg)s kg)",
+                                  pallet=label, wr=wr.name, kg=kg))
+            if quant.reserved_quantity > 0:
+                raise UserError(_(
+                    "Cannot void this receiving record.\n\n"
+                    "Pallet %(pallet)s is still reserved after unpicking it from "
+                    "%(wr)s. Please unpick it by hand, then void this receiving record.",
+                    pallet=label, wr=', '.join(moves.mapped('picking_id.name'))))
+        if released:
+            record.message_post(body=_(
+                "Unpicked before voiding: %s") % '; '.join(released))
+        return released
 
     def _void_wr_quant_domain(self, record, child_location_ids, is_blast_freeze,
                               include_package=True):
@@ -1390,25 +1477,16 @@ class transfer_locations(models.Model):
 
             # === GUARD RAILS ===
             if is_receiving:
-                # Reservation Guard Rail (both BF and regular): block voiding when
-                # the received stock is already reserved/picked into an active
-                # (non-done) withdrawal. The user must unpick it from that WR first,
+                # Reservation Guard Rail (both BF and regular): the received stock
+                # may already be picked into a withdrawal that is not validated
+                # yet. Nothing has left the warehouse, so unpick it from that WR
+                # (its qty/kg drop accordingly) instead of making the user do it;
                 # otherwise the void WR would fight over the same reserved stock.
-                reservation_conflicts = record._void_rr_reservation_conflicts(
+                # A validated WR is NOT touched - the guards below still block it.
+                pending_picks = record._void_rr_pending_picks(
                     record, is_blast_freeze)
-                if reservation_conflicts:
-                    id_label = "BF Pallet #" if is_blast_freeze else "Pallet Series ID"
-                    details = '\n'.join(
-                        [f"  - {id_label} {lbl} → reserved in {wr}" for lbl, wr in reservation_conflicts])
-                    raise UserError(_(
-                        "Cannot void this receiving record.\n\n"
-                        "The following pallet(s) are currently reserved/picked in an active withdrawal record:\n"
-                        "%(details)s\n\n"
-                        "Please unpick the %(id_label)s from that withdrawal record first, "
-                        "then void this receiving record.",
-                        details=details,
-                        id_label=id_label,
-                    ))
+                if pending_picks:
+                    record._void_rr_release_pending_picks(record, pending_picks)
 
             if is_receiving and is_blast_freeze:
                 # BFRR Guard Rail (lot-based): blast-freeze pallets have no pallet
@@ -1483,26 +1561,50 @@ class transfer_locations(models.Model):
 
                     missing_pallets = []
                     used_in_wr_pallets = []
-                    for pallet_series in pallet_series_ids:
-                        quant = self.env['stock.quant'].search([
-                            ('x_studio_pallet_series_id', '=', pallet_series),
-                            # ('location_id', 'in', child_location_ids),
+                    returning_pallets = []
+                    MoveLine = self.env['stock.move.line']
+                    for ml in record.move_line_ids.filtered('x_studio_pallet_series_id'):
+                        pallet_series = ml.x_studio_pallet_series_id
+                        pallet_domain = record._void_rr_pallet_domain(ml)
+                        quant = self.env['stock.quant'].search(pallet_domain + [
+                            ('location_id.usage', '=', 'internal'),
                             ('quantity', '!=', 0),
                         ], limit=1)
                         if not quant:
                             # Quant is missing - check if it was used in a done WR
-                            used_in_wr = self.env['stock.move.line'].search([
-                                ('x_studio_pallet_series_id', '=', pallet_series),
+                            used_in_wr = MoveLine.search(pallet_domain + [
                                 ('picking_id', 'not in', excluded_picking_ids),
                                 ('picking_id.picking_type_id.code', '=', 'outgoing'),
                                 ('picking_id.x_studio_voided', '=', False),
                                 ('state', '=', 'done'),
+                            ], order='date desc', limit=1)
+                            # ...or is on its way back in a return not validated yet
+                            coming_back = MoveLine.search(pallet_domain + [
+                                ('picking_id', 'not in', excluded_picking_ids),
+                                ('picking_id.picking_type_id.code', '=', 'incoming'),
+                                ('picking_id.x_studio_voided', '=', False),
+                                ('state', 'not in', ('done', 'cancel')),
                             ], limit=1)
                             if used_in_wr:
                                 used_in_wr_pallets.append(
                                     (pallet_series, used_in_wr.picking_id.name))
+                            elif coming_back:
+                                returning_pallets.append(
+                                    (pallet_series, coming_back.picking_id.name))
                             else:
                                 missing_pallets.append(pallet_series)
+
+                    if returning_pallets:
+                        details = '\n'.join(
+                            [f"  - Pallet {pallet} → returning in {rr}" for pallet, rr in returning_pallets])
+                        raise UserError(_(
+                            "Cannot void this receiving record.\n\n"
+                            "The following pallet(s) are not back in stock yet; their return "
+                            "record(s) are still waiting for validation:\n"
+                            "%(details)s\n\n"
+                            "Please validate those return record(s) first, then void this receiving record.",
+                            details=details,
+                        ))
 
                     if used_in_wr_pallets:
                         details = '\n'.join(
