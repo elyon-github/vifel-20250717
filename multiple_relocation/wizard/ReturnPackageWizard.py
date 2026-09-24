@@ -207,7 +207,8 @@ class ReturnPackageWizard(models.TransientModel):
                     # path (_create_return_rr_from_wr).
                     remainder = self.picking_id._find_psi_remainder_quant(
                         move_line.owner_id or self.picking_id.partner_id,
-                        series_id, prefer_package=move_line.package_id)
+                        series_id, prefer_package=move_line.package_id,
+                        lot=move_line.lot_id, product=move_line.product_id)
                     if remainder:
                         location_dest_id = remainder.location_id.id
                         pallet_result_id = remainder.package_id.id

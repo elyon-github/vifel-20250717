@@ -214,6 +214,12 @@ class StockQuantCorrectionWizard(models.TransientModel):
         sharing that owner + PSI must follow to the same package —
         otherwise the series ends up split across two pallet numbers.
 
+        The product is part of that identity: opening-balance uploads reused
+        series across SKUs (MAYON MY-02059 is both CHICKEN WINGS and CHICKEN
+        CUT TAILS), and grouping on owner + PSI alone dragged the CUT TAILS
+        along when the WINGS were moved off the pallet they had wrongly
+        landed on, so the two SKUs could never be separated.
+
         Returns one plan dict per affected PSI:
           psi / new_package    the series and its target pallet
           moving_lines         wizard lines the user explicitly changed
@@ -239,7 +245,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             if (not psi or not quant.owner_id or not new_pkg
                     or new_pkg.id == old_pkg_id):
                 continue
-            key = (quant.owner_id.id, psi)
+            key = (quant.owner_id.id, psi, quant.product_id.id)
             plan = plans.get(key)
             if plan and plan['new_package'] != new_pkg:
                 raise UserError(_(
@@ -254,6 +260,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 plan = plans[key] = {
                     'owner_id': quant.owner_id.id,
                     'psi': psi,
+                    'product_id': quant.product_id.id,
                     'new_package': new_pkg,
                     'moving_lines': self.env['stock.quant.correction.line'],
                     'lines_to_sync': self.env['stock.quant.correction.line'],
@@ -273,6 +280,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 quant = line.quant_id
                 if (quant and quant.owner_id.id == plan['owner_id']
                         and quant.x_studio_pallet_series_id == plan['psi']
+                        and quant.product_id.id == plan['product_id']
                         and (line.package_id.id if line.package_id else False)
                         != plan['new_package'].id):
                     plan['lines_to_sync'] |= line
@@ -282,6 +290,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             plan['quants_to_add'] = Quant.search([
                 ('owner_id', '=', plan['owner_id']),
                 ('x_studio_pallet_series_id', '=', plan['psi']),
+                ('product_id', '=', plan['product_id']),
                 ('quantity', '>', 0),
                 ('location_id.usage', '=', 'internal'),
                 ('id', 'not in', wizard_quant_ids),
@@ -1626,9 +1635,17 @@ class StockQuantAdjustmentRequest(models.Model):
             lambda l: not l.is_blast_freeze and l.display_pallet_series
             and l.new_package_id and l.new_package_id != l.old_package_id)
         problems = []
-        for psi in sorted(set(group_lines.mapped('display_pallet_series'))):
-            group = group_lines.filtered(
-                lambda l: l.display_pallet_series == psi)
+
+        def _group_key(l):
+            # same identity as the wizard cascade: a reused series on
+            # another product is a different pallet, not a sibling
+            product = l.old_product_id or l.quant_id.product_id
+            return (l.display_pallet_series, product.id)
+
+        for key in sorted(set(group_lines.mapped(_group_key)),
+                          key=lambda k: (k[0], k[1] or 0)):
+            psi = key[0]
+            group = group_lines.filtered(lambda l: _group_key(l) == key)
             acting = group & acting_lines
             if not acting:
                 continue  # this action doesn't touch the series
