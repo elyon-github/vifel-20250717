@@ -73,7 +73,64 @@ class ResPartner(models.Model):
             tail = (raw or '').rpartition('-')[2].strip()
             if tail.isdigit():
                 used.add(int(tail))
-        return used
+        return used | self._vifel_numbers_received()
+
+    def _vifel_numbers_received(self):
+        """The pallet NUMBERS of this client's series that were ever put into
+        the warehouse by a validated move - a receipt, a return or an
+        opening-balance upload; voided or not, withdrawn or not. Such a number
+        is spent for good.
+
+        Re-issuing a series once its pallet had left put ONE series on TWO
+        pallets, and everything that finds "the pallet" by series then picks
+        the wrong one: M/RR/07138 was voided and its CDM-001350..355 went to
+        M/RR/07161 the same evening; MAYON MY-02068's void was blocked by, and
+        pointed at, an old withdrawn pallet (M/WR/05590); MY-02059's void
+        return landed on another product's pallet (M/RR/07806). Only numbers
+        that never reached a validated receipt (lines deleted or regenerated
+        before validation) may be recycled.
+
+        Limited to the client's own code so a special type's number (SDMG-...)
+        does not block the same digits in the normal series.
+        """
+        self.ensure_one()
+        code = (self.x_studio_client_unique_code_1 or '').strip()
+        if not code:
+            return set()
+        self.env.cr.execute("""
+            SELECT DISTINCT trim(ml.x_studio_pallet_series_id)
+              FROM stock_move_line ml
+              JOIN stock_location ld ON ld.id = ml.location_dest_id
+             WHERE ml.owner_id = %s
+               AND ml.state = 'done'
+               AND ld.usage = 'internal'
+               AND upper(regexp_replace(trim(ml.x_studio_pallet_series_id), '-[^-]*$', '')) = upper(%s)
+        """, (self.id, code))
+        received = set()
+        for (raw,) in self.env.cr.fetchall():
+            tail = (raw or '').rpartition('-')[2].strip()
+            if tail.isdigit():
+                received.add(int(tail))
+        return received
+
+    @api.model
+    def _vifel_series_was_received(self, pallet_series_id):
+        """This exact series was already put into the warehouse by a validated
+        move (any client), so it must never be handed out again. See
+        _vifel_numbers_received."""
+        series = (pallet_series_id or '').strip()
+        if not series:
+            return False
+        self.env.cr.execute("""
+            SELECT 1
+              FROM stock_move_line ml
+              JOIN stock_location ld ON ld.id = ml.location_dest_id
+             WHERE trim(ml.x_studio_pallet_series_id) = %s
+               AND ml.state = 'done'
+               AND ld.usage = 'internal'
+             LIMIT 1
+        """, (series,))
+        return bool(self.env.cr.fetchone())
 
     def push_unused_pallet(self, pallet_series_id):
         self._vifel_lock_pallet_pool()
@@ -87,16 +144,18 @@ class ResPartner(models.Model):
         # Get the current list of IDs or initialize it as an empty list if None
         pallet_series_list = self.unused_pallet_series_ids or []
 
-        # A number only becomes reusable once its pallet has been withdrawn
-        # (COMP-2026-00043). "Assign Pallet Series" recycles every line's
+        # A number is never recycled while its pallet is still stocked
+        # (COMP-2026-00043), nor once it has been on a validated receipt at
+        # all - voided or withdrawn (see _vifel_numbers_received). "Assign Pallet Series" recycles every line's
         # current number before re-assigning, with no regard for whether that
         # pallet is still stocked - so without this check simply re-running the
         # button poisons the pool with live numbers, which are then dealt back
         # out to other lines. That is how one number ends up on two pallets.
         if series_number in self._vifel_numbers_in_use():
             _logger.info(
-                "Pallet number %s not recycled for %s: still on a stocked "
-                "pallet", pallet_series_id, self.display_name)
+                "Pallet number %s not recycled for %s: on a stocked pallet "
+                "or already used on a validated receipt",
+                pallet_series_id, self.display_name)
             return
 
         # Add the new series number if it's not already in the list
@@ -121,8 +180,10 @@ class ResPartner(models.Model):
         # Skip anything still standing on a stocked pallet and take the next
         # free number instead. The operator only clicks a button - they cannot
         # choose a different number - so the system picks the next usable one
-        # rather than stopping them. Skipped numbers STAY in the pool: they
-        # become available again the moment that pallet is withdrawn.
+        # rather than stopping them. A number skipped only because its pallet
+        # is still stocked stays in the pool; one already used on a validated
+        # receipt is spent for good and is dropped from the pool.
+        received = self._vifel_numbers_received()
         in_use = self._vifel_numbers_in_use()
         smallest_ids = [n for n in sorted_list if n not in in_use][:max(count, 0)]
         if not self.x_studio_client_unique_code_1:
@@ -131,7 +192,9 @@ class ResPartner(models.Model):
         formatted_ids = [f"{self.x_studio_client_unique_code_1}-{str(id).zfill(6)}" for id in smallest_ids]
 
         # Remove the used pallet IDs from the original list
-        self.unused_pallet_series_ids = [id for id in pallet_series_list if id not in smallest_ids]
+        self.unused_pallet_series_ids = [
+            id for id in pallet_series_list
+            if id not in smallest_ids and id not in received]
 
         return formatted_ids
 
