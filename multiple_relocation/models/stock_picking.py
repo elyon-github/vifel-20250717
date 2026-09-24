@@ -721,19 +721,16 @@ class transfer_locations(models.Model):
             return [('lot_id', '=', ml.lot_id.id)]
         return [('x_studio_pallet_series_id', '=', ml.x_studio_pallet_series_id)]
 
-    def _void_rr_pending_picks(self, record, is_blast_freeze):
-        """Return [(pallet_label, quant, holding_moves), ...] for the RR's received
-        stock that is currently reserved/picked into a withdrawal that is not
-        validated yet.
+    def _void_rr_reservation_conflicts(self, record, is_blast_freeze):
+        """Return [(pallet_label, wr_name), ...] for the RR's received stock that is
+        currently reserved/picked into an active (non-done, non-voided) withdrawal.
 
         A quant can still be on-hand yet already reserved by a draft/assigned WR; the
         existence guard would pass but the void WR would fight over the same stock.
         Reservation is detected by the standard ``reserved_quantity`` on the quant;
         the holding WR is resolved via the custom ``stock.move.quant_ids_picked`` link.
-        ``holding_moves`` is empty when the reservation belongs to something that
-        link does not explain.
         """
-        picks = []
+        conflicts = []
         Move = self.env['stock.move']
         Quant = self.env['stock.quant']
         for ml in record.move_line_ids:
@@ -765,78 +762,10 @@ class transfer_locations(models.Model):
                     ('picking_id.x_studio_voided', '=', False),
                     ('picking_id', '!=', record.id),
                 ])
-                picks.append((label, quant, holding))
-        return picks
-
-    def _void_rr_release_pending_picks(self, record, picks, is_blast_freeze):
-        """Take the voided RR's pallets out of the withdrawals that picked them
-        but are not validated yet, so the void WR can check them out.
-
-        Nothing has left the warehouse on a pending WR, so unpicking is what an
-        operator would do by hand: drop the pallet from the move's picked quants,
-        delete its lines (which frees the reservation), lower the move's demand
-        by what was picked and drop the move if nothing is left. Both documents
-        get a chatter note.
-
-        Raises instead of guessing when the reservation cannot be explained or
-        the holder is itself a void document (those must stay an exact mirror
-        of what they reverse)."""
-        blocked = []
-        for label, quant, moves in picks:
-            if not moves or any(
-                    m.picking_id.is_void_wr or m.picking_id.is_void_return
-                    for m in moves):
-                blocked.append((label, ', '.join(sorted(set(
-                    moves.mapped('picking_id.name')))) or _("another active withdrawal")))
-        if blocked:
-            id_label = "BF Pallet #" if is_blast_freeze else "Pallet"
-            details = '\n'.join(
-                [f"  - {id_label} {lbl} → reserved in {wr}" for lbl, wr in blocked])
-            raise UserError(_(
-                "Cannot void this receiving record.\n\n"
-                "The following pallet(s) are currently reserved/picked in an active withdrawal record:\n"
-                "%(details)s\n\n"
-                "Please unpick the pallet from that withdrawal record first, "
-                "then void this receiving record.",
-                details=details,
-            ))
-
-        released = []
-        for label, quant, moves in picks:
-            for move in moves:
-                wr = move.picking_id
-                lines = move.move_line_ids.filtered(
-                    lambda l: l.lot_id == quant.lot_id
-                    and l.package_id == quant.package_id
-                    and l.location_id == quant.location_id)
-                kg = sum(lines.mapped('quantity'))
-                boxes = sum(lines.mapped('x_studio_actual_packaging') or [0])
-                move.write({'quant_ids_picked': [(3, quant.id)]})
-                lines.unlink()
-                new_demand = max(move.product_uom_qty - kg, 0.0)
-                if move.quant_ids_picked or move.move_line_ids:
-                    move.product_uom_qty = new_demand
-                else:
-                    product = move.product_id.display_name
-                    move.unlink()
-                    _logger.info("Void %s: dropped emptied move of %s on %s",
-                                 record.name, product, wr.name)
-                wr.message_post(body=_(
-                    "Pallet %(pallet)s (%(kg)s kg, %(boxes)s box) was removed from this "
-                    "withdrawal because %(rr)s, which received it, was voided.",
-                    pallet=label, kg=kg, boxes=boxes, rr=record.name))
-                released.append(_("%(pallet)s from %(wr)s (%(kg)s kg)",
-                                  pallet=label, wr=wr.name, kg=kg))
-            if quant.reserved_quantity > 0:
-                raise UserError(_(
-                    "Cannot void this receiving record.\n\n"
-                    "Pallet %(pallet)s is still reserved after unpicking it from "
-                    "%(wr)s. Please unpick it by hand, then void this receiving record.",
-                    pallet=label, wr=', '.join(moves.mapped('picking_id.name'))))
-        if released:
-            record.message_post(body=_(
-                "Unpicked before voiding: %s") % '; '.join(released))
-        return released
+                wr_name = ', '.join(sorted(set(holding.mapped('picking_id.name')))) \
+                    or _("another active withdrawal")
+                conflicts.append((label, wr_name))
+        return conflicts
 
     def _void_wr_quant_domain(self, record, child_location_ids, is_blast_freeze,
                               include_package=True):
@@ -1477,17 +1406,25 @@ class transfer_locations(models.Model):
 
             # === GUARD RAILS ===
             if is_receiving:
-                # Reservation Guard Rail (both BF and regular): the received stock
-                # may already be picked into a withdrawal that is not validated
-                # yet. Nothing has left the warehouse, so unpick it from that WR
-                # (its qty/kg drop accordingly) instead of making the user do it;
+                # Reservation Guard Rail (both BF and regular): block voiding when
+                # the received stock is already reserved/picked into an active
+                # (non-done) withdrawal. The user must unpick it from that WR first,
                 # otherwise the void WR would fight over the same reserved stock.
-                # A validated WR is NOT touched - the guards below still block it.
-                pending_picks = record._void_rr_pending_picks(
+                reservation_conflicts = record._void_rr_reservation_conflicts(
                     record, is_blast_freeze)
-                if pending_picks:
-                    record._void_rr_release_pending_picks(
-                        record, pending_picks, is_blast_freeze)
+                if reservation_conflicts:
+                    id_label = "BF Pallet #" if is_blast_freeze else "Pallet Series ID"
+                    details = '\n'.join(
+                        [f"  - {id_label} {lbl} → reserved in {wr}" for lbl, wr in reservation_conflicts])
+                    raise UserError(_(
+                        "Cannot void this receiving record.\n\n"
+                        "The following pallet(s) are currently reserved/picked in an active withdrawal record:\n"
+                        "%(details)s\n\n"
+                        "Please unpick the %(id_label)s from that withdrawal record first, "
+                        "then void this receiving record.",
+                        details=details,
+                        id_label=id_label,
+                    ))
 
             if is_receiving and is_blast_freeze:
                 # BFRR Guard Rail (lot-based): blast-freeze pallets have no pallet
