@@ -132,16 +132,53 @@ class VifelPsiType(models.Model):
     # ------------------------------------------------------------------
     # draw / take / give back — mirrors the normal pool's contract
     # ------------------------------------------------------------------
-    def draw_number(self):
-        """Next series of this type: pool smallest-first, else counter++."""
+    def _spent_numbers(self):
+        """Numbers of this type that are on the floor, or were put into the
+        warehouse by a validated move before (voided or withdrawn since):
+        never issue them again.
+
+        Compared as bare ints so padding cannot hide a match - the data holds
+        the same number written several ways (BOC-00014 and BOC-000014)."""
         self.ensure_one()
-        pool = sorted(self.number_pool or [])
+        self.env.cr.execute("""
+            SELECT trim(q.x_studio_pallet_series_id)
+              FROM stock_quant q
+              JOIN stock_location l ON l.id = q.location_id
+             WHERE l.usage = 'internal' AND q.quantity > 0
+               AND regexp_replace(trim(q.x_studio_pallet_series_id), '-[^-]*$', '') = %s
+            UNION
+            SELECT trim(ml.x_studio_pallet_series_id)
+              FROM stock_move_line ml
+              JOIN stock_location ld ON ld.id = ml.location_dest_id
+             WHERE ml.state = 'done' AND ld.usage = 'internal'
+               AND regexp_replace(trim(ml.x_studio_pallet_series_id), '-[^-]*$', '') = %s
+        """, (self.prefix, self.prefix))
+        spent = set()
+        for (raw,) in self.env.cr.fetchall():
+            tail = (raw or '').rpartition('-')[2].strip()
+            if tail.isdigit():
+                spent.add(int(tail))
+        return spent
+
+    def draw_number(self):
+        """Next series of this type: pool smallest-first, else counter++.
+
+        Spent numbers are skipped - a pooled one is dropped, and the counter
+        walks past any that is already live (it can lag behind reality, as
+        TITAN's SDMG did)."""
+        self.ensure_one()
+        spent = self._spent_numbers()
+        pool = sorted(n for n in (self.number_pool or []) if n not in spent)
         if pool:
             number = pool[0]
-            self.number_pool = [n for n in (self.number_pool or []) if n != number]
-        else:
-            number = int(self.next_number or 1)
-            self.next_number = number + 1
+            self.number_pool = pool[1:]
+            return self._format(number)
+        if self.number_pool:
+            self.number_pool = []
+        number = int(self.next_number or 1)
+        while number in spent:
+            number += 1
+        self.next_number = number + 1
         return self._format(number)
 
     def take_number(self, series):
@@ -167,6 +204,8 @@ class VifelPsiType(models.Model):
         if number is None or number >= int(self.next_number or 1):
             return False
         if self.env['res.partner']._vifel_series_is_stocked(series):
+            return False
+        if number in self._spent_numbers():
             return False
         pool = self.number_pool or []
         if number not in pool:

@@ -1202,7 +1202,8 @@ class transfer_locations(models.Model):
         if all_move_lines:
             StockMoveLine.create(all_move_lines)
 
-    def _find_psi_remainder_quant(self, owner, psi, prefer_package=None):
+    def _find_psi_remainder_quant(self, owner, psi, prefer_package=None,
+                                  lot=None, product=None):
         """Locate the remaining stocked quant of a pallet series (PSI) for an
         owner — the merge target a void/partial return MUST land on. Reusing
         its package + location (with the preserved lot) keeps all five quant
@@ -1210,7 +1211,15 @@ class transfer_locations(models.Model):
         2nd UOM / packs onto the same quant instead of creating a same-PSI
         duplicate on another pallet. Prefers the quant on `prefer_package`
         (the WR line's original pallet), else the one holding the most
-        stock. Returns an empty recordset when the PSI has fully left."""
+        stock. Returns an empty recordset when the PSI has fully left.
+
+        A PSI is NOT unique per owner: opening-balance uploads reused series
+        across SKUs (MAYON MY-02057 is both CHICKEN WINGS and CHICKEN CUT
+        TAILS), so owner+PSI alone sent the void return of M/WR/10568's WINGS
+        onto the CUT TAILS pallets (M/RR/07806). When the caller passes the
+        returned line's `lot` / `product`, the remainder must be that same
+        pallet (lot) or at least the same product (a Merge Pallet keeps one
+        PSI over several lots); another product's pallet never qualifies."""
         Quant = self.env['stock.quant']
         if not owner or not psi:
             return Quant
@@ -1221,6 +1230,10 @@ class transfer_locations(models.Model):
             ('location_id.usage', '=', 'internal'),
             ('package_id', '!=', False),
         ])
+        if lot and quants.filtered(lambda q: q.lot_id == lot):
+            quants = quants.filtered(lambda q: q.lot_id == lot)
+        elif product:
+            quants = quants.filtered(lambda q: q.product_id == product)
         if not quants:
             return quants
         if prefer_package:
@@ -1275,7 +1288,8 @@ class transfer_locations(models.Model):
             # heuristics apply, the pallet is physically standing there.
             remainder = record._find_psi_remainder_quant(
                 move_line.owner_id, move_line.x_studio_pallet_series_id,
-                prefer_package=move_line.package_id)
+                prefer_package=move_line.package_id,
+                lot=move_line.lot_id, product=move_line.product_id)
             if remainder:
                 location_dest_id = remainder.location_id.id
                 pallet_result_id = remainder.package_id.id
