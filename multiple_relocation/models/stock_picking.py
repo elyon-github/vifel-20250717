@@ -231,6 +231,23 @@ class transfer_locations(models.Model):
         help="Date and time when this record was validated (UTC)"
     )
 
+    # Deviation Report NOTED BY (team request 2026-09-24): an Inventory
+    # Analyst chosen by the one account allowed to note deviations.
+    vifel_noted_by_id = fields.Many2one(
+        'res.partner', string="Noted By", copy=False, tracking=True,
+        domain="[('category_id.name', '=', 'Inventory Analyst')]",
+        help="Inventory Analyst printed as NOTED BY on the Deviation Report. "
+             "Only members of 'Deviation Report: Noted By' can set it.")
+    vifel_can_edit_noted_by = fields.Boolean(
+        compute='_compute_vifel_can_edit_noted_by')
+
+    @api.depends_context('uid')
+    def _compute_vifel_can_edit_noted_by(self):
+        allowed = self.env.user.has_group(
+            'multiple_relocation.group_deviation_noted_by')
+        for record in self:
+            record.vifel_can_edit_noted_by = allowed
+
     documentation_staff_id = fields.Many2one(
         'res.partner',
         string="Documentation Staff",
@@ -3282,6 +3299,13 @@ class transfer_locations(models.Model):
 
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
+        # Noted By is readonly in the form for everyone but the noting
+        # account; enforce it server-side too (import, RPC, other views).
+        if ('vifel_noted_by_id' in vals and not self.env.su
+                and not self.env.user.has_group(
+                    'multiple_relocation.group_deviation_noted_by')):
+            raise UserError(_(
+                "Only members of 'Deviation Report: Noted By' can set Noted By."))
         # OWNER-CHANGE GUARD ON LINKED RETURNS: a return RR that changes its
         # Client while still linked to its WR re-owns the returned stock
         # (AR#1 copies partner -> owner on save), splitting one lot across
