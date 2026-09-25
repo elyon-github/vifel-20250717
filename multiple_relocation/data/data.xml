@@ -71,6 +71,18 @@
     </record>
 
 
+    <!-- Who may set "Noted By" on a transfer (printed as NOTED BY on the
+         Deviation Report). Team request 2026-09-24: only the
+         inventory1.bulacan account (user 66). Seeded with (4, id) so members
+         ticked in the UI survive upgrades; admin (2) keeps it reachable. -->
+    <record id="group_deviation_noted_by" model="res.groups">
+        <field name="name">Deviation Report: Noted By</field>
+        <field name="category_id" ref="base.module_category_hidden"/>
+        <field name="comment">Members can set Noted By on transfers, printed as NOTED BY on the Deviation Report. Add or remove members here - no code change is needed.</field>
+        <field name="users" eval="[(4, 2), (4, 66)]"/>
+    </record>
+
+
     <!-- Sequence for Adjustment Requests -->
     <record id="seq_stock_quant_adjustment_request" model="ir.sequence">
         <field name="name">Stock Quant Adjustment Request</field>
