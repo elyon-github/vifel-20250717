@@ -71,14 +71,16 @@
     </record>
 
 
-    <!-- Who may set "Noted By" on a transfer (printed as NOTED BY on the
-         Deviation Report). Team request 2026-09-24: only the
-         inventory1.bulacan account (user 66). Seeded with (4, id) so members
-         ticked in the UI survive upgrades; admin (2) keeps it reachable. -->
+    <!-- Who picks the Noted By options (Configuration tab on transfers).
+         2026-09-24 this group also gated setting Noted By on a transfer;
+         2026-09-28 the documentation staff set it themselves and this group
+         only curates the list. Seeded with the inventory1.bulacan account
+         (user 66) via (4, id) so members ticked in the UI survive upgrades;
+         admin (2) keeps it reachable. -->
     <record id="group_deviation_noted_by" model="res.groups">
         <field name="name">Deviation Report: Noted By</field>
         <field name="category_id" ref="base.module_category_hidden"/>
-        <field name="comment">Members can set Noted By on transfers, printed as NOTED BY on the Deviation Report. Add or remove members here - no code change is needed.</field>
+        <field name="comment">Members choose, in the Configuration tab on transfers, which Inventory Analysts are offered as NOTED BY. Add or remove members here - no code change is needed.</field>
         <field name="users" eval="[(4, 2), (4, 66)]"/>
     </record>
 

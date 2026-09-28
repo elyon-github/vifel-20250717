@@ -62,10 +62,24 @@
 
 
             <xpath expr="//field[@name='user_id']" position="after">
-                <field name="vifel_can_edit_noted_by" invisible="1"/>
                 <field name="vifel_noted_by_id"
-                       readonly="not vifel_can_edit_noted_by"
                        options="{'no_create': True, 'no_open': True}"/>
+            </xpath>
+
+            <!-- Which Inventory Analysts Noted By offers, chosen from the
+                 transfer itself by the noting account (team request 2026-09-28). -->
+            <xpath expr="//page[@name='extra']" position="after">
+                <page string="Configuration" name="vifel_configuration"
+                      groups="multiple_relocation.group_deviation_noted_by">
+                    <group>
+                        <field name="vifel_noted_by_option_ids" widget="many2many_tags"
+                               options="{'no_create': True, 'no_open': True}"/>
+                    </group>
+                    <div class="text-muted">
+                        Inventory Analysts the documentation staff can choose as Noted By (Additional Info tab).
+                        Removing one here does not change transfers that already use it.
+                    </div>
+                </page>
             </xpath>
 
             <xpath expr="//form" position="inside">

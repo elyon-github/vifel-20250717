@@ -231,22 +231,40 @@ class transfer_locations(models.Model):
         help="Date and time when this record was validated (UTC)"
     )
 
-    # Deviation Report NOTED BY (team request 2026-09-24): an Inventory
-    # Analyst chosen by the one account allowed to note deviations.
+    # Deviation Report NOTED BY. 2026-09-24: set by the noting account only.
+    # 2026-09-28 (team): the documentation staff pick it themselves, from the
+    # Inventory Analysts the noting account has ticked in the Configuration
+    # tab (res.partner.vifel_noted_by_option).
     vifel_noted_by_id = fields.Many2one(
         'res.partner', string="Noted By", copy=False, tracking=True,
+        domain="[('vifel_noted_by_option', '=', True)]",
+        help="Printed as NOTED BY on the Deviation Report. The choices are "
+             "the Inventory Analysts selected in the Configuration tab.")
+    # Configuration tab: which Inventory Analysts Noted By offers. Not
+    # stored - the same global selection shows on every transfer, and the
+    # inverse writes it to the partners' vifel_noted_by_option flag.
+    vifel_noted_by_option_ids = fields.Many2many(
+        'res.partner', string="Noted By Options",
+        compute='_compute_vifel_noted_by_option_ids',
+        inverse='_inverse_vifel_noted_by_option_ids',
         domain="[('category_id.name', '=', 'Inventory Analyst')]",
-        help="Inventory Analyst printed as NOTED BY on the Deviation Report. "
-             "Only members of 'Deviation Report: Noted By' can set it.")
-    vifel_can_edit_noted_by = fields.Boolean(
-        compute='_compute_vifel_can_edit_noted_by')
+        groups='multiple_relocation.group_deviation_noted_by')
 
-    @api.depends_context('uid')
-    def _compute_vifel_can_edit_noted_by(self):
-        allowed = self.env.user.has_group(
-            'multiple_relocation.group_deviation_noted_by')
+    def _compute_vifel_noted_by_option_ids(self):
+        options = self.env['res.partner'].search(
+            [('vifel_noted_by_option', '=', True)])
         for record in self:
-            record.vifel_can_edit_noted_by = allowed
+            record.vifel_noted_by_option_ids = options
+
+    def _inverse_vifel_noted_by_option_ids(self):
+        # The field's groups= already limits this to the noting account; sudo
+        # only so a member without contact-edit rights can still save it.
+        Partner = self.env['res.partner'].sudo()
+        for record in self[:1]:
+            chosen = Partner.browse(record.vifel_noted_by_option_ids.ids)
+            current = Partner.search([('vifel_noted_by_option', '=', True)])
+            (current - chosen).write({'vifel_noted_by_option': False})
+            (chosen - current).write({'vifel_noted_by_option': True})
 
     documentation_staff_id = fields.Many2one(
         'res.partner',
@@ -3299,13 +3317,6 @@ class transfer_locations(models.Model):
 
     # Unreserve Moveline Reserved Locations
     def write(self, vals):
-        # Noted By is readonly in the form for everyone but the noting
-        # account; enforce it server-side too (import, RPC, other views).
-        if ('vifel_noted_by_id' in vals and not self.env.su
-                and not self.env.user.has_group(
-                    'multiple_relocation.group_deviation_noted_by')):
-            raise UserError(_(
-                "Only members of 'Deviation Report: Noted By' can set Noted By."))
         # OWNER-CHANGE GUARD ON LINKED RETURNS: a return RR that changes its
         # Client while still linked to its WR re-owns the returned stock
         # (AR#1 copies partner -> owner on save), splitting one lot across
