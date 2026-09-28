@@ -81,7 +81,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
     'website': "https://templanza-portfolio.netlify.app/",
 
     'category': 'Inventory/Inventory',
-    'version': '0.2',
+    'version': '0.3',
 
     # any module necessary for this one to work correctly
     'depends': ['base', 'stock', 'web', 'report_xlsx', 'pallet_kilos_record_model'],
@@ -113,6 +113,8 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         # resolve stops that whole screen rendering for everyone, Pallet
         # Breakdown included, so this order is mandatory.
         'views/special_holding_restrict.xml',
+        # after data.xml: its access rules reference group_deviation_noted_by
+        'views/noted_by_views.xml',
 
     ],
     # only loaded in demonstration mode

@@ -231,40 +231,42 @@ class transfer_locations(models.Model):
         help="Date and time when this record was validated (UTC)"
     )
 
-    # Deviation Report NOTED BY. 2026-09-24: set by the noting account only.
-    # 2026-09-28 (team): the documentation staff pick it themselves, from the
-    # Inventory Analysts the noting account has ticked in the Configuration
-    # tab (res.partner.vifel_noted_by_option).
-    vifel_noted_by_id = fields.Many2one(
-        'res.partner', string="Noted By", copy=False, tracking=True,
-        domain="[('vifel_noted_by_option', '=', True)]",
-        help="Printed as NOTED BY on the Deviation Report. The choices are "
-             "the Inventory Analysts selected in the Configuration tab.")
-    # Configuration tab: which Inventory Analysts Noted By offers. Not
-    # stored - the same global selection shows on every transfer, and the
-    # inverse writes it to the partners' vifel_noted_by_option flag.
-    vifel_noted_by_option_ids = fields.Many2many(
-        'res.partner', string="Noted By Options",
-        compute='_compute_vifel_noted_by_option_ids',
-        inverse='_inverse_vifel_noted_by_option_ids',
-        domain="[('category_id.name', '=', 'Inventory Analyst')]",
+    # Deviation Report NOTED BY. 2026-09-24: an Inventory Analyst set by the
+    # noting account only. 2026-09-28 (team): the documentation staff pick it,
+    # from names the noting account TYPES in the Configuration tab - not from
+    # contacts. New field; migrations/0.3 carries any value of the old contact
+    # field (vifel_noted_by_id) over.
+    vifel_noted_by_name_id = fields.Many2one(
+        'vifel.noted.by.name', string="Noted By", copy=False, tracking=True,
+        help="Printed as NOTED BY on the Deviation Report. The choices are the "
+             "names added in the Configuration tab.")
+    # Configuration tab: the Noted By list itself. Not stored - every transfer
+    # shows the same global list; the inverse applies the edits to
+    # vifel.noted.by.name.
+    vifel_noted_by_name_ids = fields.Many2many(
+        'vifel.noted.by.name', string="Noted By Names",
+        compute='_compute_vifel_noted_by_name_ids',
+        inverse='_inverse_vifel_noted_by_name_ids',
         groups='multiple_relocation.group_deviation_noted_by')
 
-    def _compute_vifel_noted_by_option_ids(self):
-        options = self.env['res.partner'].search(
-            [('vifel_noted_by_option', '=', True)])
+    def _compute_vifel_noted_by_name_ids(self):
+        names = self.env['vifel.noted.by.name'].search([])
         for record in self:
-            record.vifel_noted_by_option_ids = options
+            record.vifel_noted_by_name_ids = names
 
-    def _inverse_vifel_noted_by_option_ids(self):
-        # The field's groups= already limits this to the noting account; sudo
-        # only so a member without contact-edit rights can still save it.
-        Partner = self.env['res.partner'].sudo()
+    def _inverse_vifel_noted_by_name_ids(self):
+        Name = self.env['vifel.noted.by.name']
         for record in self[:1]:
-            chosen = Partner.browse(record.vifel_noted_by_option_ids.ids)
-            current = Partner.search([('vifel_noted_by_option', '=', True)])
-            (current - chosen).write({'vifel_noted_by_option': False})
-            (chosen - current).write({'vifel_noted_by_option': True})
+            kept = Name
+            for line in record.vifel_noted_by_name_ids:
+                if line.id:
+                    line._origin.write({'name': line.name, 'sequence': line.sequence})
+                    kept |= line._origin
+                else:
+                    kept |= Name.create({'name': line.name, 'sequence': line.sequence})
+            # A name removed from the tab is archived, never deleted, so
+            # transfers that already print it keep their Noted By.
+            (Name.search([]) - kept).write({'active': False})
 
     documentation_staff_id = fields.Many2one(
         'res.partner',

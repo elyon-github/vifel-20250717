@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Noted By names (team request 2026-09-28): everyone reads the list (the
+         Noted By dropdown), only 'Deviation Report: Noted By' members change it,
+         from the transfer's Configuration tab (views.xml). Loaded after
+         data/data.xml, which defines that group. -->
+
+    <record id="access_vifel_noted_by_name_user" model="ir.model.access">
+        <field name="name">vifel.noted.by.name user (read)</field>
+        <field name="model_id" ref="model_vifel_noted_by_name"/>
+        <field name="group_id" ref="base.group_user"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <record id="access_vifel_noted_by_name_manager" model="ir.model.access">
+        <field name="name">vifel.noted.by.name noted-by (manage)</field>
+        <field name="model_id" ref="model_vifel_noted_by_name"/>
+        <field name="group_id" ref="group_deviation_noted_by"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+    </record>
+</odoo>
