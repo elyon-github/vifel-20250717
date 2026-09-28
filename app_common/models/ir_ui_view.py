@@ -24,7 +24,7 @@ def app_relaxng(view_type):
                 relaxng_doc = etree.parse(frng)
                 _relaxng_cache[view_type] = etree.RelaxNG(relaxng_doc)
             except Exception:
-                _logger.error('You can Ignore this. Failed to load RelaxNG XML schema for views validation')
+                _logger.warning('You can Ignore this. Failed to load RelaxNG XML schema for views validation')
                 _relaxng_cache[view_type] = None
     return _relaxng_cache[view_type]
 
