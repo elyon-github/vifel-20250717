@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class VifelNotedByName(models.Model):
@@ -21,3 +21,21 @@ class VifelNotedByName(models.Model):
     _sql_constraints = [
         ('name_unique', 'unique(name)', 'This name is already in the Noted By list.'),
     ]
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        # Removing a name from the tab only archives it, so typing it again
+        # brings the archived row back instead of tripping name_unique.
+        slots = []
+        to_create = []
+        for vals in vals_list:
+            archived = vals.get('name') and self.with_context(active_test=False).search(
+                [('name', '=', vals['name']), ('active', '=', False)], limit=1)
+            if archived:
+                archived.write(dict(vals, active=True))
+                slots.append(archived.id)
+            else:
+                slots.append(None)
+                to_create.append(vals)
+        created = iter(super().create(to_create).ids)
+        return self.browse([rid or next(created) for rid in slots])
