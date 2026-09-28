@@ -4,4 +4,4 @@ from . import models
 from . import stock_quant
 from . import stock_move
 from . import stock_picking
-from . import res_partner_noted_by
+from . import noted_by_name

@@ -71,7 +71,7 @@
     </record>
 
 
-    <!-- Who picks the Noted By options (Configuration tab on transfers).
+    <!-- Who maintains the Noted By names (Configuration tab on transfers).
          2026-09-24 this group also gated setting Noted By on a transfer;
          2026-09-28 the documentation staff set it themselves and this group
          only curates the list. Seeded with the inventory1.bulacan account
@@ -80,7 +80,7 @@
     <record id="group_deviation_noted_by" model="res.groups">
         <field name="name">Deviation Report: Noted By</field>
         <field name="category_id" ref="base.module_category_hidden"/>
-        <field name="comment">Members choose, in the Configuration tab on transfers, which Inventory Analysts are offered as NOTED BY. Add or remove members here - no code change is needed.</field>
+        <field name="comment">Members type, in the Configuration tab on transfers, the names offered as NOTED BY. Add or remove members here - no code change is needed.</field>
         <field name="users" eval="[(4, 2), (4, 66)]"/>
     </record>
 
