@@ -62,10 +62,26 @@
 
 
             <xpath expr="//field[@name='user_id']" position="after">
-                <field name="vifel_can_edit_noted_by" invisible="1"/>
-                <field name="vifel_noted_by_id"
-                       readonly="not vifel_can_edit_noted_by"
+                <field name="vifel_noted_by_name_id"
                        options="{'no_create': True, 'no_open': True}"/>
+            </xpath>
+
+            <!-- The Noted By names, typed in from the transfer itself by the
+                 noting account (team request 2026-09-28). -->
+            <xpath expr="//page[@name='extra']" position="after">
+                <page string="Configuration" name="vifel_configuration"
+                      groups="multiple_relocation.group_deviation_noted_by">
+                    <field name="vifel_noted_by_name_ids" nolabel="1">
+                        <tree editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="name" string="Noted By Names"/>
+                        </tree>
+                    </field>
+                    <div class="text-muted">
+                        Names the documentation staff can choose as Noted By (Additional Info tab).
+                        Removing a name here hides it from the list; transfers that already use it keep it.
+                    </div>
+                </page>
             </xpath>
 
             <xpath expr="//form" position="inside">
