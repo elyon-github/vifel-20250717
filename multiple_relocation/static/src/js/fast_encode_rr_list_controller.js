@@ -241,6 +241,31 @@ export class FastEncodeRRListController extends ListController {
         });
     }
     
+    /**
+     * One pallet would wear a series another pallet of this receipt also wears.
+     * Resolves "own", "share", or null when the encoder closes the question.
+     */
+    _askShareOrOwnSeries(conflict) {
+        return new Promise((resolve) => {
+            this._confirmOpen = true;  // let Escape close this question, not the wizard
+            this.dialogService.add(ConfirmationDialog, {
+                title: "Same Pallet Series on Two Pallets",
+                body: `Pallet ${conflict.pallet} (${conflict.lines}) has Pallet Series ${conflict.series}, ` +
+                      `which pallet ${conflict.with_pallet} (${conflict.with_lines}) in this receipt also has.\n\n` +
+                      `Share this series, or give pallet ${conflict.pallet} its own number?`,
+                confirmLabel: `Give ${conflict.pallet} its own number`,
+                cancelLabel: "Share the series",
+                confirm: () => resolve("own"),
+                cancel: () => resolve("share"),
+                dismiss: () => resolve(null),
+            }, {
+                onClose: () => {
+                    this._confirmOpen = false;
+                },
+            });
+        });
+    }
+
     async onConfirmClick() {
         const records = this.model.root.records;
         
@@ -289,11 +314,39 @@ export class FastEncodeRRListController extends ListController {
             confirmLabel: "Yes",
             cancelLabel: "No",
             confirm: async () => {
+                // Pallets about to share a series with another pallet of this
+                // receipt: ask, per pallet, share or own number. Backing out of a
+                // question saves nothing.
+                const ownPalletIds = [];
+                const sharedPalletIds = [];
+                try {
+                    const conflicts = await this.orm.call(
+                        'stock.move.line.fast_encode_rr',
+                        'vifel_shared_series_conflicts',
+                        [[wizardId]]
+                    );
+                    for (const conflict of conflicts) {
+                        const choice = await this._askShareOrOwnSeries(conflict);
+                        if (choice === null) {
+                            this.notification.add("Nothing was saved. Review the pallets and confirm again.", { type: "warning" });
+                            return;
+                        }
+                        (choice === "own" ? ownPalletIds : sharedPalletIds).push(conflict.pallet_id);
+                    }
+                } catch (error) {
+                    const msg = error.data?.message || error.message || "Error occurred";
+                    this.notification.add(msg, { type: "danger", sticky: true });
+                    return;
+                }
                 try {
                     await this.orm.call(
                         'stock.move.line.fast_encode_rr',
                         'action_confirm',
-                        [[wizardId]]
+                        [[wizardId]],
+                        { context: {
+                            vifel_own_series_pallet_ids: ownPalletIds,
+                            vifel_shared_series_pallet_ids: sharedPalletIds,
+                        } }
                     );
                     
                     this.notification.add("Changes applied successfully!", { type: "success" });
