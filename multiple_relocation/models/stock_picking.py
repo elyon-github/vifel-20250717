@@ -249,6 +249,29 @@ class transfer_locations(models.Model):
         inverse='_inverse_vifel_noted_by_name_ids',
         groups='multiple_relocation.group_deviation_noted_by')
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        # A new transfer's form sends the Configuration list as an empty
+        # command list, which the inverse read as "every name removed" and
+        # archived the whole Noted By list (live 2026-09-30, M/RR/08198).
+        # On create only names typed or edited in the tab are applied;
+        # nothing is ever archived from here.
+        Name = self.env['vifel.noted.by.name']
+        for vals in vals_list:
+            for command in vals.pop('vifel_noted_by_name_ids', None) or []:
+                if not isinstance(command, (list, tuple)) or len(command) < 3:
+                    continue
+                if command[0] == 0:
+                    Name.create(command[2])
+                elif command[0] == 1:
+                    Name.browse(command[1]).write(command[2])
+        records = super().create(vals_list)
+        # The list was computed mid-create (empty); recompute it so the saved
+        # form shows the real list, or editing the tab right after saving
+        # would send changes against an empty list.
+        records.invalidate_recordset(['vifel_noted_by_name_ids'])
+        return records
+
     def _compute_vifel_noted_by_name_ids(self):
         names = self.env['vifel.noted.by.name'].search([])
         for record in self:
