@@ -59,6 +59,7 @@
                                         <field name="pallet_type" column_invisible="1" invisible="1"/>
                                         <field name="warehouse_id" column_invisible="1" invisible="1"/>
                                         <field name="lot_id" column_invisible="1" invisible="1"/>
+                                        <field name="stock_move_line" column_invisible="1" force_save="1"/>
                                         <field name="select_package" force_save="1"/>
 
                                         <field name="is_a_blast_freeze" column_invisible="1"/>
