@@ -557,13 +557,19 @@ class ReturnPackageWizard(models.TransientModel):
         The read-only columns only stop the UI; this also covers lines from an
         earlier reason, multi-edit, or a non-UI call.
         """
+        wr_lines = self.picking_id.move_line_ids
         for line in lines:
-            move_line = self.env['stock.move.line'].browse(line.stock_move_line).exists()
-            if not move_line or move_line.picking_id != self.picking_id:
-                raise UserError(
-                    "Partial Withdraw quantities are computed from the withdrawal. "
-                    "Remove the manually added pallet line(s) and try again.")
-            line.write(self._vifel_partial_return_qtys(move_line))
+            move_line = wr_lines.filtered(lambda ml: ml.id == line.stock_move_line)
+            if not move_line:
+                # stock_move_line is only saved once the view carries it, so
+                # fall back to the pallet the line was built from
+                move_line = wr_lines.filtered(
+                    lambda ml: ml.product_id == line.product_id
+                    and (ml.x_studio_pallet_series_id or False) == (line.pallet_series_id or False)
+                    and (ml.bf_pallet_char or False) == (line.bf_pallet_char or False)
+                    and ml.lot_id == line.lot_id)
+            if len(move_line) == 1:
+                line.write(self._vifel_partial_return_qtys(move_line))
 
     def _vifel_return_wizard_line_vals(self, move_line):
         """Extra return WIZARD-LINE vals derived from the withdrawn move line.
