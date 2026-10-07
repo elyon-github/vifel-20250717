@@ -326,9 +326,9 @@ class ReturnPackageWizard(models.TransientModel):
                         }))
                     else:
                         # Only add line for Partial Withdraw if quantity has a value (was edited)
-                        partial_quantity = move_line.quantity - move_line.x_studio_actual_kg
-                        
-                        if partial_quantity > 0:
+                        partial_vals = self._vifel_partial_return_qtys(move_line)
+
+                        if partial_vals['quantity'] > 0:
                             lines.append((0, 0, {
                                     'select_package': True,
                                     'result_package_id': pallet_result_id,
@@ -347,9 +347,7 @@ class ReturnPackageWizard(models.TransientModel):
                                     'return_counter': move_line.x_studio_return_count,
                                     'container_number': move_line.x_studio_container_number,
                                     **self._vifel_return_wizard_line_vals(move_line),
-                                    'pack_uom_unit': move_line.x_studio_affected_2nd_uom - move_line.x_studio_actual_packaging,
-                                    'min_uom_unit': move_line.x_studio_withdraw_units - move_line.x_studio_actual_min,
-                                    'quantity': partial_quantity,
+                                    **partial_vals,
                                     'pack_uom': move_line.x_studio_quantity_uom_delivery,
                                     'min_uom': move_line.x_studio_min_quantity_uom,
                                     'actual_pack_uom_unit': move_line.x_studio_affected_2nd_uom,
@@ -541,6 +539,38 @@ class ReturnPackageWizard(models.TransientModel):
             'state': 'assigned',
         })
 
+    def _vifel_partial_return_qtys(self, move_line):
+        """What a Partial Withdraw returns: withdrawn minus actually taken out.
+
+        Auto-computed only - the wizard columns are read-only for this reason
+        and action_process_return re-applies it, so it cannot be overridden.
+        """
+        return {
+            'pack_uom_unit': move_line.x_studio_affected_2nd_uom - move_line.x_studio_actual_packaging,
+            'min_uom_unit': move_line.x_studio_withdraw_units - move_line.x_studio_actual_min,
+            'quantity': move_line.quantity - move_line.x_studio_actual_kg,
+        }
+
+    def _vifel_enforce_partial_return_qtys(self, lines):
+        """Re-apply the computed Partial Withdraw quantities to the lines.
+
+        The read-only columns only stop the UI; this also covers lines from an
+        earlier reason, multi-edit, or a non-UI call.
+        """
+        wr_lines = self.picking_id.move_line_ids
+        for line in lines:
+            move_line = wr_lines.filtered(lambda ml: ml.id == line.stock_move_line)
+            if not move_line:
+                # stock_move_line is only saved once the view carries it, so
+                # fall back to the pallet the line was built from
+                move_line = wr_lines.filtered(
+                    lambda ml: ml.product_id == line.product_id
+                    and (ml.x_studio_pallet_series_id or False) == (line.pallet_series_id or False)
+                    and (ml.bf_pallet_char or False) == (line.bf_pallet_char or False)
+                    and ml.lot_id == line.lot_id)
+            if len(move_line) == 1:
+                line.write(self._vifel_partial_return_qtys(move_line))
+
     def _vifel_return_wizard_line_vals(self, move_line):
         """Extra return WIZARD-LINE vals derived from the withdrawn move line.
 
@@ -566,6 +596,8 @@ class ReturnPackageWizard(models.TransientModel):
 
     def action_process_return(self):
         selected_packages = self.package_line_ids.filtered(lambda line: line.select_package)
+        if self.return_reason == 'Partial Withdraw':
+            self._vifel_enforce_partial_return_qtys(selected_packages)
         
         # Check if we should create a blank return or process with selected packages
 

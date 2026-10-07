@@ -1,6 +1,7 @@
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,124 @@ class FastEncodeRRWizard(models.TransientModel):
         handled, so the standard write is skipped for it. Default: nothing was
         staged."""
         return False
+
+    # ------------------------------------------------------------------
+    # Shared series question (2026-10-01)
+    #
+    # Two pallets of one receipt may share a Pallet Series - the team allows
+    # it - but the wizard could also hand a pallet its neighbour's series
+    # without anyone choosing it: a line briefly put on the neighbour's pallet
+    # copies its series and keeps it after moving to its own pallet
+    # (M/RR/07961 SM-000588 on 4468 RP + 2892 RP, M/RR/07701 RC-000571).
+    # Before Confirm the JS asks the encoder, per pallet, to share or to take
+    # its own number; Confirm applies the answers it is given in the context.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _vifel_series_key(series):
+        """Prefix + number, so zero-padding cannot hide a match (SM-588 = SM-000588)."""
+        match = re.match(r'^(.*?)-?0*(\d+)$', series or '')
+        return (match.group(1), int(match.group(2))) if match else (series or '', None)
+
+    def vifel_shared_series_conflicts(self):
+        """Pallets that would leave Confirm wearing a series another pallet of
+        the same receipt also wears. One entry per pallet to ask about; the
+        pallet that already held the number (a line saved outside the wizard,
+        else the line whose original series it is, else the lowest line #) is
+        not asked. Merged rows, Blast Freeze and return RRs are left alone:
+        their shared series are deliberate."""
+        self.ensure_one()
+        transfer = self.env['stock.picking'].browse(self.transfer_id)
+        if (not self.line_ids or not transfer.exists() or transfer.return_id
+                or transfer.picking_type_id.is_blast_freeze_operation):
+            return []
+        Line = self.env['stock.move.line.fast_encode_rr.line']
+        groups = {}
+        for line in self.line_ids:
+            if (line.result_package_id and line.pallet_series_id
+                    and not line.needs_new_pallet_series
+                    and not self._vifel_line_is_merge_locked(line)):
+                groups.setdefault(line.result_package_id.id, Line)
+                groups[line.result_package_id.id] |= line
+
+        def label(lines):
+            return ', '.join('#%s %s' % (l.x_studio_, l.product_id.display_name or '')
+                             for l in lines.sorted('x_studio_'))
+
+        holders = {}  # series key -> [candidate dicts]
+        for pallet_id, lines in groups.items():
+            # Same winner Confirm will elect (smallest original series).
+            winner = min(lines, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+            series = winner.pallet_series_id
+            key = self._vifel_series_key(series)
+            holders.setdefault(key, []).append({
+                'pallet_id': pallet_id,
+                'pallet': lines[0].result_package_id.name,
+                'series': series,
+                'lines': label(lines),
+                'external': False,
+                'original': any(self._vifel_series_key(l.original_pallet_series_id) == key for l in lines),
+                'first_line': min(lines.mapped('x_studio_')),
+            })
+        if not holders:
+            return []
+        outside = self.env['stock.move.line'].search([
+            ('picking_id', '=', transfer.id),
+            ('id', 'not in', self.line_ids.mapped('stock_move_line')),
+            ('x_studio_pallet_series_id', '!=', False),
+            ('result_package_id', '!=', False),
+        ])
+        for ml in outside:
+            key = self._vifel_series_key(ml.x_studio_pallet_series_id)
+            if key in holders and ml.result_package_id.id not in [h['pallet_id'] for h in holders[key]]:
+                holders[key].append({
+                    'pallet_id': ml.result_package_id.id, 'pallet': ml.result_package_id.name,
+                    'series': ml.x_studio_pallet_series_id, 'lines': _('already saved on this receipt'),
+                    'external': True, 'original': True, 'first_line': -1,
+                })
+
+        conflicts = []
+        for key, cands in holders.items():
+            if len(cands) < 2:
+                continue
+            cands.sort(key=lambda c: (not c['external'], not c['original'], c['first_line']))
+            keeper = cands[0]
+            for c in cands[1:]:
+                if c['external']:
+                    continue  # not editable here; it was already saved this way
+                conflicts.append({
+                    'pallet_id': c['pallet_id'], 'pallet': c['pallet'], 'series': c['series'],
+                    'lines': c['lines'], 'with_pallet': keeper['pallet'], 'with_lines': keeper['lines'],
+                })
+        return conflicts
+
+    def _vifel_apply_shared_series_answers(self):
+        """Apply the encoder's answers passed by the JS in the context:
+        vifel_own_series_pallet_ids get their own number (the pallet's lead
+        line is flagged for a NEW series, which Confirm then draws from the
+        pool / counter); vifel_shared_series_pallet_ids keep the shared series
+        and the choice is noted on the receipt."""
+        own = set(self.env.context.get('vifel_own_series_pallet_ids') or [])
+        shared = set(self.env.context.get('vifel_shared_series_pallet_ids') or [])
+        if not own and not shared:
+            return
+        notes = []
+        for conflict in self.vifel_shared_series_conflicts():
+            if conflict['pallet_id'] in own:
+                lines = self.line_ids.filtered(
+                    lambda l: l.result_package_id.id == conflict['pallet_id']
+                    and not self._vifel_line_is_merge_locked(l))
+                if lines:
+                    lead = min(lines, key=lambda l: l.original_pallet_series_id or l.pallet_series_id or '')
+                    lead.write({'needs_new_pallet_series': True})
+            elif conflict['pallet_id'] in shared:
+                notes.append(_('Pallet %(pallet)s keeps Pallet Series %(series)s, shared with pallet '
+                               '%(other)s (chosen in the Magic Wizard).') % {
+                    'pallet': conflict['pallet'], 'series': conflict['series'],
+                    'other': conflict['with_pallet']})
+        picking = self.env['stock.picking'].browse(self.transfer_id)
+        for note in notes:
+            picking.message_post(body=note)
 
     def _validate_result_package_availability(self):
         """Refuse to confirm if any selected Pallet # is either:
@@ -145,7 +264,10 @@ class FastEncodeRRWizard(models.TransientModel):
         # Get all move lines for this transfer to track pallet and location changes
         if not self.line_ids:
             return {'type': 'ir.actions.act_window_close'}
-        
+
+        # Shared-series answers from the encoder (see vifel_shared_series_conflicts).
+        self._vifel_apply_shared_series_answers()
+
         transfer_id = self.line_ids[0].transfer_id
         
         # Track pallets and locations that were previously used (before wizard changes)
