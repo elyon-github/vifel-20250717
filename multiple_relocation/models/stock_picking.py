@@ -2180,15 +2180,21 @@ class transfer_locations(models.Model):
         last_product_id = None
         last_prod_date = None
         last_exp_date = None
+        last_lot_no = None
+        show_lot_no = self._vifel_report_show_lot_no()
 
         for idx in range(n):
             line = sorted_lines[idx]
             next_line = sorted_lines[idx + 1] if idx + 1 < n else None
+            lot_no = self._vifel_report_lot_no(line) if show_lot_no else ''
 
+            # Must match the template's show_product test exactly, or the
+            # page budget and the printed rows drift apart.
             show_product = (
                 line.product_id.id != last_product_id
                 or line.x_studio_production_date != last_prod_date
                 or line.x_studio_expiration_date != last_exp_date
+                or lot_no != last_lot_no
             )
 
             current_container = line.x_studio_container_number or ''
@@ -2203,7 +2209,7 @@ class transfer_locations(models.Model):
 
             row_px = self._picklist_row_pixels(
                 line, show_product, current_container,
-                container_changed, move_changed, is_last
+                container_changed, move_changed, is_last, lot_no
             )
 
             # Flush current page if this item would exceed budget
@@ -2214,22 +2220,32 @@ class transfer_locations(models.Model):
                 last_product_id = None
                 last_prod_date = None
                 last_exp_date = None
+                last_lot_no = None
                 # Recount for new page — product always shows at top of new page
                 row_px = self._picklist_row_pixels(
                     line, True, current_container,
-                    container_changed, move_changed, is_last
+                    container_changed, move_changed, is_last, lot_no
                 )
 
             px_used += row_px
             last_product_id = line.product_id.id
             last_prod_date = line.x_studio_production_date
             last_exp_date = line.x_studio_expiration_date
+            last_lot_no = lot_no
 
         boundaries.append((page_start, n))
         return boundaries
 
+    def get_picklist_lot_no(self, move_line):
+        """Client Lot No. for one picklist line, '' when the client's profile
+        does not print it. Public so the Studio picklist template can call it."""
+        if not self._vifel_report_show_lot_no():
+            return ''
+        return self._vifel_report_lot_no(move_line)
+
     def _picklist_row_pixels(self, line, show_product, current_container,
-                              container_changed, move_changed, is_last):
+                              container_changed, move_changed, is_last,
+                              lot_no=''):
         """
         Estimate pixel height one move line consumes in the picklist table.
 
@@ -2237,6 +2253,7 @@ class transfer_locations(models.Model):
           24px  base data row (min-height)
           +15px product name wraps (name > 38 chars in the description column)
           +15px date range line inside td   (if show_product and has dates)
+          +15px LOT NO. line inside td      (if show_product and has a lot no)
           +15px container line inside td    (if container_changed and has container)
           +30px separate Total Request <tr> (if move_changed and total_request set)
           +12px spacing <tr> between container groups (not on last item)
@@ -2250,6 +2267,8 @@ class transfer_locations(models.Model):
                 px += 15  # wrapping line
             if line.x_studio_production_date or line.x_studio_expiration_date:
                 px += 15  # date range line
+            if lot_no:
+                px += 15  # LOT NO. line
             if container_changed and current_container:
                 px += 15  # container shown on first product row
         else:
