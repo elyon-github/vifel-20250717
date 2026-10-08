@@ -202,9 +202,11 @@ class multiple_relocation(models.TransientModel):
         reserved_by_system = {}
         conflicting_lines = {}
         
-        # Check for system-reserved locations
+        # Check for system-reserved locations. An Aisle is a shared multi-pallet
+        # staging area: an open RR parking pallets there must not lock it for
+        # relocations (the To Location list already offers every aisle).
         for line in self.quant_relocation_line_ids:
-            if line.new_location and line.new_location.x_studio_is_reserved:
+            if line.new_location and line.new_location.x_studio_is_reserved and not line.new_location.x_studio_is_an_aisle:
                 if hasattr(line.new_location, 'x_studio_receiving_report_id') and line.new_location.x_studio_receiving_report_id:
                     if line.new_location.id not in reserved_by_system:
                         reserved_by_system[line.new_location.id] = {
