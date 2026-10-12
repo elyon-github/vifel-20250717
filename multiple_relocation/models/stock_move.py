@@ -993,8 +993,11 @@ class stock_move_line_Override(models.Model):
                     'field_id': fid.id if fid else False,
                     'old_value_char': old_value[:250],
                     'new_value_char': new_value[:250],
-                    # the form prefers this label, so it can name the pallet
-                    'field_info': {'label': line._vifel_adjustment_label(field)},
+                    # the form prefers this label, so it can name the pallet;
+                    # 'name' is required by the chatter, which keys every
+                    # field_info on it - without it the chatter fails to load
+                    'field_info': {'name': field,
+                                   'label': line._vifel_adjustment_label(field)},
                 })
 
     @staticmethod
