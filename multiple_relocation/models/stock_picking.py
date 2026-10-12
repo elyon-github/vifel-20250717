@@ -1920,6 +1920,16 @@ class transfer_locations(models.Model):
                     "Transfer %s is not voided, cannot unvoid.", record.name)
                 continue
 
+            # A void WR / void return only exists to cancel its parent; its
+            # Voided flag is what keeps it off the Pallet Monitoring report.
+            # Unvoiding it re-adds the movement while the parent stays voided
+            # (M/RR/07092 came back as +7 pallets / 4,049 kg that way). The
+            # button is hidden for these, but a Studio view override showed it.
+            if record.is_void_wr or record.is_void_return:
+                raise UserError(_(
+                    "%s is a void document and cannot be unvoided. "
+                    "Unvoid the original transfer instead.") % record.name)
+
             # If the void created an equivalent Void WR/RR that's already been
             # validated, the void is permanent. Letting an unvoid through here
             # would leave the validated child as an orphan inventory move.
