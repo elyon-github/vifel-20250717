@@ -1,0 +1,148 @@
+// Live Pallet Breakdown counter (No. of Pallets / Quantity / Weight KG),
+// with an optional multi-truck-withdrawal note underneath.
+//
+// Sits in the control panel's navigation cluster (next to the pager), centered
+// in the gap between the search bar and the pager. Design goals: stand out,
+// stay on one row, be responsive, and adapt to BOTH light and dark themes.
+//
+// Dark-mode adaptivity: Odoo 17 does NOT use prefers-color-scheme. It applies
+// dark mode by RECOMPILING the SCSS with $o-webclient-color-scheme = dark
+// (driven by the `color_scheme` cookie). So we branch at compile time on that
+// variable. `variable-exists` guards against a compile error (and therefore a
+// broken backend bundle) if the variable is ever out of scope - it just falls
+// back to the light palette. Labels/note additionally borrow --bs-body-color,
+// which the active theme already flips.
+
+$o-vpc-dark: false;
+@if variable-exists(o-webclient-color-scheme) {
+    @if $o-webclient-color-scheme != bright {
+        $o-vpc-dark: true;
+    }
+}
+
+.o_vifel_pallet_counter {
+    @if $o-vpc-dark {
+        --vpc-pallets: #6ea8fe; // blue
+        --vpc-qty: #4ad295;     // green
+        --vpc-weight: #ffb266;  // orange
+        --vpc-surface: rgba(255, 255, 255, 0.07);
+        --vpc-border: rgba(255, 255, 255, 0.16);
+        --vpc-divider: rgba(255, 255, 255, 0.22);
+        --vpc-note: #ff6b6b;    // red, brightened for a dark surface
+    } @else {
+        --vpc-pallets: #2f6fed; // blue
+        --vpc-qty: #1a9c5b;     // green
+        --vpc-weight: #e8730c;  // orange
+        --vpc-surface: rgba(128, 128, 128, 0.11);
+        --vpc-border: rgba(128, 128, 128, 0.22);
+        --vpc-divider: rgba(128, 128, 128, 0.38);
+        --vpc-note: #d92d20;    // red
+    }
+
+    // Placed in the navigation cluster: order:-1 puts it BEFORE the pager; the
+    // auto side-margins soak up free space on both sides so it lands CENTERED
+    // in the gap between the search bar and the pager; flex:0 0 auto keeps it
+    // content-width so it never stretches into or over the search bar.
+    order: -1;
+    flex: 0 0 auto;
+    margin: 0 auto;
+    align-self: center;          // vertically center within the navigation cluster
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;     // center the row(s) inside the min-height box
+    min-height: 2.2rem;          // ~ the search bar height, so it lines up with it
+    padding: 2px 14px;
+    // match the search bar's corner radius (Bootstrap input radius)
+    border-radius: var(--bs-border-radius, 0.375rem);
+    background: var(--vpc-surface);
+    border: 1px solid var(--vpc-border);
+
+    .o_vpc_row {
+        display: flex;
+        flex-wrap: nowrap;       // metrics strictly on one row
+        align-items: center;
+    }
+
+    .o_vpc_item {
+        position: relative;
+        display: inline-flex;
+        align-items: center;     // dot + label + value share one horizontal line
+        gap: 0.4rem;
+        padding: 0 0.85rem;
+        white-space: nowrap;
+
+        // thin divider between adjacent items
+        & + .o_vpc_item::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 1.05em;
+            border-left: 1px solid var(--vpc-divider);
+        }
+    }
+
+    .o_vpc_dot {
+        align-self: center;
+        flex: 0 0 auto;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+    }
+
+    .o_vpc_label {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+        text-transform: uppercase;
+        // inherit the control panel's themed text color (flips light/dark on its
+        // own); --bs-body-color is NOT theme-flipped by Odoo dark mode, so it
+        // would stay black on a dark background.
+        color: inherit;
+        opacity: 0.6;
+    }
+
+    .o_vpc_value {
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1;
+        font-variant-numeric: tabular-nums; // digits don't jiggle as totals change
+    }
+
+    .o_vpc_pallets {
+        .o_vpc_dot { background: var(--vpc-pallets); }
+        .o_vpc_value { color: var(--vpc-pallets); }
+    }
+    .o_vpc_qty {
+        .o_vpc_dot { background: var(--vpc-qty); }
+        .o_vpc_value { color: var(--vpc-qty); }
+    }
+    .o_vpc_weight {
+        .o_vpc_dot { background: var(--vpc-weight); }
+        .o_vpc_value { color: var(--vpc-weight); }
+    }
+
+    // Multi-truck withdrawal note (only on an unvalidated WR whose pallet is
+    // being drawn by more than one transfer). Tiny, italic, muted.
+    .o_vpc_note {
+        margin-top: 1px;
+        max-width: 26rem;
+        font-size: 9.5px;
+        font-style: italic;
+        font-weight: 500;
+        line-height: 1.2;
+        text-align: center;
+        color: var(--vpc-note, #d92d20); // red - it is a caveat
+    }
+
+    // Tight screens: drop the labels, keep the colour-coded dot + value.
+    @media (max-width: 991.98px) {
+        padding: 3px 10px;
+        .o_vpc_item { padding: 0 0.55rem; }
+        .o_vpc_label { display: none; }
+        .o_vpc_value { font-size: 14px; }
+        .o_vpc_note { font-size: 9px; max-width: 18rem; }
+    }
+}

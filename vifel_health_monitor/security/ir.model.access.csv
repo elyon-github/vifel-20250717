@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_health_check_superadmin,vifel.health.check super admin,model_vifel_health_check,multiple_relocation.inventory_super_admin,1,1,1,1
+access_health_check_system,vifel.health.check system admin,model_vifel_health_check,base.group_system,1,1,1,1
+access_health_finding_superadmin,vifel.health.finding super admin,model_vifel_health_finding,multiple_relocation.inventory_super_admin,1,1,1,1
+access_health_finding_system,vifel.health.finding system admin,model_vifel_health_finding,base.group_system,1,1,1,1
+access_health_run_superadmin,vifel.health.run super admin,model_vifel_health_run,multiple_relocation.inventory_super_admin,1,1,1,1
+access_health_run_system,vifel.health.run system admin,model_vifel_health_run,base.group_system,1,1,1,1

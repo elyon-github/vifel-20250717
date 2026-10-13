@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo noupdate="1">
+
+    <!-- Weekly sweep, Sunday 11:00 UTC = 19:00 PH — measured as the single
+         most inactive hour of the week (34 events/90 days; the operation
+         runs day AND night on weekdays, so Sunday evening is the only true
+         dead zone). Change cadence in Settings → Technical → Scheduled
+         Actions. -->
+    <record id="cron_health_checks" model="ir.cron">
+        <field name="name">VIFEL: Weekly Health Checks</field>
+        <field name="model_id" ref="model_vifel_health_check"/>
+        <field name="state">code</field>
+        <field name="code">model.run_all_checks(trigger='cron')</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">weeks</field>
+        <field name="active" eval="True"/>
+        <field name="nextcall" eval="(DateTime.now() + timedelta(days=(6 - DateTime.now().weekday()) % 7 or 7)).strftime('%Y-%m-%d 11:00:00')"/>
+    </record>
+
+</odoo>

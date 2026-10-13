@@ -1,0 +1,91 @@
+<odoo noupdate="0">
+    <!-- Define the server action -->
+
+    <!-- <record id="service_product" model="product.product">
+        <field name="name">Reboxing</field>
+        <field name="sale_ok">1</field>
+        <field name="detailed_type">service</field>
+        <field name="standard_price">0.00</field>
+    </record>
+
+    <record id="service_product_2" model="product.product">
+        <field name="name">Resacking</field>
+        <field name="sale_ok">1</field>
+        <field name="detailed_type">service</field>
+        <field name="standard_price">0.00</field>
+    </record>
+
+    <record id="service_product_3" model="product.product">
+        <field name="name">Repacking</field>
+        <field name="sale_ok">1</field>
+        <field name="detailed_type">service</field>
+        <field name="standard_price">0.00</field>
+    </record> -->
+
+    <!-- Groups -->
+    <record id="inventory_super_admin" model="res.groups">
+        <field name="name">Inventory Super Admin</field>
+        <field name="user_ids" eval="[(4, 2)]"/>
+    </record>
+
+    <!-- Adjustment Approvers: members can approve/reject Pallet Detail
+         Adjustment Requests and each receives the approval to-do when a
+         request is submitted (replaces the old hardcoded notification
+         target). Seeded with DOJELLO, CYRIL JUNE A. (user 66,
+         inventory1.bulacan@) only, per instruction — (4, id) only LINKS,
+         so members added/removed via the UI are preserved across
+         upgrades. Same hardcoded-id pattern as inventory_super_admin
+         above (single-database deployment). -->
+    <record id="group_adjustment_approver" model="res.groups">
+        <field name="name">Adjustment Approvers</field>
+        <field name="comment">Members can approve or reject Pallet Detail Adjustment Requests and receive the approval activity when a request is submitted.</field>
+        <field name="user_ids" eval="[(4, 66)]"/>
+    </record>
+
+    <!-- Special Holding Authority: who may SEE and SET Special Holding and
+         SH Reason. The client asked that Documentation Staff no longer have
+         it and that it belong to authorised Inventory Analysts only
+         (COMP-2026-00052).
+
+         A GROUP, deliberately, not a list of names in the code. Staff change;
+         a hardcoded name would only be found and removed when a developer went
+         looking, which is precisely the behaviour to avoid. Membership is a
+         plain checkbox on the user form (module_category_hidden gives no
+         implied chain, so it renders as a checkbox rather than a radio), so a
+         supervisor adds or removes people with no deployment at all.
+
+         The seed below is (4, id), LINK only, never (6, 0, [...]) which
+         would REPLACE. So whoever is ticked in the UI stays ticked across
+         every module upgrade; this list only decides who starts with it, and
+         admin is included so the authority can never be locked out entirely.
+         Seeded: TUMULAC J. (67), MORENOS M.V. (50), SALIPOT A. (54),
+         TRANQUILINO K.R. / Macapaz C. (52), the four Inventory Analysts,
+         plus admin (2). The Warehouse Manager is deliberately NOT seeded. -->
+    <record id="group_special_holding_authority" model="res.groups">
+        <field name="name">Special Holding Authority</field>
+        <field name="comment">Members can see and set Special Holding and SH Reason on pallet lines and quants. Intended for authorised Inventory Analysts; Documentation Staff are excluded. Add or remove members here — no code change is needed.</field>
+        <field name="user_ids" eval="[(4, 2), (4, 67), (4, 50), (4, 54), (4, 52)]"/>
+    </record>
+
+    <!-- Deviation Report: Noted By (ported from MAIN). Members type, in the
+         Configuration tab on transfers, the names offered as NOTED BY. Seeded
+         with the noting account DOJELLO, CYRIL JUNE A. (user 66) via (4, id)
+         so members ticked in the UI survive upgrades; admin (2) keeps it
+         reachable. Odoo 19: user_ids (was users), no category_id. -->
+    <record id="group_deviation_noted_by" model="res.groups">
+        <field name="name">Deviation Report: Noted By</field>
+        <field name="comment">Members type, in the Configuration tab on transfers, the names offered as NOTED BY. Add or remove members here - no code change is needed.</field>
+        <field name="user_ids" eval="[(4, 2), (4, 66)]"/>
+    </record>
+
+
+    <!-- Sequence for Adjustment Requests -->
+    <record id="seq_stock_quant_adjustment_request" model="ir.sequence">
+        <field name="name">Stock Quant Adjustment Request</field>
+        <field name="code">stock.quant.adjustment.request</field>
+        <field name="prefix">ADJ/%(year)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False"/>
+    </record>
+
+</odoo>

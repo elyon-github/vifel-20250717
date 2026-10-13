@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Noted By names (ported from MAIN): everyone reads the list (the
+         Noted By dropdown), only 'Deviation Report: Noted By' members change it,
+         from the transfer's Configuration tab (views.xml). Loaded after
+         data/data.xml, which defines that group. -->
+
+    <record id="access_vifel_noted_by_name_user" model="ir.model.access">
+        <field name="name">vifel.noted.by.name user (read)</field>
+        <field name="model_id" ref="model_vifel_noted_by_name"/>
+        <field name="group_id" ref="base.group_user"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+    </record>
+
+    <record id="access_vifel_noted_by_name_manager" model="ir.model.access">
+        <field name="name">vifel.noted.by.name noted-by (manage)</field>
+        <field name="model_id" ref="model_vifel_noted_by_name"/>
+        <field name="group_id" ref="group_deviation_noted_by"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="True"/>
+        <field name="perm_create" eval="True"/>
+        <field name="perm_unlink" eval="True"/>
+    </record>
+
+    <!-- Transfer form: Noted By under Responsible (Additional Info), and the
+         Configuration tab where the noting account maintains the list. Kept
+         here, after data.xml, because the tab is gated on
+         group_deviation_noted_by. -->
+    <record id="view_picking_form_noted_by" model="ir.ui.view">
+        <field name="name">stock.picking.form.noted.by</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='user_id']" position="after">
+                <field name="vifel_noted_by_name_id"
+                       options="{'no_create': True, 'no_open': True}"/>
+            </xpath>
+            <xpath expr="//page[@name='extra']" position="after">
+                <page string="Configuration" name="vifel_configuration"
+                      groups="multiple_relocation.group_deviation_noted_by">
+                    <field name="vifel_noted_by_name_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="name" string="Noted By Names"/>
+                        </list>
+                    </field>
+                    <div class="text-muted">
+                        Names the documentation staff can choose as Noted By (Additional Info tab).
+                        Removing a name here hides it from the list; transfers that already use it keep it.
+                    </div>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

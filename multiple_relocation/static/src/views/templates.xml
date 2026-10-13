@@ -1,0 +1,38 @@
+<templates xml:space="preserve">
+    <!-- Balanced totals display with gradient: totals of the ticked rows, inside the "N selected" box.
+         Odoo 19: extends web.SelectionBox (web.ListView.Selection no longer exists); the values come
+         from static/src/js/selection_totals.js. -->
+    <t t-name="multiple_relocation.SelectionBoxTotals" t-inherit="web.SelectionBox" t-inherit-mode="extension">
+        <xpath expr="//button[hasclass('o_unselect_all')]" position="before">
+                    <t t-set="vst" t-value="vifelSelectionTotals"/>
+                    <div t-if="vst" class="ms-3 d-flex align-items-center" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 5px 10px; border-radius: 6px; border-left: 3px solid #0d6efd; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                        <div t-if="vst.loading" style="font-size: 12px; color: #6c757d;">Loading totals...</div>
+                        <div t-else="" class="d-flex align-items-center gap-3">
+                            <!-- No. of Pallets -->
+                            <div class="text-center" t-if="vst.pallets > 0">
+                                <div style="font-size: 10px; color: #6c757d; font-weight: 500; text-transform: uppercase;">No. of Pallets</div>
+                                <div class="fw-bold" style="color: #0d6efd; font-size: 14px;" t-esc="vst.pallets"/>
+                            </div>
+
+                            <!-- QTY -->
+                            <div class="text-center" t-if="vst.quantity">
+                                <div style="font-size: 10px; color: #6c757d; font-weight: 500; text-transform: uppercase;">Quantity</div>
+                                <div class="fw-bold" style="color: #198754; font-size: 14px;" t-esc="vst.quantity"/>
+                            </div>
+
+                            <!-- KG -->
+                            <div class="text-center">
+                                <div style="font-size: 10px; color: #6c757d; font-weight: 500; text-transform: uppercase;">Weight (KG)</div>
+                                <div class="fw-bold" style="color: #fd7e14; font-size: 14px;" t-esc="vst.kg"/>
+                            </div>
+
+                            <!-- PACKS -->
+                            <div class="text-center" t-if="vst.packs">
+                                <div style="font-size: 10px; color: #6c757d; font-weight: 500; text-transform: uppercase;">Packs</div>
+                                <div class="fw-bold" style="color: #dc3545; font-size: 14px;" t-esc="vst.packs"/>
+                            </div>
+                        </div>
+                    </div>
+                </xpath>
+    </t>
+</templates>

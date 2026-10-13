@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- VIFEL Configuration tab on the Contact form.
+
+         Config is Elyon/Vifel-side: encoders never open this, they only ever
+         see the resulting Merge Pallet button on their transfer lines. -->
+    <record id="view_partner_form_vifel_config" model="ir.ui.view">
+        <field name="name">res.partner.form.vifel.config</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//notebook" position="inside">
+                <!-- Shown for contacts tagged Client (category 1), OR for any
+                     contact that already carries VIFEL settings. The second
+                     clause is the escape hatch: hard-coding the tag id means a
+                     contact tagged differently would otherwise be permanently
+                     unconfigurable, with the tab silently absent and no clue
+                     why. Anything already configured stays reachable. -->
+                <page string="VIFEL Configuration" name="vifel_configuration"
+                      invisible="not set(category_id).intersection([1])
+                                 and not vifel_can_merge_pallets
+                                 and not vifel_show_lot_no
+                                 and not vifel_show_batch_no">
+                    <!-- Step 1: does this client merge at all? Everything
+                         else stays hidden until it does, so a client that
+                         does not merge shows exactly one checkbox. -->
+                    <group>
+                        <group string="Pallet Merging">
+                            <field name="vifel_can_merge_pallets"/>
+                        </group>
+                        <group string="Documents">
+                            <field name="vifel_show_lot_no"/>
+                            <field name="vifel_show_batch_no"/>
+                        </group>
+                    </group>
+
+                    <!-- Step 2: which of the two ways does it merge? -->
+                    <group string="How this client merges"
+                           invisible="not vifel_can_merge_pallets">
+                        <field name="vifel_multiple_pallet_support"/>
+                        <div class="oe_grey" colspan="2"
+                             invisible="vifel_multiple_pallet_support">
+                            <strong>Fixed Merge Pallet and PSI Support</strong> —
+                            pin one or more dedicated pallets, each with its own
+                            fixed PSI. Every merge is offered these pallets.
+                        </div>
+                        <div class="oe_grey" colspan="2"
+                             invisible="not vifel_multiple_pallet_support">
+                            <strong>Multiple Special Pallet Support</strong> —
+                            merges are offered the client's special-type pallets,
+                            listed below.
+                        </div>
+
+                        <!-- Fixed: one or more pinned pallets, each with its own
+                             PSI. A pallet may be pinned only while it is empty and
+                             free (no stock, not reserved, not already a merge
+                             pallet) — the picker domain enforces it and the
+                             vifel.fixed.merge.pallet model constraints back it. -->
+                        <field name="vifel_fixed_pallet_ids" nolabel="1"
+                               colspan="2"
+                               invisible="vifel_multiple_pallet_support">
+                            <list editable="bottom">
+                                <field name="package_id"
+                                       domain="[('quant_ids', '=', False),
+                                                ('x_studio_is_reserved', '=', False),
+                                                ('vifel_is_merge_pallet', '=', False)]"
+                                       options="{'no_create': True}"/>
+                                <field name="psi"/>
+                            </list>
+                        </field>
+
+                        <!-- Multiple: widen the candidates. Restricted to ERP
+                             managers - it is an advanced switch that lets merges
+                             also target ordinary (non-special) stock pallets. -->
+                        <field name="vifel_include_regular_pallets"
+                               groups="base.group_erp_manager"
+                               invisible="not vifel_multiple_pallet_support"/>
+                    </group>
+
+                    <!-- Step 3: the pallet types themselves. Deliberately NOT
+                         called "condition pallets": three of the four seeded
+                         types are damage grades, but BOC is the client's own
+                         static pallet, which is not a condition at all.
+                         The Next Series column shows the real next number, so
+                         the table explains its format without a paragraph. -->
+                    <group string="Pallet Types"
+                           invisible="not vifel_can_merge_pallets
+                                      or not vifel_multiple_pallet_support">
+                        <field name="vifel_psi_type_ids" nolabel="1" colspan="2">
+                            <list editable="bottom">
+                                <field name="name"/>
+                                <field name="prefix"/>
+                                <field name="next_number"/>
+                                <field name="next_series_preview" readonly="1"/>
+                            </list>
+                        </field>
+                    </group>
+                </page>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

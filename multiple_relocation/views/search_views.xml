@@ -1,0 +1,79 @@
+<odoo>
+
+    <record id="stock_picking_view_search_inherit" model="ir.ui.view">
+        <field name="name">stock.picking.search.inherit.not.voided</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_internal_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='reception']" position="before">
+                <filter name="not_voided" string="Not Void" domain="[('x_studio_voided', '=', False)]"/>
+                <separator/>
+            </xpath>
+            <xpath expr="//filter[@name='internal']" position="replace"/>
+        </field>
+    </record>
+
+    <record id="stock_move_line_view_search_inherit" model="ir.ui.view">
+        <field name="name">stock.move.line.search.inherit</field>
+        <field name="model">stock.move.line</field>
+        <field name="inherit_id" ref="stock.stock_move_line_view_search"/>
+        <field name="arch" type="xml">
+            <!-- Example: Add a filter after the location filter -->
+          <xpath expr="//field[@name='package_id']" position="before">
+            <field name="x_studio_pallet_series_id"/>
+          </xpath>
+        </field>
+    </record>
+
+     <record id="search_stock_quant_filters" model="ir.ui.view">
+        <field name="name">stock.quant.search.inherit</field>
+        <field name="model">stock.quant</field>
+        <field name="inherit_id" ref="stock.quant_search_view"/>
+        <!-- upgrade.odoo.com (17->19) left this view inactive; -u must switch it back on -->
+        <field name="active" eval="True"/>
+        <field name="arch" type="xml">
+
+              <xpath expr="//field[@name='product_id']" position="after">
+                <field name="x_studio_pallet_series_id"/>
+              </xpath>
+              <xpath expr="//field[@name='location_id']" position="after">
+                <field name="owner_id"/>
+              </xpath>
+              <xpath expr="//field[@name='package_id']" position="after">
+                <field name="x_studio_container_number"/>
+              </xpath>
+              <xpath expr="//field[@name='package_id']" position="attributes">
+                <attribute name="string">Pallet #</attribute>
+              </xpath>
+              <!-- Odoo 19 removed the quant search's priority_products ("Starred Products") and in_stock filters
+                   these used to hang on; they now sit after "Negative Stock", each block behind a separator. -->
+              <xpath expr="//filter[@name='negative']" position="after">
+                <separator/>
+                <filter domain="[(&quot;x_studio_dest_relocation&quot;, &quot;!=&quot;, False)]" name="studio_filter_5sn_1ilfdrjst" string="Relocation"/>
+                <separator/>
+                <filter domain="[(&quot;x_studio_expiration_date&quot;, &quot;&lt;=&quot;, datetime.date.today())]" name="studio_filter_45a_1hvrnsbs5" string="Expired "/>
+                <filter domain="[&quot;&amp;&quot;, (&quot;x_studio_expiration_date&quot;, &quot;&gt;=&quot;, datetime.date.today()), (&quot;x_studio_expiration_date&quot;, &quot;&lt;=&quot;, datetime.date.today() + datetime.timedelta(days = 7))]" name="studio_filter_97h_1hvrnr34c" string="7 Day Expiration"/>
+                <filter domain="[&quot;&amp;&quot;, (&quot;x_studio_expiration_date&quot;, &quot;&gt;=&quot;, datetime.date.today()), (&quot;x_studio_expiration_date&quot;, &quot;&lt;=&quot;, datetime.date.today() + datetime.timedelta(days = 30))]" name="studio_filter_5qh_1hvrnrkle" string="30 Day Expiration"/>
+              </xpath>
+
+              <!-- <xpath expr="//filter[@name='productgroup']" position="after">
+                <filter name="studio_group_by_84q_1itv61a9a" string="Container #" context="{'group_by': 'x_studio_container_number'}"/>
+              </xpath> -->
+              <xpath expr="//filter[@name='package']" position="attributes">
+                <attribute name="string">Pallet #</attribute>
+              </xpath>
+
+              <xpath expr="//filter[@name='productgroup']" position="before">
+                    <filter name="studio_group_by_1qe_1j2emk7oc" string="Owner" context="{'group_by': 'owner_id'}"/>
+                    <filter name="group_by_record_reference" string="Receiving Record" context="{'group_by': 'x_studio_record_reference'}"/>
+              </xpath>
+              <xpath expr="//filter[@name='studio_group_by_1qe_1j2emk7oc']" position="after">
+                <filter name="studio_group_by_8nj_1itv6ldos" string="Pallet Series ID" context="{'group_by': 'x_studio_pallet_series_id'}"/>
+                
+              </xpath>
+
+
+        </field>
+      </record>
+    
+</odoo>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+        <record id="xlsx_client_inventory" model="ir.actions.report">
+                <field name="name">Client Inventory Summary Report XLSX</field>
+                <field name="model">stock.quant</field>
+                <field name="report_type">xlsx</field>
+                <field name="report_name">stock_quant.inventory_summary_xlsx</field>
+                <field name="report_file">stock_quant.inventory_summary_xlsx</field>
+                <field name="print_report_name">'Client_Inventory_Summary_Report_XLSX'</field>
+        </record>
+
+</odoo>
+
