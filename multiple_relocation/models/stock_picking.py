@@ -3011,20 +3011,51 @@ class transfer_locations(models.Model):
             'heads_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in heads_demand_parts]) if heads_demand_parts else "0.00"
         }
 
+    # Height budget of one summary page, in description-line units. The
+    # template's item table is a fixed 650px box with overflow hidden, so rows
+    # that do not fit are silently cut off - together with ***NOTHING
+    # FOLLOWS***, Total Out and Grand Total (M/WR/13007).
+    SUMMARY_PAGE_LINE_BUDGET = 38
+    # A special-pallet row (BOC, TOTALLY DAMAGED, ...) or the NOTHING FOLLOWS
+    # row is a fixed 25px row, about two description lines tall.
+    SUMMARY_SPECIAL_ROW_LINES = 2
+
+    def _summary_move_line_weight(self, move, is_last):
+        """Estimated printed height of one summary row, in description lines:
+        its description lines, plus its special-pallet rows, plus the NOTHING
+        FOLLOWS row on the last item."""
+        name = (move.get('product_name') or '').replace(
+            ' <br/>***Nothing Follows***', '')
+        rows = len(move.get('special_rows') or []) + (1 if is_last else 0)
+        return name.count('<br/>') + 1 + rows * self.SUMMARY_SPECIAL_ROW_LINES
+
+    def _split_summary_pages(self, processed_moves, page_size):
+        """Split the summary rows into pages of at most ``page_size`` items AND
+        at most SUMMARY_PAGE_LINE_BUDGET lines. Without special rows the item
+        cap is what binds, so those documents paginate exactly as before."""
+        pages, current, used = [], [], 0
+        last = len(processed_moves) - 1
+        for idx, move in enumerate(processed_moves):
+            weight = self._summary_move_line_weight(move, idx == last)
+            if current and (len(current) >= page_size
+                            or used + weight > self.SUMMARY_PAGE_LINE_BUDGET):
+                pages.append(current)
+                current, used = [], 0
+            current.append(move)
+            used += weight
+        if current:
+            pages.append(current)
+        return pages
+
     def calculate_page_data(self, processed_moves, page_size=9):
         """
         Calculate pagination data for the processed moves
         """
-        total_items = len(processed_moves)
-        pages_count = (total_items + page_size -
-                       1) // page_size if total_items > 0 else 1
+        page_slices = self._split_summary_pages(processed_moves, page_size) or [[]]
+        pages_count = len(page_slices)
 
         page_data = []
-        for page_num in range(pages_count):
-            start_idx = page_num * page_size
-            end_idx = min(start_idx + page_size, total_items)
-
-            page_moves = processed_moves[start_idx:end_idx]
+        for page_num, page_moves in enumerate(page_slices):
 
             # Calculate page totals
             uom_data = self.group_quantities_by_uom(page_moves)
