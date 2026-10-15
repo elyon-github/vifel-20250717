@@ -2758,14 +2758,20 @@ class transfer_locations(models.Model):
                 # merges two different lots under one printed Lot No.; it is
                 # always '' for clients that do not show it, leaving their
                 # grouping byte-for-byte unchanged.
-                key = f"{move.product_id.id}_{prod_date_str}_{exp_date_str}_{cont_number}_{lot_no}"
+                # The product comes from the PALLET LINE, not the move: a
+                # Product change in Adjust Pallet Details rewrites only the
+                # line (stock_quant_correction._apply_changes), so reading the
+                # move printed the old item here while the Per Pallet report
+                # (which reads the line) printed the new one.
+                product = move_line.product_id or move.product_id
+                key = f"{product.id}_{prod_date_str}_{exp_date_str}_{cont_number}_{lot_no}"
 
                 # Initialize or update grouped data
                 if grouped_moves[key]['product_id'] is None:
-                    grouped_moves[key]['product_id'] = move.product_id
+                    grouped_moves[key]['product_id'] = product
 
                     # Build product name with dates
-                    base_name = move.product_id.name or move.product_id.name
+                    base_name = product.name
                     date_info = []
                     grouped_moves[key]['sort_name'] = base_name
                     if prod_date:
