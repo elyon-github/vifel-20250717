@@ -499,6 +499,11 @@ class StockQuantHistorySnapshot(models.Model):
         correction move line carrying the NEW x_studio_* values. The plain
         replay ignores zero-qty lines, discarding those changes. Re-apply the
         metadata onto the matching existing history row (latest move wins)."""
+        # The adjustment flag lives in multiple_relocation, which depends on
+        # this module: while only stock_quant_history is loaded (its own
+        # at-install tests) there are no adjustment lines to replay.
+        if "is_quant_detail_adjusted" not in self.env["stock.move.line"]._fields:
+            return
         domain = [
             ("is_quant_detail_adjusted", "=", True),
             ("quantity", "=", 0),

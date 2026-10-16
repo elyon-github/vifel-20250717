@@ -4,7 +4,7 @@ from freezegun import freeze_time
 
 from odoo import fields
 from odoo.exceptions import AccessError
-from odoo.tests import TransactionCase, users
+from odoo.tests import TransactionCase, tagged, users
 
 
 class TestStockQuantHistory(TransactionCase):
@@ -47,7 +47,8 @@ class TestStockQuantHistory(TransactionCase):
         cls.product = cls.env["product.product"].create(
             {
                 "name": "test",
-                "type": "product",
+                "type": "consu",
+                "is_storable": True,
                 "tracking": "lot",
             }
         )
@@ -428,8 +429,7 @@ class TestStockQuantHistory(TransactionCase):
                 }
             )
             self.env["stock.move"].create(
-                {
-                    "name": self.product_consu.name,
+                {
                     "product_id": self.product_consu.id,
                     "product_uom_qty": 50.000,
                     "product_uom": self.product_consu.uom_id.id,
