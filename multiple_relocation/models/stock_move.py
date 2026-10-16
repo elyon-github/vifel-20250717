@@ -1032,6 +1032,25 @@ class stock_move_line_Override(models.Model):
         # normal UI sets this.
         return bool(self.env.context.get('vifel_skip_series_guard'))
 
+    # TEMPORARY, client-requested: series the team insists on keeping on more
+    # than one pallet (M/RR/08570 - Wonder Meat (RM) 182 is on R 456 R, R NP#
+    # and R NP #). System parameter, comma separated "<partner id>:<series>",
+    # e.g. "647:WMR-00182"; matching ignores zero padding. Clear the parameter
+    # to restore the one-series-one-pallet rule - no deploy needed.
+    SERIES_DUP_EXEMPT_PARAM = 'vifel.series_duplicate_exemptions'
+
+    def _vifel_series_dup_exempt(self, series, owner):
+        raw = self.env['ir.config_parameter'].sudo().get_param(
+            self.SERIES_DUP_EXEMPT_PARAM) or ''
+        spellings = set(self._vifel_series_spellings(series))
+        for entry in raw.split(','):
+            partner_id, _sep, exempt = entry.strip().partition(':')
+            if (partner_id.strip().isdigit()
+                    and int(partner_id) == owner.id
+                    and exempt.strip() in spellings):
+                return True
+        return False
+
     def _vifel_assert_series_free(self, series_by_line):
         """Refuse a pallet series that is live on a DIFFERENT pallet.
 
@@ -1048,6 +1067,11 @@ class stock_move_line_Override(models.Model):
             # A merged line DELIBERATELY adopts a stocked pallet's number - that
             # is the whole Merge Pallet feature. Blast freeze carries no series.
             if line is not None and getattr(line, 'is_pallet_merge', False):
+                continue
+            if self._vifel_series_dup_exempt(series, owner):
+                _logger.warning(
+                    "Pallet Series %s (%s) is on the duplicate exemption list "
+                    "- one-series-one-pallet check skipped", series, owner.name)
                 continue
             busy = Quant.search([
                 ('x_studio_pallet_series_id', 'in',

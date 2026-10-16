@@ -94,4 +94,14 @@
         <field name="company_id" eval="False"/>
     </record>
 
+    <!-- TEMPORARY, client-requested (M/RR/08570): series allowed to stay on
+         more than one pallet. "<partner id>:<series>", comma separated;
+         647 = Wonder Meat (RM). Empty the value to end the exemption. -->
+    <data noupdate="1">
+        <record id="param_series_duplicate_exemptions" model="ir.config_parameter">
+            <field name="key">vifel.series_duplicate_exemptions</field>
+            <field name="value">647:WMR-00182</field>
+        </record>
+    </data>
+
 </odoo>
