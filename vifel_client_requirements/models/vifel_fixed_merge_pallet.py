@@ -177,6 +177,11 @@ class VifelFixedMergePallet(models.Model):
             series = (row.psi or '').strip()
             if not series:
                 continue
+            # TEMPORARY client-requested duplicate exemption (system parameter
+            # vifel.series_duplicate_exemptions, see stock.move.line).
+            if self.env['stock.move.line']._vifel_series_dup_exempt(
+                    series, row.partner_id):
+                continue
             stocked = self.env['stock.quant'].search([
                 ('x_studio_pallet_series_id', '=', series),
                 ('location_id.usage', '=', 'internal'),
