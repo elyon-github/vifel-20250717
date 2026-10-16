@@ -37,7 +37,7 @@
         <field name="name">pallet.series.audit.line.kanban</field>
         <field name="model">pallet.series.audit.line</field>
         <field name="arch" type="xml">
-            <kanban create="false" edit="false" default_order="event_date asc, id asc"
+            <kanban create="false" edit="false" default_order="event_date asc, id asc" highlight_color="kanban_color"
                     class="o_kanban_small_column o_kanban_mobile">
                 <field name="event_type"/>
                 <field name="source"/>
@@ -55,8 +55,8 @@
                 <field name="notes"/>
                 <field name="kanban_color"/>
                 <templates>
-                    <t t-name="kanban-box">
-                        <div t-attf-class="oe_kanban_card oe_kanban_global_click oe_kanban_color_#{kanban_getcolor(record.kanban_color.raw_value)}"
+                    <t t-name="card">
+                        <div class="oe_kanban_card"
                              style="min-height: 140px; margin-bottom: 4px;">
                             <div class="oe_kanban_content" style="padding: 8px;">
                                 <!-- Header: Event badge + timestamp -->
@@ -129,10 +129,7 @@
 
                                 <!-- Footer: user -->
                                 <div class="d-flex justify-content-end mt-2">
-                                    <img t-att-src="kanban_image('res.users', 'avatar_128', record.user_id.raw_value)"
-                                         class="oe_kanban_avatar rounded-circle" width="24" height="24"
-                                         t-att-title="record.user_id.value"
-                                         t-att-alt="record.user_id.value"/>
+                                    <field name="user_id" widget="many2one_avatar_user"/>
                                 </div>
                             </div>
                         </div>

@@ -16,8 +16,8 @@
                 <field name="last_error"/>
                 <field name="resolved_last_run"/>
                 <templates>
-                    <t t-name="kanban-box">
-                        <div t-attf-class="oe_kanban_global_click #{record.open_count.raw_value ? (record.severity.raw_value == 'critical' ? 'border-danger' : 'border-warning') : 'border-success'}"
+                    <t t-name="card">
+                        <div t-attf-class="#{record.open_count.raw_value ? (record.severity.raw_value == 'critical' ? 'border-danger' : 'border-warning') : 'border-success'}"
                              style="border-left-width: 4px; border-left-style: solid;">
                             <div class="o_kanban_record_top">
                                 <b><field name="name"/></b>

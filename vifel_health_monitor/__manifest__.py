@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'VIFEL Health Monitor',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.0.1',
     'category': 'Inventory/Inventory',
     'summary': 'Scheduled invariant checks over the VIFEL pallet/ledger system',
     'description': """
