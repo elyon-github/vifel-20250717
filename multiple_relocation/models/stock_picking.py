@@ -781,6 +781,29 @@ class transfer_locations(models.Model):
             return [('lot_id', '=', ml.lot_id.id)]
         return [('x_studio_pallet_series_id', '=', ml.x_studio_pallet_series_id)]
 
+    def _void_bf_stock_domain(self, record):
+        """Quant domain for the blast-freeze stock a BFRR still owns.
+
+        Normally that is its own stock: x_studio_record_reference = this BFRR,
+        in a blast-freezer location. But when a BFWR that withdrew it is voided,
+        the void return brings the same lots back and the On-Done automation
+        stamps the stock with the VOID RETURN's number instead (M/BF/RR/00465 ->
+        M/BF/WR/00532 voided -> M/BF/RR/00488), so voiding the BFRR afterwards
+        found nothing and was blocked. That returned stock still carries
+        original_record_reference = this BFRR, and a void return only ever
+        undoes a withdrawal, so it is accepted too. A normal (non-void) return
+        is not: its stock belongs to that return.
+        """
+        return [
+            ('location_is_bf', '=', True),
+            ('quantity', '>', 0),
+            '|',
+            ('x_studio_record_reference', '=', record.id),
+            '&',
+            ('original_record_reference', '=', record.id),
+            ('x_studio_record_reference.is_void_return', '=', True),
+        ]
+
     def _void_rr_reservation_conflicts(self, record, is_blast_freeze):
         """Return [(pallet_label, wr_name), ...] for the RR's received stock that is
         currently reserved/picked into an active (non-done, non-voided) withdrawal.
@@ -798,12 +821,9 @@ class transfer_locations(models.Model):
                 if not ml.lot_id:
                     continue
                 label = ml.bf_pallet_char or _("Lot %s") % ml.lot_id.name
-                quant = Quant.search([
-                    ('lot_id', '=', ml.lot_id.id),
-                    ('x_studio_record_reference', '=', record.id),
-                    ('location_is_bf', '=', True),
-                    ('quantity', '>', 0),
-                ], limit=1)
+                quant = Quant.search(
+                    [('lot_id', '=', ml.lot_id.id)]
+                    + self._void_bf_stock_domain(record), limit=1)
             else:
                 if not ml.x_studio_pallet_series_id:
                     continue
@@ -848,12 +868,7 @@ class transfer_locations(models.Model):
             # reversing another receipt's stock; this field is copied on relocation,
             # so it still identifies the originating RR after a chamber move.
             lot_ids = [l for l in record.move_line_ids.mapped('lot_id').ids if l]
-            domain = [
-                ('lot_id', 'in', lot_ids),
-                ('x_studio_record_reference', '=', record.id),
-                ('location_is_bf', '=', True),
-                ('quantity', '>', 0),
-            ]
+            domain = [('lot_id', 'in', lot_ids)] + self._void_bf_stock_domain(record)
         else:
             # Regular domain (PSI + package). Pallet series is the stable identity;
             # the package is added for precision but may have drifted (see fallback).
@@ -1353,6 +1368,15 @@ class transfer_locations(models.Model):
             if remainder:
                 location_dest_id = remainder.location_id.id
                 pallet_result_id = remainder.package_id.id
+            elif is_blast_freeze and move_line.location_id.x_studio_is_a_blast_freezer:
+                # A blast chamber is shared by design ("BF locations can always
+                # be reused", see the relocation wizard), so the storage-bin
+                # rules below (reserved / occupied by another owner -> aisle)
+                # do not apply. They sent M/BF/WR/00532's void return to
+                # M/EX/17/Aisle 1, outside the blast freezer, where its BFRR
+                # could no longer find or void it. Undo the withdrawal exactly:
+                # back to the chamber the pallet left.
+                location_dest_id = move_line.location_id.id
             else:
                 if not move_line.location_id.x_studio_is_reserved:
                     occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
@@ -1513,12 +1537,9 @@ class transfer_locations(models.Model):
                     if not move_line.lot_id:
                         continue
                     label = move_line.bf_pallet_char or _("Lot %s") % move_line.lot_id.name
-                    quant = self.env['stock.quant'].search([
-                        ('lot_id', '=', move_line.lot_id.id),
-                        ('x_studio_record_reference', '=', record.id),
-                        ('location_is_bf', '=', True),
-                        ('quantity', '>', 0),
-                    ], limit=1)
+                    quant = self.env['stock.quant'].search(
+                        [('lot_id', '=', move_line.lot_id.id)]
+                        + self._void_bf_stock_domain(record), limit=1)
                     if not quant:
                         # Quant is gone - was it withdrawn by a still-active WR?
                         used_in_wr = self.env['stock.move.line'].search([
