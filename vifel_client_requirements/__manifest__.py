@@ -47,7 +47,7 @@ counts, and a wrong pallet count is a wrong invoice.
     'website': "https://templanza-portfolio.netlify.app/",
 
     'category': 'Inventory/Inventory',
-    'version': '17.0.1.0.0',
+    'version': '17.0.1.0.1',
     'license': 'LGPL-3',
 
     # pallet_series_audit is NOT cosmetic: it and this module both extend
@@ -69,6 +69,7 @@ counts, and a wrong pallet count is a wrong invoice.
     'data': [
         'security/ir.model.access.csv',
         'wizard/pallet_merge_wizard.xml',
+        'wizard/return_package_wizard_views.xml',
         'views/res_partner_views.xml',
         'views/stock_move_line_views.xml',
         'views/stock_picking_views.xml',

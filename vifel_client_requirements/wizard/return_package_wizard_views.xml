@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Lot No. / Batch # on the Return Pallets wizard lines.
+
+         The wizard lines are built in an onchange (_vifel_return_wizard_line_vals
+         fills these two from the original receiving line), and the web client
+         only sends back the fields that are present in the view. Without them
+         here the values were dropped on Confirm, so every return RR came out
+         with an empty Lot No. (M/WR/14637 -> M/RR/09794) even though the lookup
+         itself resolved it. Hidden: carried, not edited. -->
+    <record id="view_return_package_wizard_form_lot_batch" model="ir.ui.view">
+        <field name="name">return.package.wizard.form.lot.batch</field>
+        <field name="model">return.package.wizard</field>
+        <field name="inherit_id" ref="multiple_relocation.view_return_package_wizard_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='package_line_ids']/tree/field[@name='container_number']" position="after">
+                <field name="client_lot_no" column_invisible="1" force_save="1"/>
+                <field name="batch_no" column_invisible="1" force_save="1"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
