@@ -67,7 +67,7 @@
                 <field name="date"/>
                 <!-- <field name="x_studio_relocation_done"/>
                 <field name="x_relocate_batch"/> -->
-                <field name="reference"/>
+                <field name="vifel_correction_note" string="Reference"/>
                 <field name="x_studio_reason_for_adjustment"/>
                 <field name="owner_id"/>
                 <field name="product_id"/>

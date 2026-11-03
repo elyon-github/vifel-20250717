@@ -650,6 +650,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             **self._vifel_correction_line_extra_vals(quant),
         }
 
+        move_line_vals['vifel_correction_note'] = move_line_vals['reference']
         self.env['stock.move.line'].sudo().create(move_line_vals)
 
     def _vifel_correction_line_extra_vals(self, quant):
@@ -766,6 +767,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 elif field_name.startswith('x_studio_'):
                     move_line_vals[field_name] = current_value
 
+        move_line_vals['vifel_correction_note'] = move_line_vals['reference']
         move_line = self.env['stock.move.line'].sudo().create(move_line_vals)
         return move
 
@@ -1794,8 +1796,9 @@ class StockQuantAdjustmentLine(models.Model):
                     dom.append(('bf_pallet_char', '=',
                                 line.old_bf_pallet_char))
                 for ml in MoveLine.search(dom, limit=5):
-                    if ml.reference and ml.reference not in refs:
-                        refs.append(ml.reference)
+                    note = ml.vifel_correction_note or ml.reference
+                    if note and note not in refs:
+                        refs.append(note)
             line.correction_move_reference = '\n'.join(refs) or False
     quant_id = fields.Many2one('stock.quant', string='Pallet Quant Details')
     quant_snapshot = fields.Text(string='Quant Snapshot', readonly=True,
