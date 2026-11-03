@@ -625,7 +625,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'adjustment_batch_number': batch_number,
             'adjustment_reference_id': quant.x_studio_record_reference.id if quant.x_studio_record_reference else False,
             'is_quant_detail_adjusted': True,
-            'reference': self._format_quantity_change_reference(old_quantity, new_quantity),
+            'vifel_correction_note': self._format_quantity_change_reference(old_quantity, new_quantity),
             'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
             'bf_pallet_char': quant.bf_pallet_char,
             'x_studio_production_date': quant.x_studio_production_date,
@@ -724,7 +724,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             # result_package_id below (stock_quant_history reads result_package_id).
             'package_id': False,
             'result_package_id': quant.package_id.id if quant.package_id else False,
-            'reference': self._format_changes_reference(changes, original_state) + (
+            'vifel_correction_note': self._format_changes_reference(changes, original_state) + (
                 ' | Pallet %s released (adjusted to 0)' % quant.package_id.name
                 if self._is_pallet_emptied_by_adjustment(line, changes) else ''),
             'x_studio_reason_for_adjustment': self.reason_for_adjustment,
@@ -1795,8 +1795,9 @@ class StockQuantAdjustmentLine(models.Model):
                     dom.append(('bf_pallet_char', '=',
                                 line.old_bf_pallet_char))
                 for ml in MoveLine.search(dom, limit=5):
-                    if ml.reference and ml.reference not in refs:
-                        refs.append(ml.reference)
+                    note = ml.vifel_correction_note
+                    if note and note not in refs:
+                        refs.append(note)
             line.correction_move_reference = '\n'.join(refs) or False
     quant_id = fields.Many2one('stock.quant', string='Pallet Quant Details')
     quant_snapshot = fields.Text(string='Quant Snapshot', readonly=True,
