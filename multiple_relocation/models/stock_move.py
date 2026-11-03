@@ -517,6 +517,14 @@ class stock_move_line_Override(models.Model):
         'stock.quant', string="quant_id", compute="_computed_computed_quant_id")
     is_return = fields.Boolean(string="Is a Return")
     is_quant_detail_adjusted = fields.Boolean(string="Quant Details Edited")
+    # The adjustment's change text ("CORRECTION (ts by user): [Field: old -> new]").
+    # It used to live only in `reference`, a stored related field on Odoo 17.
+    # Odoo 19 makes stock.move.line.reference related NON-stored, so the
+    # upgrade drops that column and every Final Adjustment Form would print an
+    # empty change table (VIF-130). Our own stored field survives the upgrade.
+    # Filled together with `reference`; old rows backfilled by migration 0.4.2.
+    vifel_correction_note = fields.Text(
+        string="Correction Details", readonly=True, copy=False)
     is_package_multiple_withdraw = fields.Boolean(
         string="Is Package In Multiple Transfers",
         compute="_compute_is_package_multiple_withdraw",
@@ -754,7 +762,7 @@ class stock_move_line_Override(models.Model):
                 result[batch_number][client][reference_id]['inventory_analyst'] = analyst or ''
 
             # Parse reference field for changes
-            ref = line.reference or ''
+            ref = line.vifel_correction_note or line.reference or ''
             matches = re.findall(
                 r'CORRECTION \(([\d/ :]+) by [^)]+\):\s*((?:\[[^\]]+\]\s*)+)', ref)
 
