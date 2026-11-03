@@ -25,6 +25,25 @@ class InventorySummary(models.AbstractModel):
             return ('bf', bf)
         return None
 
+    # A row expiring within this many days is NEARLY EXPIRED (VIFEL, 2026-10-28)
+    NEARLY_EXPIRED_DAYS = 90
+
+    @classmethod
+    def _ageing(cls, expiration_date, today):
+        """(Ageing Days, Ageing Remarks) of one row as of `today`.
+
+        Ageing Days counts down to the expiration date, like the quant's
+        Aging Day/s: 0 on the expiration date itself, negative once past it.
+        """
+        if not expiration_date:
+            return None, 'NO EXPIRY DATE'
+        days = (expiration_date - today).days
+        if days <= 0:
+            return days, 'EXPIRED'
+        if days <= cls.NEARLY_EXPIRED_DAYS:
+            return days, 'NEARLY EXPIRED'
+        return days, 'GOOD'
+
     def generate_xlsx_report(self, workbook, data, records):
         # Define formats with improved color scheme
         title_format = workbook.add_format({
@@ -92,6 +111,29 @@ class InventorySummary(models.AbstractModel):
             'valign': 'vcenter'
         })
 
+        ageing_days_format = workbook.add_format({
+            'num_format': '#,##0',
+            'border': 1,
+            'align': 'center'
+        })
+
+        # Ageing Remarks coloured by status
+        remark_formats = {
+            remark: workbook.add_format({
+                'bold': True, 'border': 1, 'align': 'center', 'valign': 'vcenter',
+                'bg_color': bg, 'font_color': fg,
+            })
+            for remark, bg, fg in (
+                ('GOOD', '#C8E6C9', '#1B5E20'),
+                ('NEARLY EXPIRED', '#FFF59D', '#C62828'),
+                ('EXPIRED', '#EF9A9A', '#B71C1C'),
+                ('NO EXPIRY DATE', '#E0E0E0', '#424242'),
+            )
+        }
+
+        # Same Philippine-time "today" as the Inventory Status timestamp
+        today = (datetime.now() + timedelta(hours=8)).date()
+
         Quant = self.env['stock.quant']
 
         for owner in records.mapped('owner_id'):
@@ -124,18 +166,20 @@ class InventorySummary(models.AbstractModel):
             sheet.set_column(5, 5, 20)  # HEADS
             sheet.set_column(6, 6, 20)  # Weight(KG)
             sheet.set_column(7, 7, 20)  # Number of Pallets
+            sheet.set_column(8, 8, 15)  # Ageing Days
+            sheet.set_column(9, 9, 20)  # Ageing Remarks
 
             # Freeze panes for easier navigation
             sheet.freeze_panes(8, 0)  # Freeze header row
 
             # Company header and timestamp - FIXED: Now applying proper formatting
-            sheet.merge_range('A1:H1', 'INVENTORY SUMMARY', title_format)
-            sheet.merge_range('A2:H2', f'CUSTOMER: {customer_name}', title_format)
+            sheet.merge_range('A1:J1', 'INVENTORY SUMMARY', title_format)
+            sheet.merge_range('A2:J2', f'CUSTOMER: {customer_name}', title_format)
 
             # Timestamp row with better formatting
             sheet.merge_range('A3:E3', 'Inventory Status as of:', right_text_format)
 
-            sheet.merge_range('F3:H3', (datetime.now() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"), datetime_format)
+            sheet.merge_range('F3:J3', (datetime.now() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"), datetime_format)
 
             
             # Add a blank row for spacing
@@ -153,7 +197,7 @@ class InventorySummary(models.AbstractModel):
             })
 
             # Summary row with proper titles and formatting - Adjusted to span all columns
-            sheet.merge_range('A5:H5', 'SUMMARY', header_format)
+            sheet.merge_range('A5:J5', 'SUMMARY', header_format)
             sheet.write(5, 0, 'Total Quantity:', right_text_format)
             sheet.write(5, 1, sum(m.x_studio_2nd_uom or 0 for m in sorted_moves), summary_format)
             sheet.write(5, 2, 'Total Heads:', right_text_format)
@@ -162,13 +206,16 @@ class InventorySummary(models.AbstractModel):
             sheet.write(5, 5, sum(m.quantity or 0 for m in sorted_moves), summary_format)
             sheet.write(5, 6, 'Total Pallets:', right_text_format)
             sheet.write(5, 7, total_pallets, pallet_total_format)
+            sheet.write(5, 8, '', summary_format)  # Extra cells for alignment
+            sheet.write(5, 9, '', summary_format)
             
             # Add a blank row for spacing
             sheet.set_row(6, 10)
 
             # Table header - FIXED: Now including Production Date column
             headers = ["Item Description", "Container Van No.", "Production Date", "Expiration Date",
-                      "Quantity", "HEADS", "Weight(KG)", "Number of Pallets"]
+                      "Quantity", "HEADS", "Weight(KG)", "Number of Pallets",
+                      "Ageing Days", "Ageing Remarks"]
             for col, h in enumerate(headers):
                 sheet.write(7, col, h.upper(), header_format)
             
@@ -210,7 +257,13 @@ class InventorySummary(models.AbstractModel):
                 sheet.write(row, 5, totals['pcs'], number_format)
                 sheet.write(row, 6, totals['weight'], number_format)
                 sheet.write(row, 7, len(totals['pallets']), int_format)
+                ageing_days, ageing_remarks = self._ageing(expiration_date, today)
+                if ageing_days is None:
+                    sheet.write_blank(row, 8, None, ageing_days_format)
+                else:
+                    sheet.write(row, 8, ageing_days, ageing_days_format)
+                sheet.write(row, 9, ageing_remarks, remark_formats[ageing_remarks])
                 row += 1
 
             # Add auto-filter for easy sorting - Adjusted to include all columns
-            sheet.autofilter(7, 0, row-1, 7)
+            sheet.autofilter(7, 0, row-1, 9)

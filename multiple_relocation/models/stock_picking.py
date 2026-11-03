@@ -779,6 +779,29 @@ class transfer_locations(models.Model):
             return [('lot_id', '=', ml.lot_id.id)]
         return [('x_studio_pallet_series_id', '=', ml.x_studio_pallet_series_id)]
 
+    def _void_bf_stock_domain(self, record):
+        """Quant domain for the blast-freeze stock a BFRR still owns.
+
+        Normally that is its own stock: x_studio_record_reference = this BFRR,
+        in a blast-freezer location. But when a BFWR that withdrew it is voided,
+        the void return brings the same lots back and the On-Done automation
+        stamps the stock with the VOID RETURN's number instead (M/BF/RR/00465 ->
+        M/BF/WR/00532 voided -> M/BF/RR/00488), so voiding the BFRR afterwards
+        found nothing and was blocked. That returned stock still carries
+        original_record_reference = this BFRR, and a void return only ever
+        undoes a withdrawal, so it is accepted too. A normal (non-void) return
+        is not: its stock belongs to that return.
+        """
+        return [
+            ('location_is_bf', '=', True),
+            ('quantity', '>', 0),
+            '|',
+            ('x_studio_record_reference', '=', record.id),
+            '&',
+            ('original_record_reference', '=', record.id),
+            ('x_studio_record_reference.is_void_return', '=', True),
+        ]
+
     def _void_rr_reservation_conflicts(self, record, is_blast_freeze):
         """Return [(pallet_label, wr_name), ...] for the RR's received stock that is
         currently reserved/picked into an active (non-done, non-voided) withdrawal.
@@ -796,12 +819,9 @@ class transfer_locations(models.Model):
                 if not ml.lot_id:
                     continue
                 label = ml.bf_pallet_char or _("Lot %s") % ml.lot_id.name
-                quant = Quant.search([
-                    ('lot_id', '=', ml.lot_id.id),
-                    ('x_studio_record_reference', '=', record.id),
-                    ('location_is_bf', '=', True),
-                    ('quantity', '>', 0),
-                ], limit=1)
+                quant = Quant.search(
+                    [('lot_id', '=', ml.lot_id.id)]
+                    + self._void_bf_stock_domain(record), limit=1)
             else:
                 if not ml.x_studio_pallet_series_id:
                     continue
@@ -846,12 +866,7 @@ class transfer_locations(models.Model):
             # reversing another receipt's stock; this field is copied on relocation,
             # so it still identifies the originating RR after a chamber move.
             lot_ids = [l for l in record.move_line_ids.mapped('lot_id').ids if l]
-            domain = [
-                ('lot_id', 'in', lot_ids),
-                ('x_studio_record_reference', '=', record.id),
-                ('location_is_bf', '=', True),
-                ('quantity', '>', 0),
-            ]
+            domain = [('lot_id', 'in', lot_ids)] + self._void_bf_stock_domain(record)
         else:
             # Regular domain (PSI + package). Pallet series is the stable identity;
             # the package is added for precision but may have drifted (see fallback).
@@ -1350,6 +1365,15 @@ class transfer_locations(models.Model):
             if remainder:
                 location_dest_id = remainder.location_id.id
                 pallet_result_id = remainder.package_id.id
+            elif is_blast_freeze and move_line.location_id.x_studio_is_a_blast_freezer:
+                # A blast chamber is shared by design ("BF locations can always
+                # be reused", see the relocation wizard), so the storage-bin
+                # rules below (reserved / occupied by another owner -> aisle)
+                # do not apply. They sent M/BF/WR/00532's void return to
+                # M/EX/17/Aisle 1, outside the blast freezer, where its BFRR
+                # could no longer find or void it. Undo the withdrawal exactly:
+                # back to the chamber the pallet left.
+                location_dest_id = move_line.location_id.id
             else:
                 if not move_line.location_id.x_studio_is_reserved:
                     occupying_owners = move_line.location_id.x_studio_occupied_by_1.ids
@@ -1510,12 +1534,9 @@ class transfer_locations(models.Model):
                     if not move_line.lot_id:
                         continue
                     label = move_line.bf_pallet_char or _("Lot %s") % move_line.lot_id.name
-                    quant = self.env['stock.quant'].search([
-                        ('lot_id', '=', move_line.lot_id.id),
-                        ('x_studio_record_reference', '=', record.id),
-                        ('location_is_bf', '=', True),
-                        ('quantity', '>', 0),
-                    ], limit=1)
+                    quant = self.env['stock.quant'].search(
+                        [('lot_id', '=', move_line.lot_id.id)]
+                        + self._void_bf_stock_domain(record), limit=1)
                     if not quant:
                         # Quant is gone - was it withdrawn by a still-active WR?
                         used_in_wr = self.env['stock.move.line'].search([
@@ -2781,14 +2802,20 @@ class transfer_locations(models.Model):
                 # merges two different lots under one printed Lot No.; it is
                 # always '' for clients that do not show it, leaving their
                 # grouping byte-for-byte unchanged.
-                key = f"{move.product_id.id}_{prod_date_str}_{exp_date_str}_{cont_number}_{lot_no}"
+                # The product comes from the PALLET LINE, not the move: a
+                # Product change in Adjust Pallet Details rewrites only the
+                # line (stock_quant_correction._apply_changes), so reading the
+                # move printed the old item here while the Per Pallet report
+                # (which reads the line) printed the new one.
+                product = move_line.product_id or move.product_id
+                key = f"{product.id}_{prod_date_str}_{exp_date_str}_{cont_number}_{lot_no}"
 
                 # Initialize or update grouped data
                 if grouped_moves[key]['product_id'] is None:
-                    grouped_moves[key]['product_id'] = move.product_id
+                    grouped_moves[key]['product_id'] = product
 
                     # Build product name with dates
-                    base_name = move.product_id.name or move.product_id.name
+                    base_name = product.name
                     date_info = []
                     grouped_moves[key]['sort_name'] = base_name
                     if prod_date:
@@ -3034,20 +3061,51 @@ class transfer_locations(models.Model):
             'heads_demand_formatted': "<br/>".join([f"{float(str(part).replace(',', '')):,.0f}" for part in heads_demand_parts]) if heads_demand_parts else "0.00"
         }
 
+    # Height budget of one summary page, in description-line units. The
+    # template's item table is a fixed 650px box with overflow hidden, so rows
+    # that do not fit are silently cut off - together with ***NOTHING
+    # FOLLOWS***, Total Out and Grand Total (M/WR/13007).
+    SUMMARY_PAGE_LINE_BUDGET = 38
+    # A special-pallet row (BOC, TOTALLY DAMAGED, ...) or the NOTHING FOLLOWS
+    # row is a fixed 25px row, about two description lines tall.
+    SUMMARY_SPECIAL_ROW_LINES = 2
+
+    def _summary_move_line_weight(self, move, is_last):
+        """Estimated printed height of one summary row, in description lines:
+        its description lines, plus its special-pallet rows, plus the NOTHING
+        FOLLOWS row on the last item."""
+        name = (move.get('product_name') or '').replace(
+            ' <br/>***Nothing Follows***', '')
+        rows = len(move.get('special_rows') or []) + (1 if is_last else 0)
+        return name.count('<br/>') + 1 + rows * self.SUMMARY_SPECIAL_ROW_LINES
+
+    def _split_summary_pages(self, processed_moves, page_size):
+        """Split the summary rows into pages of at most ``page_size`` items AND
+        at most SUMMARY_PAGE_LINE_BUDGET lines. Without special rows the item
+        cap is what binds, so those documents paginate exactly as before."""
+        pages, current, used = [], [], 0
+        last = len(processed_moves) - 1
+        for idx, move in enumerate(processed_moves):
+            weight = self._summary_move_line_weight(move, idx == last)
+            if current and (len(current) >= page_size
+                            or used + weight > self.SUMMARY_PAGE_LINE_BUDGET):
+                pages.append(current)
+                current, used = [], 0
+            current.append(move)
+            used += weight
+        if current:
+            pages.append(current)
+        return pages
+
     def calculate_page_data(self, processed_moves, page_size=9):
         """
         Calculate pagination data for the processed moves
         """
-        total_items = len(processed_moves)
-        pages_count = (total_items + page_size -
-                       1) // page_size if total_items > 0 else 1
+        page_slices = self._split_summary_pages(processed_moves, page_size) or [[]]
+        pages_count = len(page_slices)
 
         page_data = []
-        for page_num in range(pages_count):
-            start_idx = page_num * page_size
-            end_idx = min(start_idx + page_size, total_items)
-
-            page_moves = processed_moves[start_idx:end_idx]
+        for page_num, page_moves in enumerate(page_slices):
 
             # Calculate page totals
             uom_data = self.group_quantities_by_uom(page_moves)
