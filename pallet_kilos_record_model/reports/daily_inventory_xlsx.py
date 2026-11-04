@@ -307,21 +307,7 @@ class DailyInventoryXlsx(models.AbstractModel):
             maxpl_rec = next((v for v in vars if v.x_name == 'Max Pallets'), None)
             maxpl_val = maxpl_rec.x_studio_float_value if maxpl_rec and maxpl_rec.x_studio_float_value else 0
             maxkg_val = maxkg_rec.x_studio_float_value if maxkg_rec and maxkg_rec.x_studio_float_value else 0
-
-            # CAPACITY RATE (KILOS) shows one more decimal than the pallets rate
-            pct_k_format = workbook.add_format({
-                'font_name': 'Calibri', 'font_size': 11,
-                'num_format': '0.000%',
-                'align': 'right', 'valign': 'vcenter',
-                'border': 1
-            })
-            alt_pct_k_format = workbook.add_format({
-                'font_name': 'Calibri', 'font_size': 11,
-                'num_format': '0.000%',
-                'align': 'right', 'valign': 'vcenter',
-                'border': 1, 'bg_color': '#F2F2F2'
-            })
-
+    
             # ✅ Compute true simple averages across ALL days (including zero-transaction days)
             #    Average = total received across all days / total number of days
             total_days = len(filled)
@@ -365,12 +351,10 @@ class DailyInventoryXlsx(models.AbstractModel):
                     d_fmt  = alt_date_fmt
                     f_fmt  = alt_float_fmt
                     p_fmt  = alt_pct_fmt
-                    pk_fmt = alt_pct_k_format
                 else:
                     d_fmt = date_format
                     f_fmt = float_format
                     p_fmt = pct_format
-                    pk_fmt = pct_k_format
     
                 c = 0
                 sheet.write(r, c, itm['start_time'].replace(tzinfo=None), d_fmt);  c += 1
@@ -383,7 +367,7 @@ class DailyInventoryXlsx(models.AbstractModel):
                 sheet.write(r, c, avg_p,  f_fmt);                                  c += 1  # ✅ same avg every row
                 sheet.write(r, c, cap_p,  p_fmt);                                  c += 1  # ✅ per-row occupancy
                 sheet.write(r, c, avg_k,  f_fmt);                                  c += 1
-                sheet.write(r, c, cap_k,  pk_fmt)
+                sheet.write(r, c, cap_k,  p_fmt)
     
                 sheet.set_row(r, 20)
     
