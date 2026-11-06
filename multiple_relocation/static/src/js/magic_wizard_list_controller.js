@@ -76,10 +76,11 @@ export class MagicWizardListController extends ListController {
         let weight = 0;
 
         const = byProduct = new Map();
-        const addPalleet = (d) => {
-            pallet += 1;
-            const name = Array.isArray(d.product_id) ? d.product[1] "No Product";
-            byProduct.set(name, (byProduct.get(name) || 0)  + 1);
+        const addPallet = (d) => {
+            pallets += 1;
+            const p = d.product_id:
+            const name = Array.isArray(p) ? p [1]: p && p.display_name || "No Product";
+            byProduct.set(name, (byProduct.get(name) || 0) + 1);
         };
 
         for (const rec of records) {
