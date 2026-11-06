@@ -68,18 +68,18 @@ export class MagicWizardListController extends ListController {
         const isOutgoing =
             ctx.picking_code === "outgoing" || ctx.picking_type_code === "outgoing";
         const records = (this.model.root && this.model.root.records) || [];
-        const idOf = (v) => (Array.isArray(v) ? v[0] : (v && v.id) || v) ||  false;
+        const idOf = (v) => (Array.isArray(v) ? v[0] : (v && v.id) || v) || false;
 
         const seen = new Set();
         let pallets = 0;
         let quantity = 0;
         let weight = 0;
 
-        const = byProduct = new Map();
+        const byProduct = new Map();
         const addPallet = (d) => {
             pallets += 1;
-            const p = d.product_id:
-            const name = Array.isArray(p) ? p[1]: p && p.display_name || "No Product";
+            const p = d.product_id;
+            const name = (Array.isArray(p) ? p[1] : p && p.display_name) || "No product";
             byProduct.set(name, (byProduct.get(name) || 0) + 1);
         };
 
@@ -99,7 +99,7 @@ export class MagicWizardListController extends ListController {
                 const key = d.bf_pallet_char;
                 if (key && !seen.has(key)) {
                     seen.add(key);
-                    pallets += 1;
+                    addPallet(d);
                 }
             } else if (isOutgoing) {
                 const pkg = idOf(d.package_id);
@@ -117,7 +117,7 @@ export class MagicWizardListController extends ListController {
                 // it reads 0 so every pallet counts (== a draft WR report), and a
                 // validated WR uses the frozen snapshot to drop partial pallets.
                 if ((parseFloat(d.reserved_quantity_on_validation) || 0) === 0) {
-                    pallets += 1;
+                    addPallet(d);
                 }
             } else {
                 // Incoming (RR): count per the server preview flag. On a pinned
@@ -138,8 +138,7 @@ export class MagicWizardListController extends ListController {
                 const key = "r:" + rpkg;
                 if (!seen.has(key)) {
                     seen.add(key);
-                    addPallet(d)
-                    // pallets += 1;
+                    addPallet(d);
                 }
             }
         }
@@ -148,6 +147,7 @@ export class MagicWizardListController extends ListController {
             pallets: pallets.toLocaleString("en-US"),
             quantity: this._vifelFmt(quantity),
             weight: this._vifelFmt(weight),
+            breakdown: [...byProduct].map(([name, count]) => ({ name, count })),
         };
     }
 
