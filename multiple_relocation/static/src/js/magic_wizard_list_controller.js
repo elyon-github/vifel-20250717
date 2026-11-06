@@ -68,7 +68,7 @@ export class MagicWizardListController extends ListController {
         const isOutgoing =
             ctx.picking_code === "outgoing" || ctx.picking_type_code === "outgoing";
         const records = (this.model.root && this.model.root.records) || [];
-        const idOf = (v) => (Array.isArray(v) ? v[0] : v) || false;
+        const idOf = (v) => (Array.isArray(v) ? v[0] : (v && v.id) || v) ||  false;
 
         const seen = new Set();
         let pallets = 0;
@@ -79,7 +79,7 @@ export class MagicWizardListController extends ListController {
         const addPallet = (d) => {
             pallets += 1;
             const p = d.product_id:
-            const name = Array.isArray(p) ? p [1]: p && p.display_name || "No Product";
+            const name = Array.isArray(p) ? p[1]: p && p.display_name || "No Product";
             byProduct.set(name, (byProduct.get(name) || 0) + 1);
         };
 
@@ -138,7 +138,8 @@ export class MagicWizardListController extends ListController {
                 const key = "r:" + rpkg;
                 if (!seen.has(key)) {
                     seen.add(key);
-                    pallets += 1;
+                    addPallet(d)
+                    // pallets += 1;
                 }
             }
         }
