@@ -146,6 +146,8 @@ $o-vpc-dark: false;
         max-height: 3.2rem;
         overflow-y: auto;
         font-size: 10px;
+
+        .o_vpc_chip { white-space: nowrap; }
     }
 
 
