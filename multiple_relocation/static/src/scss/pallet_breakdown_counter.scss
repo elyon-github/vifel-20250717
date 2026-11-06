@@ -142,7 +142,10 @@ $o-vpc-dark: false;
         flex-wrap: wrap;
         justify-content: center;
         gap: 2px 10px;
-        max-width: 40rem;
+        // Take the width of the totals row, never add to it: a long product list
+        // otherwise widens the counter over the search bar.
+        width: 0;
+        min-width: 100%;
         max-height: 3.2rem;
         overflow-y: auto;
         font-size: 10px;
