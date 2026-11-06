@@ -137,6 +137,18 @@ $o-vpc-dark: false;
         color: var(--vpc-note, #d92d20); // red - it is a caveat
     }
 
+    .o_vpc_breakdown {
+        dispay : flex;
+        flex-wrap "wrap;
+        justify-content : center;
+        gap : 2px 10px;
+        max-width: 40rem;
+        max-height : 3.2rem;
+        overflow-y : auto;
+        font-size: 10px;
+    }
+
+
     // Tight screens: drop the labels, keep the colour-coded dot + value.
     @media (max-width: 991.98px) {
         padding: 3px 10px;
