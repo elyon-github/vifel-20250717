@@ -3889,6 +3889,9 @@ class transfer_locations(models.Model):
             'res_model': 'stock.move.line',
             'views': [(view_id, 'tree')],
             'domain': [('picking_id', '=', self.id)],
+            # The header counter totals the lines loaded in the browser, so load
+            # them all: at the default 80 a long transfer showed too few pallets.
+            'limit': 1000,
             'context': {
                 'create': self.state != 'done' or not self.is_locked,
                 'default_picking_id': self.id,
