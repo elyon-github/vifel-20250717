@@ -111,8 +111,13 @@ class ReportXlsxAbstract(models.AbstractModel):
         """
         See https://xlsxwriter.readthedocs.io/workbook.html constructor options
         :return: A dictionary of options
+
+        in_memory: build the whole workbook in RAM. Without it xlsxwriter
+        writes one temp file per sheet under /tmp, and on a small Odoo.sh
+        container disk every XLSX report fails with
+        "[Errno 28] No space left on device".
         """
-        return {}
+        return {"in_memory": True}
 
     def generate_xlsx_report(self, workbook, data, objs):
         raise NotImplementedError()
