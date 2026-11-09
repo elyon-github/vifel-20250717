@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""19.0.0.4.5: Studio opens again on Transfers (Reports tab "Oops!").
+"""19.0.0.4.5 (end script): Studio opens again on Transfers (Reports tab "Oops!").
 
 Studio views saved on 17 contain xpaths whose anchor no longer exists in the
 Odoo 19 views. With Studio off, web_studio skips such an xpath silently
@@ -21,6 +21,14 @@ Fix, per active Studio extension view:
    (res_model ir.ui.view, res_id = view id) and each removal is logged.
 
 Running it again changes nothing: a clean view has nothing to remove.
+
+Why an END script with load_all_views: during -u, ir.ui.view only combines
+views of modules already reloaded (_filter_loaded_views), so a post-migrate
+sees an incomplete form and would drop live customizations (seen on the 19
+test build 11-09: Operation Types' Vifel Operation Type field). End scripts
+run after every module is loaded; load_all_views=True includes DB-only views.
+A view that cannot be saved (validation fails for an unrelated reason) is
+left as is with a WARNING; an ERROR would fail the Odoo.sh build.
 """
 import base64
 import copy
@@ -59,7 +67,8 @@ def _clean(view):
 
     specs_tree = etree.fromstring(arch_text)
     # All views applied before this one, exactly what Studio builds on.
-    source = view.with_context(ir_ui_view_tree_cut_off_view=view)._get_combined_arch()
+    source = view.with_context(load_all_views=True,
+                               ir_ui_view_tree_cut_off_view=view)._get_combined_arch()
 
     removed = []
     for spec in list(specs_tree.iterchildren(tag=etree.Element)):
@@ -76,13 +85,13 @@ def _clean(view):
 
 
 def migrate(cr, version):
-    env = api.Environment(cr, SUPERUSER_ID, {})
+    env = api.Environment(cr, SUPERUSER_ID, {'load_all_views': True})
     Attachment = env['ir.attachment']
     for view in _studio_views(env):
         try:
             new_arch, removed = _clean(view)
         except Exception:
-            _logger.exception("%s: view %s (%s) not checked", TAG, view.id, view.name)
+            _logger.warning("%s: view %s (%s) not checked", TAG, view.id, view.name, exc_info=True)
             continue
         if new_arch is None:
             continue
@@ -98,7 +107,7 @@ def migrate(cr, version):
                 })
                 view.write({'arch_db': new_arch})
         except Exception:
-            _logger.exception("%s: view %s (%s) left unchanged", TAG, view.id, view.name)
+            _logger.warning("%s: view %s (%s) left unchanged", TAG, view.id, view.name, exc_info=True)
             continue
         _logger.info("%s: view %s (%s) re-anchored/cleaned, %d xpath(s) removed",
                      TAG, view.id, view.name, len(removed))
