@@ -838,6 +838,14 @@
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='picking_type_id']" position="after">
         <field name="x_studio_preferred_locations" domain="[ '&amp;', '&amp;', '&amp;', '&amp;',  ('child_ids.child_ids', '!=', False), ('usage', '=', 'internal'), ('name', '!=', 'Stock'), ('warehouse_id.code', 'in', [x_studio_warehouse_sh]), ('x_studio_is_a_blast_freezer', '=', False), ('complete_name', 'not ilike', 'BF')]" invisible="picking_type_code == &quot;outgoing&quot; or picking_type_id in [45, 46]"/>
       </xpath>
+      <!-- Odoo 19's stock.view_picking_form puts domain="[('usage','!=','view')]" on
+           the header Destination Location. A view domain replaces the field's own
+           domain ([('id', 'in', allowed_value_ids)], _compute_allowed_value_ids), so
+           BFRR listed every storage location (M/A/...) instead of the Blast Freeze
+           ones (M/BF/...). 17's form had no view domain. Restore the field domain. -->
+      <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_dest_id'][2]" position="attributes">
+        <attribute name="domain">[('id', 'in', allowed_value_ids)]</attribute>
+      </xpath>
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_dest_id'][2]" position="after">
         <field widget="many2many_tags" name="x_studio_additional_services" domain="[(&quot;type&quot;, &quot;=&quot;, &quot;service&quot;)]" force_save="0" readonly="False" string="Additional Charges"/>
         <field name="return_reason" invisible="not return_reason"/>
