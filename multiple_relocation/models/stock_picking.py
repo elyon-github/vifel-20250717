@@ -2121,6 +2121,62 @@ class transfer_locations(models.Model):
                 if quants:
                     quants.write({'x_studio_remarks': remarks})
 
+    def _vifel_check_loose_withdrawal(self):
+        """Raise when a no-pallet outgoing line takes more than the loose
+        (no-pallet) stock at its location. See button_validate."""
+        Quant = self.env['stock.quant'].sudo()
+        problems = []
+        for picking in self.filtered(
+                lambda p: p.picking_type_id.code == 'outgoing'):
+            needed = {}
+            for line in picking.move_line_ids:
+                if line.package_id or line.quantity <= 0:
+                    continue
+                if line.location_id.usage != 'internal':
+                    continue
+                product = line.product_id
+                qty = line.product_uom_id._compute_quantity(
+                    line.quantity, product.uom_id, rounding_method='HALF-UP')
+                key = (line.location_id, product, line.lot_id, line.owner_id)
+                needed[key] = needed.get(key, 0.0) + qty
+            for (location, product, lot, owner), qty in needed.items():
+                quants = Quant.search([
+                    ('location_id', '=', location.id),
+                    ('product_id', '=', product.id),
+                    ('lot_id', '=', lot.id),
+                    ('owner_id', '=', owner.id),
+                    ('package_id', '=', False),
+                ])
+                loose = sum(quants.mapped('quantity'))
+                if float_compare(qty, loose,
+                                 precision_rounding=product.uom_id.rounding) > 0:
+                    pallets = Quant.search([
+                        ('location_id', '=', location.id),
+                        ('product_id', '=', product.id),
+                        ('lot_id', '=', lot.id),
+                        ('owner_id', '=', owner.id),
+                        ('package_id', '!=', False),
+                        ('quantity', '>', 0),
+                    ]).mapped('package_id.name')
+                    problems.append(_(
+                        "%(doc)s: %(product)s at %(loc)s - %(qty)s %(uom)s "
+                        "without a pallet, but only %(loose)s %(uom)s is "
+                        "loose there.%(pallets)s",
+                        doc=picking.name, product=product.display_name,
+                        loc=location.complete_name,
+                        qty=round(qty, 3), loose=round(max(loose, 0.0), 3),
+                        uom=product.uom_id.name,
+                        pallets=(_(" The stock is on pallet(s): %s.",
+                                   ', '.join(pallets)) if pallets else '')))
+        if problems:
+            raise UserError(_(
+                "Cannot validate: some lines take stock without a pallet that "
+                "is not there loose.\n\n%(lines)s\n\nSet the Pallet # on these "
+                "lines (pick the pallet the stock is really on) and validate "
+                "again. Validating as is would leave negative loose stock next "
+                "to the pallet, and the pallet would keep its full weight.",
+                lines='\n'.join(problems)))
+
     def _action_done(self):
         # Snapshot the WR Remarks read-back onto the outgoing lines BEFORE the
         # source quants are consumed here: a full withdrawal removes the quant
@@ -2184,6 +2240,16 @@ class transfer_locations(models.Model):
                     "realign this return to %(wr)s, then validate.",
                     doc=record.name, ret=record.partner_id.name,
                     src=src.name, wr=src.partner_id.name))
+
+        # A WITHDRAWAL LINE WITHOUT A PALLET MAY ONLY TAKE LOOSE STOCK THAT IS THERE.
+        # Loose (no-pallet) withdrawals are normal (e.g. Blast Freeze), but when
+        # the stock only exists on a pallet, Odoo takes it "loose" anyway and
+        # leaves a negative no-pallet quant next to the pallet: the pallet keeps
+        # its full weight (stock overstated) and the next WR of that pallet reads
+        # the blank negative quant's Pallet Series ID / Container # (M/WR/15384
+        # -> M/WR/15388, 11-05).
+        if not self.env.context.get('skip_loose_stock_guard'):
+            self._vifel_check_loose_withdrawal()
 
         result = super(transfer_locations, self).button_validate()
 
@@ -3889,6 +3955,9 @@ class transfer_locations(models.Model):
             'res_model': 'stock.move.line',
             'views': [(view_id, 'tree')],
             'domain': [('picking_id', '=', self.id)],
+            # The header counter totals the lines loaded in the browser, so load
+            # them all: at the default 80 a long transfer showed too few pallets.
+            'limit': 1000,
             'context': {
                 'create': self.state != 'done' or not self.is_locked,
                 'default_picking_id': self.id,
