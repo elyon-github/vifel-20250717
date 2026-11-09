@@ -635,31 +635,53 @@ class stock_move_line_Override(models.Model):
             if quant.x_studio_remarks:
                 line.vifel_remarks_frozen = quant.x_studio_remarks
 
-    @api.depends('quant_id')
+    def _vifel_source_quant(self, value_field):
+        """Quant an outgoing line reads its pallet details from.
+
+        Same product / owner / lot at the line's source location, as before,
+        but no longer simply the LAST one: 1) the quant on the line's own
+        pallet (if it has a value), 2) else the last quant with stock and a
+        value, 3) else the last match (the old result). A blank or negative
+        no-pallet quant beside the pallet (M/WR/15384 -> M/WR/15388, 11-05)
+        therefore cannot blank the line any more. Returns an empty recordset
+        when nothing matches (the caller then leaves the value as it was).
+        """
+        self.ensure_one()
+        Quant = self.env['stock.quant']
+        own = stocked = last = Quant
+        for quant in self.location_id.quant_ids:
+            if (quant.product_id.id != self.product_id.id
+                    or quant.owner_id != self.owner_id
+                    or quant.lot_id.id != self.lot_id.id):
+                continue
+            last = quant
+            if self.package_id and quant.package_id.id == self.package_id.id:
+                own = quant
+            elif quant.quantity > 0 and quant[value_field]:
+                stocked = quant
+        if own and own[value_field]:
+            return own
+        return stocked or last
+
+    @api.depends('quant_id', 'package_id')
     def _compute_container_number(self):
         for record in self:
             if record['picking_code'] == 'outgoing' or not record['picking_code']:
-                location = self.env['stock.location'].browse(
-                    record['location_id'].id)
-
-                for quants in location.quant_ids:
-                    if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
-                        record['x_studio_container_number'] = quants.x_studio_container_number
+                quant = record._vifel_source_quant('x_studio_container_number')
+                if quant:
+                    record['x_studio_container_number'] = quant.x_studio_container_number
 
             else:
                 record['x_studio_container_number'] = ''
 
-    @api.depends('quant_id')
+    @api.depends('quant_id', 'package_id')
     def _compute_x_studio_building_dropped(self):
         for record in self:
             if record['picking_code'] == 'outgoing' or not record['picking_code']:
-                location = self.env['stock.location'].browse(
-                    record['location_id'].id)
-
-                for quants in location.quant_ids:
-                    if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
-                        record['x_studio_building_dropped'] = quants.x_studio_building_dropped
-                        record['original_record_reference'] = quants.original_record_reference
+                quant = record._vifel_source_quant('x_studio_building_dropped')
+                if quant:
+                    record['x_studio_building_dropped'] = quant.x_studio_building_dropped
+                    record['original_record_reference'] = quant.original_record_reference
             else:
                 record['x_studio_building_dropped'] = ''
                 record['original_record_reference'] = False
