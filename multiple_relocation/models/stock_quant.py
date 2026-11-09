@@ -5,6 +5,7 @@ from odoo import models, fields, api, tools
 from odoo.exceptions import ValidationError, UserError
 from odoo.osv import expression
 import logging
+import psycopg2
 from datetime import datetime, timedelta, date
 import re
 from odoo import _, api, fields, models, SUPERUSER_ID
@@ -324,6 +325,26 @@ class multiple_relocation(models.TransientModel):
         return errors
     
     
+    def _validate_no_stale_package_records(self):
+        """A record with 0 quantity but a reservation stays in package.quant_ids
+        (core keeps anything with a non-zero reservation), so the wizard sees the
+        pallet as partial and _perform_relocation would empty its group and crash.
+        Name the pallet instead of letting that surface as a generic Odoo Error."""
+        errors = []
+        for package in self.quant_relocation_line_ids.package_id:
+            stale = package.quant_ids.filtered(
+                lambda q: float_is_zero(q.quantity, precision_rounding=q.product_uom_id.rounding)
+                and not float_is_zero(q.reserved_quantity, precision_rounding=q.product_uom_id.rounding))
+            if stale:
+                errors.append(
+                    f"Pallet '{package.name}' has an old record with 0 quantity but "
+                    f"{stale[0].reserved_quantity:g} reserved "
+                    f"(record #{stale[0].id}, client: {stale[0].owner_id.name or 'none'}). "
+                    f"Remove this pallet from the batch and contact support."
+                )
+        return errors
+
+
     def _validate_same_location_relocation(self):
         """Check if new location is same as current location"""
         errors = []
@@ -458,6 +479,7 @@ class multiple_relocation(models.TransientModel):
         errors.extend(self._validate_package_split())
         errors.extend(self._validate_location_suitability())
         errors.extend(self._validate_same_location_relocation())
+        errors.extend(self._validate_no_stale_package_records())
         
         # Log warnings (non-blocking)
         self._log_multiple_packages_per_location()
@@ -488,8 +510,22 @@ class multiple_relocation(models.TransientModel):
         # Validate quants before relocation
         self._validate_quants_before_relocation()
         
-        # Perform the actual relocation
-        self._perform_relocation(x_reloc_batch_number)
+        # Perform the actual relocation. Any unexpected crash reaches the user as
+        # a readable message; the full traceback stays in the log. Raising rolls
+        # the whole batch back.
+        try:
+            self._perform_relocation(x_reloc_batch_number)
+        except (UserError, ValidationError, psycopg2.OperationalError):
+            raise  # keep readable errors, and let Odoo retry database conflicts
+        except Exception:
+            _logger.exception("Relocation failed, batch %s", x_reloc_batch_number)
+            pallets = ', '.join(self.quant_relocation_line_ids.package_id.mapped('name'))
+            raise UserError(
+                "The relocation could not be completed, so no pallets were moved.\n"
+                "Please send this batch and a screenshot to support:\n"
+                f"Batch: {x_reloc_batch_number}\n"
+                f"Pallets: {pallets}"
+            )
         
         # Handle post-relocation actions
         self._handle_post_relocation_actions()
