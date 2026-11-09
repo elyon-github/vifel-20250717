@@ -73,9 +73,11 @@ CN_COMPUTE = """for record in self:
         record['x_studio_container_number'] = ''
 """
 
+# x_studio_container_number is NOT a Studio field: multiple_relocation defines
+# it in Python (stock_move.py _compute_container_number), so it is fixed there
+# (with x_studio_building_dropped). CN_COMPUTE is kept only as documentation.
 NEW = {
     'x_studio_pallet_series_id': (PS_COMPUTE, 'quant_id,quantity,package_id'),
-    'x_studio_container_number': (CN_COMPUTE, 'quant_id,package_id'),
 }
 
 
