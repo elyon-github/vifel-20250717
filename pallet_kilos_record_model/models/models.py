@@ -1167,6 +1167,9 @@ class PalletKilosRecordModel(models.Model):
                 ('state', '=', 'done'), ('picking_id', '=', False),
                 ('owner_id', '=', owner.id), ('quantity', '>', 0),
                 ('package_id', '!=', False),
+                # exits booked by a stock-count row (Inventory > Apply) are
+                # already counted on the ledger - see stock_count.py
+                ('pkr_stock_count_id', '=', False),
                 ('location_dest_id.usage', '=', 'inventory')])
             exit_pkgs = set(exit_lines.mapped('package_id').ids)
             batch_by_pkg = {}
@@ -2160,6 +2163,15 @@ class PalletKilosRecordModel(models.Model):
                 ('warehouse', '=', warehouse_id),
                 ('is_blast_freezer', '=', is_bf),
             ], limit=1)
+            if not duplicate:
+                # stock counts (Inventory > Apply) already booked this owner's
+                # uploads on the ledger - an OB row would count them twice
+                duplicate = self.search([
+                    ('is_stock_count', '=', True),
+                    ('owner_id', '=', owner_id),
+                    ('warehouse', '=', warehouse_id),
+                    ('is_blast_freezer', '=', is_bf),
+                ], limit=1)
             if duplicate:
                 owner_label = (self.env['res.partner'].browse(owner_id).name
                                if owner_id else 'No owner')

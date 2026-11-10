@@ -71,7 +71,7 @@ Reports (XLSX)
     'website': "https://templanza-portfolio.netlify.app/",
 
     'category': 'Inventory/Inventory',
-    'version': '0.1',
+    'version': '0.2',
 
     # any module necessary for this one to work correctly
     'depends': ['report_xlsx', 'stock'],
