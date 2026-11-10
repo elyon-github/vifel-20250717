@@ -608,18 +608,6 @@ class transfer_locations(models.Model):
             record.total_quantity = total_quantity
             record.total_weight = total_weight
 
-    @api.depends(
-        'state',
-        # AR#6 stamps reserved_quantity_on_validation on the lines AFTER the
-        # picking flips to done; depending on it re-runs this compute with
-        # the stamped values, so partial pallets (reserved > 0) drop out.
-        # Depending only on 'state' froze the pre-stamp over-count (NULL
-        # reads as 0, so every pallet counted).
-        'move_line_ids.reserved_quantity_on_validation',
-        'move_line_ids.package_id',
-        'move_line_ids.result_package_id',
-        'move_line_ids.bf_pallet_char',
-    )
     def _vifel_line_originates_pallet(self, line):
         """Hook: does this move line ORIGINATE a pallet for report / transacted
         counts? True in base. The Merge-Pallet add-on overrides this to return
@@ -646,6 +634,18 @@ class transfer_locations(models.Model):
         receipt, read back from the quant on a withdrawal. '' in base."""
         return ''
 
+    @api.depends(
+        'state',
+        # AR#6 stamps reserved_quantity_on_validation on the lines AFTER the
+        # picking flips to done; depending on it re-runs this compute with
+        # the stamped values, so partial pallets (reserved > 0) drop out.
+        # Depending only on 'state' froze the pre-stamp over-count (NULL
+        # reads as 0, so every pallet counted).
+        'move_line_ids.reserved_quantity_on_validation',
+        'move_line_ids.package_id',
+        'move_line_ids.result_package_id',
+        'move_line_ids.bf_pallet_char',
+    )
     def _compute_transacted_pallet_count(self):
         # Count unique pallets transacted on this picking. Only validated
         # ('done') pickings contribute; mirrors the dedupe logic in
@@ -674,6 +674,36 @@ class transfer_locations(models.Model):
                         pallets.add(ml.result_package_id.id)
 
             record.transacted_pallet_count = len(pallets)
+
+    def _vifel_wr_line_empties_pallet(self, line):
+        """Withdrawal pallet-count rule: True when this WR line leaves its
+        pallet EMPTY (the pallet counts as withdrawn).
+
+        Validated WR: the frozen AR#6 stamp, reserved_quantity_on_validation
+        == 0 (unchanged behaviour).
+
+        Not yet validated: AR#6 has not stamped yet, so the field reads 0 on
+        every line and a partially-withdrawn pallet used to print as out
+        (M/WR/12262: B 545 takes 125 of 875 kg, printed 6 pallets for 5).
+        Work out the same figure AR#6 will stamp: stock on this pallet for
+        the same owner and pallet series, minus what this WR takes from it.
+        """
+        if line.picking_id.state == 'done' or not line.package_id:
+            return line.reserved_quantity_on_validation == 0
+
+        def _same(rec):
+            return (rec.owner_id == line.owner_id
+                    and (rec.x_studio_pallet_series_id or '')
+                    == (line.x_studio_pallet_series_id or ''))
+
+        on_pallet = sum(
+            q.quantity for q in line.package_id.quant_ids
+            if q.location_id.usage == 'internal' and q.quantity > 0
+            and _same(q))
+        taking = sum(
+            ml.quantity for ml in line.picking_id.move_line_ids
+            if ml.package_id == line.package_id and _same(ml))
+        return round(on_pallet - taking, 3) <= 0
 
     def _refresh_pallet_kilos_on_lock(self):
         """Refresh the pallet kilos record when locking/unlocking a done picking.
@@ -2781,8 +2811,8 @@ class transfer_locations(models.Model):
                 # which made an already-validated WR's printout DRIFT — e.g. a
                 # returned pallet re-reserved on a fresh WR would retroactively
                 # drop it from this WR's count. Incoming receipts are untouched.
-                counts_as_pallet = (
-                    line.reserved_quantity_on_validation == 0)
+                counts_as_pallet = self._vifel_wr_line_empties_pallet(
+                    line)
             if line.package_id and not line.picking_id.x_studio_is_a_blast_freezer:
                 pallet_id = self._pdf_pallet_count_key('package', line.package_id.id, line)
                 if first_occurrence.get(pallet_id) == line_idx:
@@ -3003,8 +3033,8 @@ class transfer_locations(models.Model):
                 # received still counts.
                 counts_as_pallet = True
                 if move_line.picking_id.picking_type_id.code == 'outgoing':
-                    counts_as_pallet = (
-                        move_line.reserved_quantity_on_validation == 0)
+                    counts_as_pallet = self._vifel_wr_line_empties_pallet(
+                        move_line)
 
                 # A merged (+0) line does not originate a pallet: it is excluded
                 # from the count AND from the dedupe set, so it neither counts
