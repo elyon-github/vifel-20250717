@@ -190,96 +190,207 @@ class PalletKilosStockCount(models.Model):
                      if 'x_studio_is_a_blast_freezer' in loc._fields else False))
 
     # --------------------------------------------------------- backfill --
+    REUPLOAD_WINDOW_DAYS = 7
+
     @api.model
-    def _pkr_backfill_stock_count(self, owner_id, date_from, date_to, dry_run=False):
-        """Book a stock count that happened BEFORE this hook existed.
-
-        Looks at the owner's Apply moves (picking-less, inventory location <->
-        stock, not adjustment-request moves) between ``date_from`` and
-        ``date_to`` (UTC) that no ledger row covers yet, per partition:
-
-        * moves OUT of stock (the zeroing)  -> one row resetting the ledger to 0
-        * moves INTO stock (the re-upload)  -> one row adding the uploaded
-          pallets and kg (from the moves) and quantity / packs (rebuilt per
-          pallet: what is still in stock + what WRs took out - what returns
-          brought back, i.e. the upload plus any later correction, the same
-          base the reset wiped)
-
-        Both rows are dated just before the first ledger row that used an
-        uploaded pallet (staff often enter a WR start time earlier than the
-        upload), else at the move dates. Returns a list of text lines.
-        """
-        MoveLine = self.env['stock.move.line'].sudo()
-        lines = MoveLine.search([
+    def _pkr_unbooked_apply_lines(self, owner_ids=None, date_from=None, date_to=None):
+        """Done Inventory > Apply move lines no ledger row covers yet:
+        picking-less, inventory location <-> stock, not adjustment-request
+        moves (those post their own adjustment) and not relocations."""
+        domain = [
             ('state', '=', 'done'), ('picking_id', '=', False),
-            ('owner_id', '=', owner_id), ('move_id.is_inventory', '=', True),
+            ('owner_id', '!=', False), ('move_id.is_inventory', '=', True),
             ('adjustment_batch_number', '=', False),
             ('pkr_stock_count_id', '=', False),
-            ('date', '>=', date_from), ('date', '<=', date_to),
             '|', ('location_id.usage', '=', 'inventory'),
-                 ('location_dest_id.usage', '=', 'inventory')],
-            order='date asc, id asc')
-        report = []
-        partitions = {}
-        for line in lines:
-            key = self._pkr_line_partition(line)
-            side = 'in' if line.location_id.usage == 'inventory' else 'out'
-            partitions.setdefault(key, {'in': MoveLine, 'out': MoveLine})
-            partitions[key][side] |= line
+                 ('location_dest_id.usage', '=', 'inventory')]
+        if owner_ids:
+            domain.append(('owner_id', 'in', list(owner_ids)))
+        if date_from:
+            domain.append(('date', '>=', date_from))
+        if date_to:
+            domain.append(('date', '<=', date_to))
+        return self.env['stock.move.line'].sudo().search(domain, order='date asc, id asc')
 
-        for (warehouse_id, is_bf), sides in partitions.items():
-            outs, ins = sides['out'], sides['in']
-            # placement: before the first ledger row that touched an uploaded pallet
-            first_date = min((outs | ins).mapped('date'))
-            when = first_date
-            pkgs = ins.mapped('result_package_id')
+    @api.model
+    def _pkr_physical_kg_at(self, owner_id, warehouse_id, is_bf, when, inclusive):
+        """Owner's kg in one partition at ``when``, rebuilt from done moves."""
+        self.env.cr.execute("""
+            SELECT COALESCE(SUM(
+                CASE WHEN dl.usage = 'internal' AND dl.warehouse_id = %(wh)s
+                          AND COALESCE(dl.x_studio_is_a_blast_freezer, FALSE) = %(bf)s
+                     THEN ml.quantity ELSE 0 END
+              - CASE WHEN sl.usage = 'internal' AND sl.warehouse_id = %(wh)s
+                          AND COALESCE(sl.x_studio_is_a_blast_freezer, FALSE) = %(bf)s
+                     THEN ml.quantity ELSE 0 END), 0)
+            FROM stock_move_line ml
+            JOIN stock_location sl ON sl.id = ml.location_id
+            JOIN stock_location dl ON dl.id = ml.location_dest_id
+            WHERE ml.state = 'done' AND ml.owner_id = %(owner)s
+              AND (ml.date < %(when)s OR (%(incl)s AND ml.date = %(when)s))
+        """, {'wh': warehouse_id, 'bf': bool(is_bf), 'owner': owner_id,
+              'when': when, 'incl': bool(inclusive)})
+        return self.env.cr.fetchone()[0] or 0.0
+
+    @api.model
+    def _pkr_find_reuploads(self, owner_ids=None, date_from=None, date_to=None):
+        """Past re-uploads no ledger row covers, for every owner.
+
+        Same rule as the live hook, replayed on history. A RE-UPLOAD is
+        * a zeroing: one Apply (one transaction = one move-line date) that
+          left the owner's partition with no stock, for an owner that was
+          already on the ledger (a row created before it), then
+        * the Apply(s) that put stock back (pure inflows) within
+          REUPLOAD_WINDOW_DAYS after it.
+        Apply runs that are not part of a re-upload (one-off count fixes,
+        a new client's first opening balance - booked by the OB import) are
+        left alone. Returns a list of sessions."""
+        lines = self._pkr_unbooked_apply_lines(owner_ids, date_from, date_to)
+        # one Apply = one transaction: its moves share create_date (the
+        # transaction time); their done dates differ by seconds
+        batches = {}
+        for line in lines:
+            wh, bf = self._pkr_line_partition(line)
+            if not wh:
+                continue
+            key = (line.owner_id.id, wh, bf, line.move_id.create_date)
+            batches.setdefault(key, self.env['stock.move.line'].sudo())
+            batches[key] |= line
+        sessions = []
+        open_session = {}
+        trusted = {}
+        for key in sorted(batches, key=lambda k: (k[0], k[1], k[2], k[3])):
+            owner_id, wh, bf, created = key
+            blines = batches[key]
+            pkey = (owner_id, wh, bf)
+            outs = blines.filtered(lambda l: l.location_dest_id.usage == 'inventory')
+            ins = blines - outs
+            if outs:
+                start, end = min(blines.mapped('date')), max(blines.mapped('date'))
+                before = self._pkr_physical_kg_at(owner_id, wh, bf, start, False)
+                after = self._pkr_physical_kg_at(owner_id, wh, bf, end, True)
+                on_ledger = self.search_count(
+                    self._pkr_partition_domain(owner_id, wh, bf)
+                    + [('create_date', '<', start)])
+                if before > 0.0005 and abs(after) < 0.0005 and on_ledger:
+                    if pkey not in trusted:
+                        # the zeroing test rebuilds stock from moves; only
+                        # trust it when that rebuild equals today's stock
+                        # (a client change without moves breaks it)
+                        now_moves = self._pkr_physical_kg_at(
+                            owner_id, wh, bf, fields.Datetime.now(), True)
+                        now_quants = self._pkr_physical(owner_id, wh, bf)['kilos']
+                        trusted[pkey] = abs(now_moves - now_quants) < 0.01
+                    session = {'owner_id': owner_id, 'warehouse_id': wh,
+                               'is_bf': bf, 'reset': outs, 'reset_date': start,
+                               'uploads': [], 'trusted': trusted[pkey]}
+                    sessions.append(session)
+                    open_session[pkey] = session
+                    if ins:
+                        session['uploads'].append(ins)
+                else:
+                    open_session.pop(pkey, None)
+                continue
+            session = open_session.get(pkey)
+            if session and min(ins.mapped('date')) - session['reset_date'] <= timedelta(
+                    days=self.REUPLOAD_WINDOW_DAYS):
+                session['uploads'].append(ins)
+        return sessions
+
+    @api.model
+    def _pkr_backfill_stock_count(self, owner_ids=None, date_from=None,
+                                  date_to=None, dry_run=False):
+        """Book past re-uploads on the ledger (see _pkr_find_reuploads).
+
+        Per re-upload: one row resetting the ledger to 0, then one row per
+        upload with its pallets and kg (from the moves) and quantity / packs
+        (rebuilt per pallet: still in stock + taken out by WRs - brought back
+        by returns). The rows are dated at the moves, or just before the
+        first ledger row that used an uploaded pallet if staff entered that
+        document's start time earlier than the upload. Returns text lines."""
+        report = []
+        partners = self.env['res.partner'].sudo()
+        for s in self._pkr_find_reuploads(owner_ids, date_from, date_to):
+            owner_id, wh, bf = s['owner_id'], s['warehouse_id'], s['is_bf']
+            if not s['trusted']:
+                report.append('%s (wh %s%s) - zeroing %s NOT booked: its stock '
+                              'history (moves) does not match the stock today, '
+                              'check this client by hand'
+                              % (self.env['res.partner'].browse(owner_id).name, wh,
+                                 ', BF' if bf else '', s['reset_date']))
+                continue
+            ins_all = self.env['stock.move.line'].sudo()
+            for up in s['uploads']:
+                ins_all |= up
+            when = s['reset_date']
+            first_row = self.browse()
+            pkgs = ins_all.mapped('result_package_id')
             if pkgs:
-                # documents validated AFTER the upload that moved an uploaded pallet
-                used = MoveLine.search([
+                used = self.env['stock.move.line'].sudo().search([
                     ('state', '=', 'done'), ('picking_id', '!=', False),
                     ('owner_id', '=', owner_id),
-                    ('date', '>=', min(ins.mapped('date'))),
+                    ('date', '>=', min(ins_all.mapped('date'))),
                     '|', ('package_id', 'in', pkgs.ids),
                          ('result_package_id', 'in', pkgs.ids)])
                 first_row = self.search(
-                    self._pkr_partition_domain(owner_id, warehouse_id, is_bf)
+                    self._pkr_partition_domain(owner_id, wh, bf)
                     + [('record_reference', 'in', used.mapped('picking_id').ids),
-                       ('start_time', '>=', first_date - timedelta(days=1))],
+                       ('start_time', '>=', when - timedelta(days=1))],
                     order='start_time asc, id asc', limit=1)
-                if first_row and first_row.start_time < when:
-                    when = first_row.start_time
-            t_out = when - timedelta(seconds=2)
-            t_in = when - timedelta(seconds=1)
+            # row times: at the moves, but never after the first row that
+            # used an uploaded pallet; reset first, uploads after it, in order
+            n = len(s['uploads'])
+            cap = first_row.start_time if first_row else None
+            t_reset = when if not cap or when < cap else cap - timedelta(seconds=n + 1)
+            times = []
+            for i, up in enumerate(s['uploads']):
+                t = min(up.mapped('date'))
+                if cap and t >= cap:
+                    t = cap - timedelta(seconds=n - i)
+                times.append(max(t, t_reset + timedelta(seconds=i + 1)))
 
-            if outs:
-                ledger = self._pkr_ledger_before(owner_id, warehouse_id, is_bf, t_out)
-                delta = {m: -ledger[m] for m in _MEASURES}
-                name = '%s (reset to 0)' % outs[0].move_id.name
-                report.append('Zeroing %s: %d lines, %.3f kg out -> ledger reset: %s'
-                              % (outs[0].move_id.name, len(outs),
-                                 sum(outs.mapped('quantity')), delta))
+            owner = partners.browse(owner_id)
+            head = '%s (wh %s%s)' % (owner.name, wh, ', BF' if bf else '')
+            ledger = self._pkr_ledger_before(owner_id, wh, bf, t_reset)
+            delta = {m: -ledger[m] for m in _MEASURES}
+            name = s['reset'][0].move_id.name
+            report.append('%s - zeroing "%s" %s: %d lines, %.3f kg -> ledger reset %s'
+                          % (head, name, t_reset, len(s['reset']),
+                             sum(s['reset'].mapped('quantity')), delta))
+            if not dry_run:
+                row = self._pkr_create_stock_count_row(
+                    owner_id, wh, bf, t_reset, delta, '%s (reset to 0)' % name)
+                s['reset'].write({'pkr_stock_count_id': row.id})
+            for up, t in zip(s['uploads'], times):
+                qty, packs = self._pkr_rebuild_upload_qty_packs(owner_id, up)
+                delta = {'pallets': float(len(up.mapped('result_package_id'))),
+                         'kilos': sum(up.mapped('quantity')),
+                         'packaging': qty, 'units': packs}
+                name = up[0].move_id.name
+                report.append('%s - upload "%s" %s: %d lines -> %s'
+                              % (head, name, t, len(up), delta))
                 if not dry_run:
                     row = self._pkr_create_stock_count_row(
-                        owner_id, warehouse_id, is_bf, t_out, delta, name)
-                    outs.write({'pkr_stock_count_id': row.id})
-            if ins:
-                delta = {
-                    'pallets': float(len(pkgs)),
-                    'kilos': sum(ins.mapped('quantity')),
-                    'packaging': 0.0, 'units': 0.0,
-                }
-                qty, packs = self._pkr_rebuild_upload_qty_packs(owner_id, ins)
-                delta['packaging'], delta['units'] = qty, packs
-                name = ins[0].move_id.name
-                report.append('Upload %s: %d lines -> %s' % (name, len(ins), delta))
-                if not dry_run:
-                    row = self._pkr_create_stock_count_row(
-                        owner_id, warehouse_id, is_bf, t_in, delta, name)
-                    ins.write({'pkr_stock_count_id': row.id})
-            report.append('Rows dated %s / %s (UTC)' % (t_out, t_in))
-        if not partitions:
-            report.append('No unbooked stock-count moves found.')
+                        owner_id, wh, bf, t, delta, name)
+                    up.write({'pkr_stock_count_id': row.id})
+        if not report:
+            report.append('No unbooked re-uploads found.')
         return report
+
+    def action_preview_past_reuploads(self):
+        return self._pkr_reupload_notification(
+            self._pkr_backfill_stock_count(dry_run=True), 'Past re-uploads (preview, nothing saved)')
+
+    def action_book_past_reuploads(self):
+        return self._pkr_reupload_notification(
+            self._pkr_backfill_stock_count(), 'Past re-uploads booked')
+
+    def _pkr_reupload_notification(self, lines, title):
+        return {
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {'title': title, 'message': '\n'.join(lines),
+                       'sticky': True, 'type': 'info'},
+        }
 
     @api.model
     def _pkr_rebuild_upload_qty_packs(self, owner_id, in_lines):

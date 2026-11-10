@@ -1,35 +1,28 @@
 # -*- coding: utf-8 -*-
-"""0.2: book the WONDER MEATS (FG) stock count of 2026-10-28 on the ledger.
+"""0.2: book every past RE-UPLOAD on the Pallet Kilos ledger, for all owners.
 
-On 10-28 the owner was zeroed (Inventory > Apply) and the opening balance was
-re-uploaded. Neither reached the Pallet Kilos ledger, so Pallet Monitoring
-still started 10-28 from the old balance (258 pallets / 117,987 kg) instead
-of the upload (46 pallets / 18,429 kg). From 0.2 on every Apply books itself
-(models/stock_count.py); this books the one that happened before.
+Before 0.2 a stock count applied from Inventory (zeroing an owner, then
+re-uploading its opening balance) changed the stock but never the ledger, so
+Pallet Monitoring kept the old balance (e.g. WONDER MEATS (FG) 10-28 still
+started at 258 pallets / 117,987 kg instead of the 46 / 18,429 uploaded).
+From 0.2 on every Apply books itself (models/stock_count.py); this books the
+ones that happened before, for every client, with the same rule:
+zeroing -> ledger reset to 0, re-upload -> its pallets / kg / qty / packs.
+See _pkr_find_reuploads for what counts as a re-upload.
 
-Runs once (module upgrade 0.1 -> 0.2). Re-running books nothing: the moves
-are linked to their ledger row and skipped next time.
+Runs once (module upgrade to 0.2). Re-running books nothing: the moves are
+linked to their ledger rows. Each booked row is written to the log.
 """
 import logging
-from datetime import datetime
 
 from odoo import api, SUPERUSER_ID
 
 _logger = logging.getLogger(__name__)
 
-OWNER_ID = 309                                  # WONDER MEATS (FG)
-DATE_FROM = datetime(2026, 10, 27, 16, 0, 0)    # 2026-10-28 00:00 Manila, in UTC
-DATE_TO = datetime(2026, 10, 28, 15, 59, 59)    # 2026-10-28 23:59 Manila, in UTC
-
 
 def migrate(cr, version):
     env = api.Environment(cr, SUPERUSER_ID, {})
-    owner = env['res.partner'].browse(OWNER_ID).exists()
-    name = (owner.name or '').upper().replace(' ', '') if owner else ''
-    if not owner or 'WONDER' not in name or 'FG' not in name:
-        _logger.info("0.2 stock-count backfill: owner %s is not WONDER MEATS (FG) here - skipped", OWNER_ID)
-        return
     report = env['pallet_kilos_record_model.pallet_kilos_record_model'] \
-        ._pkr_backfill_stock_count(OWNER_ID, DATE_FROM, DATE_TO)
+        ._pkr_backfill_stock_count()
     for line in report:
-        _logger.info("0.2 stock-count backfill %s: %s", owner.name, line)
+        _logger.info("0.2 re-upload backfill: %s", line)
