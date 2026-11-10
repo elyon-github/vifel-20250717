@@ -767,7 +767,8 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 2, line.beginning_balance_in_kilos or 0, gray_bg_format_float)  # Gray BG
                         
                         # Use bold format for reference documents
-                        sheet.write(row_index, 3, line.record_reference.name if line.record_reference and 'RR' in line.record_reference.name else '', normal_fmt_bold)
+                        rr_text, wr_text = line._pkr_doc_labels()
+                        sheet.write(row_index, 3, rr_text, normal_fmt_bold)
                         
                         # Apply vivid received formatting for RR columns (keep background)
                         sheet.write(row_index, 4, line.packaging_received or 0, received_vivid_fmt)
@@ -784,7 +785,7 @@ class PalletKilosXlsx(models.AbstractModel):
                                     break
 
                         # Use bold format for reference documents
-                        sheet.write(row_index, 8, line.record_reference.name if line.record_reference and 'WR' in line.record_reference.name else '', normal_fmt_bold)
+                        sheet.write(row_index, 8, wr_text, normal_fmt_bold)
                         sheet.write(row_index, 9, validated_return_id.name if validated_return_id else '', gray_bg_format_bold)  # Gray BG
 
                         # Calculate return values

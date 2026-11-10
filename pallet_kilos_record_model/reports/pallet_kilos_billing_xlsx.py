@@ -260,8 +260,7 @@ class PalletKilosXlsx(models.AbstractModel):
                         base_format = alt_row_format if is_alt else normal_format
                         # Use the current_date directly since it's already in user timezone
                         sheet.write(row_index, 0, current_date, date_format)
-                        rr_text = line.record_reference.name if line.record_reference and 'RR' in line.record_reference.name else ''
-                        wr_text = line.record_reference.name if line.record_reference and 'WR' in line.record_reference.name else ''
+                        rr_text, wr_text = line._pkr_doc_labels()
                         sheet.write(row_index, 1, rr_text, base_format)
                         sheet.write(row_index, 2, wr_text, base_format)
                         sheet.write(row_index, 3, line.pallets_received or 0, float_format)
@@ -554,8 +553,7 @@ class PalletKilosXlsx_2(models.AbstractModel):
                         base_format = alt_row_format if is_alt else normal_format
                         # Use the current_date directly since it's already in user timezone
                         sheet.write(row_index, 0, current_date, date_format)
-                        rr_text = line.record_reference.name if line.record_reference and 'RR' in line.record_reference.name else ''
-                        wr_text = line.record_reference.name if line.record_reference and 'WR' in line.record_reference.name else ''
+                        rr_text, wr_text = line._pkr_doc_labels()
                         sheet.write(row_index, 1, rr_text, base_format)
                         sheet.write(row_index, 2, wr_text, base_format)
                         sheet.write(row_index, 3, line.pallets_received or 0, float_format)
