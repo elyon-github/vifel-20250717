@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Contacts are read-only for everyone except Documentation Staff and
-administrators.
+"""Contacts are read-only for everyone except the Contact Editor group
+(data.xml: Cyril's account, inventory1.bulacan) and administrators.
+Documentation Staff can NOT edit (user 2026-11-10).
 
 Users outside those two groups get the contact form, list and kanban without
 New / Edit / Duplicate / Delete / Archive - in the Contacts app and when a
-contact is opened from any document. Documentation Staff
-(__custom__.documentation_staff) and Settings administrators keep full
-editing.
+contact is opened from any document. Contact Editor members and Settings
+administrators keep full editing.
 
 Done per user in get_view / get_views, AFTER Odoo's view cache (that cache is
 shared by all users, see ir.ui.view._get_view_cache_key). Screens only: Odoo
@@ -17,7 +17,7 @@ from lxml import etree
 
 from odoo import api, models
 
-_CONTACT_EDITORS = ('__custom__.documentation_staff', 'base.group_system')
+_CONTACT_EDITORS = ('multiple_relocation.group_contact_editor', 'base.group_system')
 _LOCK = {
     'form': ('create', 'edit', 'delete', 'duplicate'),
     'tree': ('create', 'edit', 'delete'),
