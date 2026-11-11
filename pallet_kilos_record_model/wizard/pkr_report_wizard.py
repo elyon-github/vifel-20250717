@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 import pytz
@@ -91,6 +92,24 @@ class PkrReportWizard(models.TransientModel):
         tz = pytz.timezone(self.env.user.tz or MANILA_TZ)
         return pytz.utc.localize(fields.Datetime.now()).astimezone(tz).date()
 
+    def _local_tz(self):
+        return pytz.timezone(self.env.user.tz or MANILA_TZ)
+
+    def _local_day_start_utc(self, day):
+        """Naive UTC datetime of 00:00 local time on ``day`` (Manila fallback).
+
+        Stored datetimes are UTC; the user picks local calendar days. Without
+        this, the 28th starts at 08:00 PH and documents dated 00:00-07:59 PH
+        land in the previous day's report.
+        """
+        local = self._local_tz().localize(
+            datetime.datetime.combine(day, datetime.time.min))
+        return local.astimezone(pytz.utc).replace(tzinfo=None)
+
+    def _local_day_end_utc(self, day):
+        """Exclusive upper bound: 00:00 local on the day AFTER ``day``, in UTC."""
+        return self._local_day_start_utc(day + datetime.timedelta(days=1))
+
     date_from = fields.Date(string='Start Date')
     date_to = fields.Date(string='End Date', default=_default_date_to)
 
@@ -144,14 +163,15 @@ class PkrReportWizard(models.TransientModel):
         if self.report_type == 'inbound_log':
             return self._generate_inbound_log(report_action)
 
+        # Day boundaries are Manila days, not UTC days: a document stamped
+        # 06:48 PH on the 28th is 22:48 UTC on the 27th and used to fall out
+        # of a "28th onward" report, silently folded into the opening balance.
         domain = [
             ('start_time', '>=', fields.Datetime.to_string(
-                fields.Datetime.to_datetime(self.date_from)
+                self._local_day_start_utc(self.date_from)
             )),
-            ('start_time', '<=', fields.Datetime.to_string(
-                fields.Datetime.to_datetime(self.date_to).replace(
-                    hour=23, minute=59, second=59,
-                )
+            ('start_time', '<', fields.Datetime.to_string(
+                self._local_day_end_utc(self.date_to)
             )),
         ]
         if self.partner_ids:
@@ -212,11 +232,10 @@ class PkrReportWizard(models.TransientModel):
         # like the reference workbook's Outbound sheet.
         if self.date_from:
             domain.append(
-                ('date_done', '>=', fields.Datetime.to_datetime(self.date_from)))
+                ('date_done', '>=', self._local_day_start_utc(self.date_from)))
         if self.date_to:
             domain.append(
-                ('date_done', '<=', fields.Datetime.to_datetime(self.date_to).replace(
-                    hour=23, minute=59, second=59)))
+                ('date_done', '<', self._local_day_end_utc(self.date_to)))
         if self.partner_ids:
             domain.append(('partner_id', 'in', self.partner_ids.ids))
         if self.warehouse_ids:
