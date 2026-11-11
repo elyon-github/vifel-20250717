@@ -309,7 +309,9 @@ class PalletKilosRecordModel(models.Model):
                         return_heads += line_ids.x_studio_total_units
                         return_packaging += line_ids.x_studio_2nd_uom
                         return_kilos += line_ids.quantity
-                        if line_ids.result_package_id and line_ids.result_package_id.id not in pallets:
+                        # a return line that landed on a pallet already on
+                        # the floor (merge / Fixed pallet) brings no pallet back
+                        if line_ids.result_package_id                                 and self._vifel_line_originates_pallet(line_ids)                                 and line_ids.result_package_id.id not in pallets:
                             return_pallets += 1
                             pallets.add(line_ids.result_package_id.id)
                     # Don't break - accumulate ALL valid partial withdraw returns
