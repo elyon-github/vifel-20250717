@@ -21,6 +21,32 @@ class picking_type(models.Model):
     is_blast_freeze_operation = fields.Boolean(
         string="Is a Blast Freeze Operation?")
 
+    # ------------------------------------------------------------------
+    # Inventory Overview -> transfer list: keep the 17 behaviour.
+    # 17 opened the list with the operation type as a SEARCH FACET
+    # (search_default_picking_type_id), so clearing the search shows every
+    # RR, WR, BFRR, BFWR. 19 core hard-codes
+    # action['domain'] = [('picking_type_id', '=', self.id)], a hidden
+    # filter that cannot be removed from the search bar (clearing the search
+    # on "Meycauayan: WITHDRAWAL" still showed only withdrawals).
+    # ------------------------------------------------------------------
+    def _get_action(self, action_xmlid):
+        action = super()._get_action(action_xmlid)
+        if len(self) <= 1:
+            # the action's own domain, without core's picking-type lock
+            base = self.env['ir.actions.actions']._for_xml_id(action_xmlid)
+            action['domain'] = base.get('domain') or []
+            if self:
+                context = dict(action.get('context') or {})
+                context['search_default_picking_type_id'] = [self.id]
+                action['context'] = context
+        return action
+
+    def get_stock_picking_action_picking_type(self):
+        # 17 opened the same generic list for every type; 19 switches to the
+        # Receipts / Deliveries actions, which add their own default filter.
+        return self._get_action('stock.stock_picking_action_picking_type')
+
 
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
