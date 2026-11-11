@@ -15,3 +15,4 @@ from . import correction_lot_batch
 from . import history_lot_batch
 from . import vifel_voided_special_pallet
 from . import stock_picking_voided_special
+from . import fixed_pallet_owner_guard
