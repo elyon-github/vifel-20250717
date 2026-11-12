@@ -1,4 +1,4 @@
-from odoo import models, _
+from odoo import fields, models, _
 import datetime
 from xlsxwriter.workbook import Workbook
 from odoo.exceptions import ValidationError, UserError
@@ -403,7 +403,7 @@ class PalletKilosXlsx(models.AbstractModel):
             _logger.warning(f"Timezone conversion failed: {e}. Using original datetime.")
             return utc_datetime
 
-    def generate_header(self, sheet, records, formats, end_date):
+    def generate_header(self, sheet, records, formats, end_date, start_date=None):
         """Generate the header section of the report with professional styling."""
         header_format = formats[0]
         normal_format = formats[3]
@@ -415,7 +415,8 @@ class PalletKilosXlsx(models.AbstractModel):
         
         # Date range with proper timezone conversion
         if records:
-            start_date = self._convert_to_user_timezone(records[0].start_time)
+            if start_date is None:
+                start_date = self._convert_to_user_timezone(records[0].start_time)
             date_range = start_date.strftime('%B %d, %Y') + ' - ' + end_date.strftime('%B %d, %Y')
             sheet.write('A3', date_range, normal_format)
 
@@ -444,6 +445,11 @@ class PalletKilosXlsx(models.AbstractModel):
         }
 
         for record in all_records:
+            # STOCK COUNT rows (zero-out / re-upload) are a reset of the
+            # ledger, not goods in or out. Summing them made TOTALS look like
+            # hundreds of pallets moved (e.g. the 259-pallet reset).
+            if record.is_stock_count:
+                continue
             totals['total_packaging_received'] += record.packaging_received or 0
             totals['total_units_received'] += record.units_received or 0
             totals['total_kilos_received'] += record.kilos_received or 0
@@ -704,7 +710,21 @@ class PalletKilosXlsx(models.AbstractModel):
             today = datetime.datetime.now(user_timezone).date()
             today_datetime = datetime.datetime.combine(today, datetime.time.max)
 
-            self.generate_header(sheet, sorted_records, formats, today_datetime)
+            # Date range: the wizard passes the chosen Start/End Date in data.
+            # Empty days are padded up to the End Date (never past today);
+            # only a print with no End Date (e.g. from the list view) still
+            # runs to today.
+            date_from = fields.Date.to_date((data or {}).get('date_from') or None)
+            date_to = fields.Date.to_date((data or {}).get('date_to') or None)
+            oldest_date = self._convert_to_user_timezone(sorted_records[0].start_time).date()
+            last_record_date = self._convert_to_user_timezone(sorted_records[-1].start_time).date()
+            if date_from and date_from < oldest_date:
+                oldest_date = date_from
+            latest_date = min(date_to, today) if date_to else today
+            latest_date = max(latest_date, last_record_date)
+
+            self.generate_header(sheet, sorted_records, formats, latest_date,
+                                 start_date=oldest_date)
             self.generate_summary_totals(sheet, sorted_records, formats)
             self.generate_table_header(sheet, 5, formats)
 
@@ -713,10 +733,6 @@ class PalletKilosXlsx(models.AbstractModel):
 
             row_index = 6
 
-            # Extended date range to today
-            oldest_date = self._convert_to_user_timezone(sorted_records[0].start_time).date()
-            latest_date = today  # Extend to today instead of last transaction
-            
             date_list = [oldest_date + datetime.timedelta(days=x) for x in range((latest_date - oldest_date).days + 1)]
 
             # Prepare records lookup by date
@@ -850,7 +866,11 @@ class PalletKilosXlsx(models.AbstractModel):
                             'total_balance_in_kilos': line.total_balance_in_kilos or 0
                         })
 
-                        # Update summation
+                        # Update summation (STOCK COUNT resets are not movements)
+                        if line.is_stock_count:
+                            sheet.set_row(row_index, 18)
+                            row_index += 1
+                            continue
                         summation['total_pallets_received'] += line.pallets_received or 0
                         summation['total_pallets_withdrawn'] += line.pallets_withdrawn or 0
                         summation['total_kilos_received'] += line.kilos_received or 0
