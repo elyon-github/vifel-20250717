@@ -199,7 +199,14 @@ class PkrReportWizard(models.TransientModel):
                 "(%s to %s)."
             ) % (self.date_from, self.date_to))
 
-        return report_action.report_action(records)
+        # Pass the chosen range on: without it the XLSX padded empty days up
+        # to TODAY, so a "Oct 28 to Oct 28" print ran to the print date and
+        # showed that day's closing balance as if it were current stock.
+        data = {
+            'date_from': str(self.date_from or ''),
+            'date_to': str(self.date_to or ''),
+        }
+        return report_action.report_action(records, data=data)
 
     def _partner_label(self):
         """Totals-row label mirroring the reference workbook's client cell."""
