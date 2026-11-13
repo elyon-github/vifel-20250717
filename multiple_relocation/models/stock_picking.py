@@ -3140,9 +3140,14 @@ class transfer_locations(models.Model):
             qty_demand_parts.append(f"{qty:,.2f}")
         for uom, qty in uom_totals_actual.items():
             qty_actual_parts.append(f"{qty:,.2f}")
+        # Round half-up before formatting: a plain f-string rounds the binary
+        # float, so 6531.165 (stored as 6531.16499...) printed 6,531.16 while
+        # the picklist (float widget, half-up) printed 6,531.17 (M/WR/10648).
         for uom, kg in uom_total_actual_kg.items():
+            kg = float_round(kg, precision_digits=uom_digit)
             kg_actual_parts.append(f"{kg:,.{uom_digit}f}")
         for uom, kg in uom_total_demand_kg.items():
+            kg = float_round(kg, precision_digits=uom_digit)
             kg_demand_parts.append(f"{kg:,.{uom_digit}f}")
         for uom, heads in uom_total_actual_heads.items():
             heads_actual_parts.append(f"{heads:,.2f}")
@@ -3680,9 +3685,32 @@ class transfer_locations(models.Model):
 
             return res
 
+    WR_BUILDING_ORDER = ['MAIN', 'EXPANSION', 'ANNEX']
+
+    def _get_wr_line_buildings(self):
+        """Buildings the WR's pallets are taken from (each line's source
+        location), e.g. 'EXPANSION / ANNEX'. A Meycauayan WR's own source
+        location is always 'M', so the header printed MAIN even when every
+        pallet sat in the Expansion (M/WR/10648)."""
+        self.ensure_one()
+        names = []
+        for ml in self.move_line_ids:
+            name = (ml.location_id.x_studio_building.x_name or '').strip()
+            if name and name not in names:
+                names.append(name)
+        order = self.WR_BUILDING_ORDER
+        names.sort(key=lambda n: (order.index(n) if n in order else len(order), n))
+        return ' / '.join(names)
+
     def get_branch_from_location(self, type=None):
-        """Returns 'ANNEX' if 2nd from root is 'A', 'MAIN' if it's 'M', otherwise returns the name."""
+        """Returns 'ANNEX' if 2nd from root is 'A', 'MAIN' if it's 'M', otherwise returns the name.
+        For a WR, the buildings of the pallets on its lines win (all of them
+        when the pallets come from more than one building)."""
         for rec in self:
+            if type == 'WR':
+                buildings = rec._get_wr_line_buildings()
+                if buildings:
+                    return buildings
             if type == 'RR':
                 loc = rec.location_dest_id
             else:
