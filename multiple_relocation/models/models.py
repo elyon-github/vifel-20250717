@@ -92,6 +92,12 @@ class ResPartner(models.Model):
 
         Limited to the client's own code so a special type's number (SDMG-...)
         does not block the same digits in the normal series.
+
+        A number taken OUT of stock by a validated move counts too. An
+        opening-balance upload writes the series on the quant only, not on its
+        move line, so the inbound side never shows it; the withdrawal does.
+        SAVORY MARINATED's OB pallets SV-000006..016 were invisible here and
+        were handed out again on M/RR/07856 (2026-11-11).
         """
         self.ensure_one()
         code = (self.x_studio_client_unique_code_1 or '').strip()
@@ -101,9 +107,10 @@ class ResPartner(models.Model):
             SELECT DISTINCT trim(ml.x_studio_pallet_series_id)
               FROM stock_move_line ml
               JOIN stock_location ld ON ld.id = ml.location_dest_id
+              JOIN stock_location ls ON ls.id = ml.location_id
              WHERE ml.owner_id = %s
                AND ml.state = 'done'
-               AND ld.usage = 'internal'
+               AND (ld.usage = 'internal' OR ls.usage = 'internal')
                AND upper(regexp_replace(trim(ml.x_studio_pallet_series_id), '-[^-]*$', '')) = upper(%s)
         """, (self.id, code))
         received = set()
@@ -125,9 +132,10 @@ class ResPartner(models.Model):
             SELECT 1
               FROM stock_move_line ml
               JOIN stock_location ld ON ld.id = ml.location_dest_id
+              JOIN stock_location ls ON ls.id = ml.location_id
              WHERE trim(ml.x_studio_pallet_series_id) = %s
                AND ml.state = 'done'
-               AND ld.usage = 'internal'
+               AND (ld.usage = 'internal' OR ls.usage = 'internal')
              LIMIT 1
         """, (series,))
         return bool(self.env.cr.fetchone())
