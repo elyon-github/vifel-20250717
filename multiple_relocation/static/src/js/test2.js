@@ -7,6 +7,7 @@ import { patch } from "@web/core/utils/patch";
  */
 import { ListRenderer } from "@web/views/list/list_renderer";
 import { ListController } from "@web/views/list/list_controller";
+import { roundDecimals } from "@web/core/utils/numbers";
 /**
  * IMPORTANT: The new patch API in Odoo 17 does not allow
  * a second argument as the patch name. We pass only the object.
@@ -15,7 +16,8 @@ import { ListController } from "@web/views/list/list_controller";
 patch(ListController.prototype, {
     // Helper function to format numbers with commas
     formatNumberWithCommas(number) {
-        return parseFloat(number).toLocaleString('en-US', {
+        // Round half-up first so totals match the printed reports (M/WR/10648).
+        return roundDecimals(parseFloat(number) || 0, 2).toLocaleString('en-US', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         });

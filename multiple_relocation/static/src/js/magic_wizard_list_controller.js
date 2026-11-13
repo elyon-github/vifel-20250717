@@ -3,6 +3,7 @@ import { ListController } from "@web/views/list/list_controller";
 import { registry } from '@web/core/registry';
 import { listView } from '@web/views/list/list_view';
 import { useService } from "@web/core/utils/hooks";
+import { roundDecimals } from "@web/core/utils/numbers";
 
 export class MagicWizardListController extends ListController {
     setup() {
@@ -38,7 +39,11 @@ export class MagicWizardListController extends ListController {
 
     /** 2-decimal en-US formatting, matching the Select Stocks counter. */
     _vifelFmt(n) {
-        return (parseFloat(n) || 0).toLocaleString("en-US", {
+        // Round half-up first (Odoo's float_round), like the WR/RR reports:
+        // a plain toLocaleString rounds the binary float, so 6531.165
+        // (stored as 6531.16499...) showed 6,531.16 vs 6,531.17 on the
+        // printed reports (M/WR/10648).
+        return roundDecimals(parseFloat(n) || 0, 2).toLocaleString("en-US", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         });

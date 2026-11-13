@@ -81,7 +81,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
     'website': "https://templanza-portfolio.netlify.app/",
 
     'category': 'Inventory/Inventory',
-    'version': '0.4.11',
+    'version': '0.4.12',
 
     # any module necessary for this one to work correctly
     'depends': ['base', 'stock', 'web', 'report_xlsx', 'pallet_kilos_record_model'],
@@ -130,6 +130,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
             'multiple_relocation/static/src/scss/pallet_breakdown_counter.scss',
             'multiple_relocation/static/src/js/test.js',
             'multiple_relocation/static/src/js/test2.js',
+            'multiple_relocation/static/src/js/float_total_round_half_up.js',
             'multiple_relocation/static/src/js/list_controller_custom_keybinds.js',
             # 'multiple_relocation/static/src/js/list_controller_custom_2.js',
             'multiple_relocation/static/src/js/form_controller_custom_keybinds.js',
