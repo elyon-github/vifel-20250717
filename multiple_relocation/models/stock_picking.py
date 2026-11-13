@@ -3690,6 +3690,15 @@ class transfer_locations(models.Model):
 
             return res
 
+    def round_report_kg(self, value):
+        """KG rounded half-up to the decimals the reports print (3 for
+        clients with the 3-digit flag, else 2). Report templates format with
+        '{:,.2f}', which rounds the binary float: 6531.165 is stored as
+        6531.16499... and printed 6,531.16 instead of 6,531.17 (M/WR/10648)."""
+        self.ensure_one()
+        digits = 3 if self.partner_id.x_studio_special_3_digit_decimal_pdf_report else 2
+        return float_round(value or 0.0, precision_digits=digits)
+
     WR_BUILDING_ORDER = ['MAIN', 'EXPANSION', 'ANNEX']
 
     def _get_wr_line_buildings(self):
