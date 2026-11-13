@@ -792,11 +792,14 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 6, line.kilos_received or 0, received_vivid_fmt)
                         sheet.write(row_index, 7, line.pallets_received or 0, received_vivid_fmt)
 
-                        # Validate return ID
+                        # Validate return ID. A voided return (still 'done')
+                        # is skipped, like the ledger (_populate_returns_data):
+                        # M/WR/12285 showed voided M/RR/07873 as its return.
                         validated_return_id = False
                         if line.record_reference.return_ids:
                             for return_id in line.record_reference.return_ids:
-                                if return_id.state == 'done':
+                                if return_id.state == 'done' and not getattr(
+                                        return_id, 'x_studio_voided', False):
                                     validated_return_id = return_id
                                     break
 
