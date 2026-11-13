@@ -497,13 +497,18 @@ class transfer_locations(models.Model):
             grouped[uom]['packaging'] += packaging
             grouped[uom]['kg'] += kg
 
+        # Round half-up to the printed decimals: the template formats with
+        # '{:,.2f}', which rounds the binary float, so 6531.165 printed
+        # 6,531.16 against 6,531.17 on the picklist (M/WR/10648).
+        digits = 3 if self.partner_id.x_studio_special_3_digit_decimal_pdf_report else 2
+
         # Convert to list format for easy QWeb iteration
         result = []
         for uom, totals in grouped.items():
             result.append({
                 'uom': uom,
                 'packaging': totals['packaging'],
-                'kg': totals['kg']
+                'kg': float_round(totals['kg'], precision_digits=digits)
             })
 
         return result
