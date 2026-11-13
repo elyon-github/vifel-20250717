@@ -11,6 +11,7 @@ import { patch } from "@web/core/utils/patch";
 import { useService } from "@web/core/utils/hooks";
 import { useEffect, useState } from "@odoo/owl";
 import { SelectionBox } from "@web/views/view_components/selection_box";
+import { roundDecimals } from "@web/core/utils/numbers";
 
 const QTY = "x_studio_2nd_uom";
 const KG = "available_quantity";
@@ -18,7 +19,8 @@ const PACKS = "x_studio_total_units";
 const PALLET = "package_id";
 
 function fmt(number) {
-    return parseFloat(number || 0).toLocaleString("en-US", {
+    // Round half-up first so totals match the printed reports (M/WR/10648).
+    return roundDecimals(parseFloat(number || 0), 2).toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
