@@ -35,4 +35,26 @@
         <field name="code">action = records.action_get_unsynced()</field>
     </record>
 
+    <!-- Past re-uploads: zeroing + re-upload done from Inventory > Apply
+         before stock counts posted to the ledger (see stock_count.py).
+         Preview lists them; Book posts them (admins only). -->
+    <record id="action_preview_past_reuploads_pkr" model="ir.actions.server">
+        <field name="name">Past Re-uploads: Preview</field>
+        <field name="model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_type">action</field>
+        <field name="state">code</field>
+        <field name="code">action = model.action_preview_past_reuploads()</field>
+    </record>
+
+    <record id="action_book_past_reuploads_pkr" model="ir.actions.server">
+        <field name="name">Past Re-uploads: Book</field>
+        <field name="model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
+        <field name="binding_type">action</field>
+        <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_book_past_reuploads()</field>
+    </record>
+
 </odoo>
