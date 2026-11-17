@@ -121,7 +121,7 @@
                 <!-- ============ MERGE ONTO A STOCKED PALLET ============ -->
                 <div invisible="mode != 'merge'">
                     <field name="candidate_line_ids" nolabel="1">
-                        <tree editable="bottom" create="false" delete="false"
+                        <list editable="bottom" create="false" delete="false"
                               decoration-success="is_target"
                               decoration-muted="not eligible">
                             <field name="eligible" column_invisible="1"/>
@@ -148,7 +148,7 @@
                                  why an unavailable row cannot be picked, and
                                  onchange only receives fields the view loads -->
                             <field name="ineligible_reason" column_invisible="1"/>
-                        </tree>
+                        </list>
                     </field>
 
                     <!-- Everything on the selected pallet, INLINE so nothing
@@ -163,7 +163,7 @@
                                options="{'no_open': True}"/>
                         <field name="selected_target_quant_ids" nolabel="1"
                                colspan="2" readonly="1">
-                            <tree create="false" delete="false" edit="false">
+                            <list create="false" delete="false" edit="false">
                                 <field name="x_studio_record_reference"
                                        string="Receiving Record (RR)"
                                        options="{'no_open': True}"/>
@@ -178,7 +178,7 @@
                                        options="{'no_open': True}"/>
                                 <field name="quantity" string="Weight (KG)"
                                        sum="Weight (KG)"/>
-                            </tree>
+                            </list>
                         </field>
                     </group>
 
@@ -217,10 +217,10 @@
                     </div>
                     <field name="vifel_voided_special_psi_ids" nolabel="1"
                            colspan="2" readonly="1">
-                        <tree create="false" delete="false" edit="false">
+                        <list create="false" delete="false" edit="false">
                             <field name="prefix" string="Type"/>
                             <field name="series" string="Voided Pallet Series"/>
-                        </tree>
+                        </list>
                     </field>
                 </group>
 

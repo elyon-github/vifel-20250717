@@ -368,7 +368,7 @@ class FastEncodeLineMergeFields(models.TransientModel):
     # unflagged line on it — counting it as a received pallet and leaving the
     # two lines free to disagree about the series.
     vifel_merge_locked_package_ids = fields.Many2many(
-        'stock.quant.package', string='Merge-locked Pallets',
+        'stock.package', string='Merge-locked Pallets',
         compute='_compute_vifel_merge_locked_package_ids')
 
     @api.depends('transfer_id')

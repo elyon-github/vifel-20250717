@@ -368,7 +368,6 @@ class SelectQuantWizard(models.TransientModel):
                 else:
                     # Create new move for this product
                     target_move = self.env['stock.move'].create({
-                        'name': product_quants[0].product_id.name,
                         'picking_id': transfer_id.id,
                         'product_id': product_id,
                         'product_uom': product_quants[0].product_id.uom_id.id,

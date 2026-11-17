@@ -27,7 +27,7 @@ See ``ai_context/vifel_utility_tools_PLAN.md`` for the full design.
     """,
     'author': "Mark Angelo S. Templanza",
     'category': 'Inventory/Inventory',
-    'version': '17.0.1.0.0',
+    'version': '19.0.1.0.0',
     'license': 'LGPL-3',
     'depends': ['base', 'product', 'stock', 'multiple_relocation'],
     'data': [],

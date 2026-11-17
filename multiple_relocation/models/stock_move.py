@@ -99,6 +99,7 @@ class StockMove(models.Model):
     # Typed per item in the Operations tab. This, not the pallet remarks above,
     # is what the Deviation Report's Concern/Remarks column prints; the
     # document-level NCR-Remarks stays in the Description of Deviation box.
+    # (Ported from MAIN 9512c0b.)
     vifel_concern_remarks = fields.Char(
         string="Concern/Remarks", copy=False,
         help="Concern or remarks for this item. Prints in the Deviation "
@@ -125,7 +126,8 @@ class StockMove(models.Model):
             lot_ids = record.move_line_ids.mapped('lot_id.id')
 
             # Skip if no lot_ids or if picking_id is not yet saved (NewId)
-            if not lot_ids or not record.picking_id.id or isinstance(record.picking_id.id, models.NewId):
+            # Odoo 19 no longer exposes models.NewId; a saved record's id is always an int
+            if not lot_ids or not record.picking_id.id or not isinstance(record.picking_id.id, int):
                 record.quant_ids_multiple_withdrawal = False
                 continue
 
@@ -169,7 +171,7 @@ class StockMove(models.Model):
         # Create new move lines
         move_lines_data = []
         is_blast_freeze = self.picking_id.x_studio_is_a_blast_freezer
-        generic_blast_freeze_package_id = self.env['stock.quant.package'].search(
+        generic_blast_freeze_package_id = self.env['stock.package'].search(
             [('name', 'ilike', 'GENERIC METAL PALLET')], limit=1)
 
         # Get number of lines from the move or picking
@@ -197,60 +199,20 @@ class StockMove(models.Model):
 
         return counter
 
-    def _update_reserved_quantity(self, need, location_id, quant_ids=None, lot_id=None, package_id=None, owner_id=None, strict=True):
-        """ Create or update move lines and reserves quantity from quants
-            Expects the need (qty to reserve) and location_id to reserve from.
-            `quant_ids` can be passed as an optimization since no search on the database
-            is performed and reservation is done on the passed quants set
+    def _update_reserved_quantity(self, need, location_id, lot_id=None, package_id=None, owner_id=None, strict=True):
+        """ Reserve through Odoo core, with the VIFEL rules:
+            * only the client's own stock (owner = the WR's customer),
+            * container-number priority and the pallets picked in the Select Stocks wizard, which
+              stock.quant._gather reads from the context.
+            (Odoo 19: this used to be a full copy of the 17 core method; that copy used
+            product_packaging_id, which 19 removed, and crashed "Check Availability".)
         """
-
         self.ensure_one()
-        if quant_ids is None:
-            quant_ids = self.env['stock.quant']
-        if not lot_id:
-            lot_id = self.env['stock.lot']
-        if not package_id:
-            package_id = self.env['stock.quant.package']
-        if not owner_id:
-            owner_id = self.env['res.partner']
-
-        quants = quant_ids._get_reserve_quantity(
-            self.product_id, location_id, need, product_packaging_id=self.product_packaging_id,
-            uom_id=self.product_uom, lot_id=lot_id, package_id=package_id, owner_id=self.partner_id, x_studio_container_number=self.x_studio_container_number, quant_ids_picked=self.quant_ids_picked.ids, strict=strict)
-
-        # _logger.info(self)
-        taken_quantity = 0
-        rounding = self.env['decimal.precision'].precision_get(
-            'Product Unit of Measure')
-        # Find a candidate move line to update or create a new one.
-
-        for reserved_quant, quantity, in quants:
-
-            taken_quantity += quantity
-            to_update = next((line for line in self.move_line_ids if line._reservation_is_updatable(
-                quantity, reserved_quant)), False)
-            if to_update:
-                uom_quantity = self.product_id.uom_id._compute_quantity(
-                    quantity, to_update.product_uom_id, rounding_method='HALF-UP')
-                uom_quantity = float_round(
-                    uom_quantity, precision_digits=rounding)
-                uom_quantity_back_to_product_uom = to_update.product_uom_id._compute_quantity(
-                    uom_quantity, self.product_id.uom_id, rounding_method='HALF-UP')
-            if to_update and float_compare(quantity, uom_quantity_back_to_product_uom, precision_digits=rounding) == 0:
-                to_update.with_context(
-                    reserved_quant=reserved_quant).quantity += uom_quantity
-            else:
-                if self.product_id.tracking == 'serial':
-                    vals_list = self._add_serial_move_line_to_vals_list(
-                        reserved_quant, quantity)
-                    if vals_list:
-                        self.env['stock.move.line'].with_context(
-                            reserved_quant=reserved_quant).create(vals_list)
-                else:
-                    self.env['stock.move.line'].with_context(reserved_quant=reserved_quant).create(
-                        self._prepare_move_line_vals(quantity=quantity, reserved_quant=reserved_quant))
-
-        return taken_quantity
+        move = self.with_context(vifel_container_number=self.x_studio_container_number,
+                                 vifel_quant_ids_picked=self.quant_ids_picked.ids)
+        return super(StockMove, move)._update_reserved_quantity(
+            need, location_id, lot_id=lot_id, package_id=package_id,
+            owner_id=self.partner_id, strict=strict)
 
     def select_quants(self):
         return {
@@ -352,7 +314,7 @@ class StockMove(models.Model):
 
             _logger.info(
                 "Product swapped on move %s (%s → %s), %d move_lines preserved",
-                move.id, move.name, new_product.display_name, len(line_ids),
+                move.id, move.reference, new_product.display_name, len(line_ids),
             )
 
         return True
@@ -518,11 +480,10 @@ class stock_move_line_Override(models.Model):
     is_return = fields.Boolean(string="Is a Return")
     is_quant_detail_adjusted = fields.Boolean(string="Quant Details Edited")
     # The adjustment's change text ("CORRECTION (ts by user): [Field: old -> new]").
-    # It used to live only in `reference`, a stored related field on Odoo 17.
-    # Odoo 19 makes stock.move.line.reference related NON-stored, so the
-    # upgrade drops that column and every Final Adjustment Form would print an
-    # empty change table (VIF-130). Our own stored field survives the upgrade.
-    # Filled together with `reference`; old rows backfilled by migration 0.4.2.
+    # On Odoo 17 it lived in `reference`; Odoo 19 makes stock.move.line.reference
+    # related NON-stored, so it is kept here instead (VIF-130). The 17 module
+    # (0.4.2) fills this field and backfills old rows before the upgrade, so
+    # the history arrives with the database.
     vifel_correction_note = fields.Text(
         string="Correction Details", readonly=True, copy=False)
     is_package_multiple_withdraw = fields.Boolean(
@@ -635,53 +596,31 @@ class stock_move_line_Override(models.Model):
             if quant.x_studio_remarks:
                 line.vifel_remarks_frozen = quant.x_studio_remarks
 
-    def _vifel_source_quant(self, value_field):
-        """Quant an outgoing line reads its pallet details from.
-
-        Same product / owner / lot at the line's source location, as before,
-        but no longer simply the LAST one: 1) the quant on the line's own
-        pallet (if it has a value), 2) else the last quant with stock and a
-        value, 3) else the last match (the old result). A blank or negative
-        no-pallet quant beside the pallet (M/WR/15384 -> M/WR/15388, 11-05)
-        therefore cannot blank the line any more. Returns an empty recordset
-        when nothing matches (the caller then leaves the value as it was).
-        """
-        self.ensure_one()
-        Quant = self.env['stock.quant']
-        own = stocked = last = Quant
-        for quant in self.location_id.quant_ids:
-            if (quant.product_id.id != self.product_id.id
-                    or quant.owner_id != self.owner_id
-                    or quant.lot_id.id != self.lot_id.id):
-                continue
-            last = quant
-            if self.package_id and quant.package_id.id == self.package_id.id:
-                own = quant
-            elif quant.quantity > 0 and quant[value_field]:
-                stocked = quant
-        if own and own[value_field]:
-            return own
-        return stocked or last
-
-    @api.depends('quant_id', 'package_id')
+    @api.depends('quant_id')
     def _compute_container_number(self):
         for record in self:
             if record['picking_code'] == 'outgoing' or not record['picking_code']:
-                quant = record._vifel_source_quant('x_studio_container_number')
-                if quant:
-                    record['x_studio_container_number'] = quant.x_studio_container_number
+                location = self.env['stock.location'].browse(
+                    record['location_id'].id)
+
+                for quants in location.quant_ids:
+                    if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+                        record['x_studio_container_number'] = quants.x_studio_container_number
 
             else:
                 record['x_studio_container_number'] = ''
 
-    @api.depends('quant_id', 'package_id')
+    @api.depends('quant_id')
     def _compute_x_studio_building_dropped(self):
         for record in self:
             if record['picking_code'] == 'outgoing' or not record['picking_code']:
-                quant = record._vifel_source_quant('x_studio_building_dropped')
-                if quant:
-                    record['x_studio_building_dropped'] = quant.x_studio_building_dropped
-                    record['original_record_reference'] = quant.original_record_reference
+                location = self.env['stock.location'].browse(
+                    record['location_id'].id)
+
+                for quants in location.quant_ids:
+                    if record.product_id.id == quants.product_id.id and record.owner_id == quants.owner_id and record.lot_id.id == quants.lot_id.id:
+                        record['x_studio_building_dropped'] = quants.x_studio_building_dropped
+                        record['original_record_reference'] = quants.original_record_reference
             else:
                 record['x_studio_building_dropped'] = ''
                 record['original_record_reference'] = False
@@ -784,7 +723,7 @@ class stock_move_line_Override(models.Model):
                 result[batch_number][client][reference_id]['inventory_analyst'] = analyst or ''
 
             # Parse reference field for changes
-            ref = line.vifel_correction_note or line.reference or ''
+            ref = line.vifel_correction_note or ''
             matches = re.findall(
                 r'CORRECTION \(([\d/ :]+) by [^)]+\):\s*((?:\[[^\]]+\]\s*)+)', ref)
 
@@ -1136,7 +1075,7 @@ class stock_move_line_Override(models.Model):
         series = vals.get('x_studio_pallet_series_id')
         if not series:
             return
-        Package = self.env['stock.quant.package']
+        Package = self.env['stock.package']
         to_check = {}
         if lines is None:
             # create(): the picking decides direction and owner
@@ -1429,7 +1368,7 @@ class stock_move_line_Override(models.Model):
                         picking_id, old['location_id'], incoming_lines.ids)
 
             # Reserve the new pallet if not already reserved
-            new_pallet = self.env['stock.quant.package'].browse(new_pallet_id)
+            new_pallet = self.env['stock.package'].browse(new_pallet_id)
             if new_pallet.exists() and not new_pallet.x_studio_is_reserved:
                 new_pallet.write({
                     'x_studio_is_reserved': True,
@@ -1448,7 +1387,7 @@ class stock_move_line_Override(models.Model):
             ('id', 'not in', exclude_ids or []),
         ], limit=1)
         if not other_usage:
-            pallet = self.env['stock.quant.package'].browse(pallet_id)
+            pallet = self.env['stock.package'].browse(pallet_id)
             if pallet.exists():
                 pallet.write({
                     'x_studio_is_reserved': False,
@@ -1658,9 +1597,9 @@ class stock_move_line_Override(models.Model):
                 })
 
             if unmatched_package:
-                test = self.env['stock.quant.package'].browse(
+                test = self.env['stock.package'].browse(
                     unmatched_package)
-                self.env['stock.quant.package'].browse(unmatched_package).write({
+                self.env['stock.package'].browse(unmatched_package).write({
                     'x_studio_is_reserved': False,
                     'x_studio_receiving_report_id': ''
                 })
@@ -2230,7 +2169,7 @@ class stock_move_line_Override(models.Model):
 #             pallet_count = 0
 
 #             # Get move lines data from effective document
-#             for line in record.effective_document.move_ids_without_package:
+#             for line in record.effective_document.move_ids:
 #                 units_received += line.x_studio_min_actual_demand
 #                 packaging_received += line.x_studio_actual_packaging_demand
 #                 units_withdrawn += line.x_studio_min_actual_demand

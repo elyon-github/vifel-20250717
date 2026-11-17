@@ -25,8 +25,7 @@
     <!-- Groups -->
     <record id="inventory_super_admin" model="res.groups">
         <field name="name">Inventory Super Admin</field>
-        <field name="category_id" ref="base.module_category_hidden"/>
-        <field name="users" eval="[(4, 2)]"/>
+        <field name="user_ids" eval="[(4, 2)]"/>
     </record>
 
     <!-- Adjustment Approvers: members can approve/reject Pallet Detail
@@ -39,9 +38,8 @@
          above (single-database deployment). -->
     <record id="group_adjustment_approver" model="res.groups">
         <field name="name">Adjustment Approvers</field>
-        <field name="category_id" ref="base.module_category_hidden"/>
         <field name="comment">Members can approve or reject Pallet Detail Adjustment Requests and receive the approval activity when a request is submitted.</field>
-        <field name="users" eval="[(4, 66)]"/>
+        <field name="user_ids" eval="[(4, 66)]"/>
     </record>
 
     <!-- Special Holding Authority: who may SEE and SET Special Holding and
@@ -65,23 +63,19 @@
          plus admin (2). The Warehouse Manager is deliberately NOT seeded. -->
     <record id="group_special_holding_authority" model="res.groups">
         <field name="name">Special Holding Authority</field>
-        <field name="category_id" ref="base.module_category_hidden"/>
         <field name="comment">Members can see and set Special Holding and SH Reason on pallet lines and quants. Intended for authorised Inventory Analysts; Documentation Staff are excluded. Add or remove members here — no code change is needed.</field>
-        <field name="users" eval="[(4, 2), (4, 67), (4, 50), (4, 54), (4, 52)]"/>
+        <field name="user_ids" eval="[(4, 2), (4, 67), (4, 50), (4, 54), (4, 52)]"/>
     </record>
 
-
-    <!-- Who maintains the Noted By names (Configuration tab on transfers).
-         2026-09-24 this group also gated setting Noted By on a transfer;
-         2026-09-28 the documentation staff set it themselves and this group
-         only curates the list. Seeded with the inventory1.bulacan account
-         (user 66) via (4, id) so members ticked in the UI survive upgrades;
-         admin (2) keeps it reachable. -->
+    <!-- Deviation Report: Noted By (ported from MAIN). Members type, in the
+         Configuration tab on transfers, the names offered as NOTED BY. Seeded
+         with the noting account DOJELLO, CYRIL JUNE A. (user 66) via (4, id)
+         so members ticked in the UI survive upgrades; admin (2) keeps it
+         reachable. Odoo 19: user_ids (was users), no category_id. -->
     <record id="group_deviation_noted_by" model="res.groups">
         <field name="name">Deviation Report: Noted By</field>
-        <field name="category_id" ref="base.module_category_hidden"/>
         <field name="comment">Members type, in the Configuration tab on transfers, the names offered as NOTED BY. Add or remove members here - no code change is needed.</field>
-        <field name="users" eval="[(4, 2), (4, 66)]"/>
+        <field name="user_ids" eval="[(4, 2), (4, 66)]"/>
     </record>
 
 
@@ -92,9 +86,8 @@
          ticked in the UI survive upgrades; admin (2) keeps it reachable. -->
     <record id="group_contact_editor" model="res.groups">
         <field name="name">Contact Editor</field>
-        <field name="category_id" ref="base.module_category_hidden"/>
         <field name="comment">Members can create and edit Contacts; for everyone else (administrators excepted) contacts are read-only. Add or remove members here - no code change is needed.</field>
-        <field name="users" eval="[(4, 2), (4, 66)]"/>
+        <field name="user_ids" eval="[(4, 2), (4, 66)]"/>
     </record>
 
 

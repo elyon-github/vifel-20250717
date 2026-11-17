@@ -596,7 +596,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             move_name = f'Inventory Adjustment: -{abs(quantity_diff)} {quant.product_id.name}'
 
         move_vals = {
-            'name': move_name,
+            'inventory_name': move_name,
             'product_id': quant.product_id.id,
             'product_uom': quant.product_id.uom_id.id,
             'product_uom_qty': move_quantity,
@@ -625,7 +625,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             'adjustment_batch_number': batch_number,
             'adjustment_reference_id': quant.x_studio_record_reference.id if quant.x_studio_record_reference else False,
             'is_quant_detail_adjusted': True,
-            'reference': self._format_quantity_change_reference(old_quantity, new_quantity),
+            'vifel_correction_note': self._format_quantity_change_reference(old_quantity, new_quantity),
             'x_studio_pallet_series_id': quant.x_studio_pallet_series_id,
             'bf_pallet_char': quant.bf_pallet_char,
             'x_studio_production_date': quant.x_studio_production_date,
@@ -650,7 +650,6 @@ class StockQuantCorrectionWizard(models.TransientModel):
             **self._vifel_correction_line_extra_vals(quant),
         }
 
-        move_line_vals['vifel_correction_note'] = move_line_vals['reference']
         self.env['stock.move.line'].sudo().create(move_line_vals)
 
     def _vifel_correction_line_extra_vals(self, quant):
@@ -695,7 +694,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
         correction_description = self._format_changes_description(changes)
 
         move_vals = {
-            'name': f'Correction: {original_state["product_name"]} - {correction_description}',
+            'inventory_name': f'Correction: {original_state["product_name"]} - {correction_description}',
             'product_id': quant.product_id.id,
             'product_uom': quant.product_id.uom_id.id,
             'product_uom_qty': 0,
@@ -725,7 +724,7 @@ class StockQuantCorrectionWizard(models.TransientModel):
             # result_package_id below (stock_quant_history reads result_package_id).
             'package_id': False,
             'result_package_id': quant.package_id.id if quant.package_id else False,
-            'reference': self._format_changes_reference(changes, original_state) + (
+            'vifel_correction_note': self._format_changes_reference(changes, original_state) + (
                 ' | Pallet %s released (adjusted to 0)' % quant.package_id.name
                 if self._is_pallet_emptied_by_adjustment(line, changes) else ''),
             'x_studio_reason_for_adjustment': self.reason_for_adjustment,
@@ -767,7 +766,6 @@ class StockQuantCorrectionWizard(models.TransientModel):
                 elif field_name.startswith('x_studio_'):
                     move_line_vals[field_name] = current_value
 
-        move_line_vals['vifel_correction_note'] = move_line_vals['reference']
         move_line = self.env['stock.move.line'].sudo().create(move_line_vals)
         return move
 
@@ -798,9 +796,9 @@ class StockQuantCorrectionWizard(models.TransientModel):
 
             # Handle special relational fields
             if field == 'package_id':
-                old_pkg = self.env['stock.quant.package'].browse(
+                old_pkg = self.env['stock.package'].browse(
                     old_val) if old_val else False
-                new_pkg = self.env['stock.quant.package'].browse(
+                new_pkg = self.env['stock.package'].browse(
                     new_val) if new_val else False
                 old_display = old_pkg.name if old_pkg else 'None'
                 new_display = new_pkg.name if new_pkg else 'None'
@@ -1100,7 +1098,7 @@ class StockQuantCorrectionLine(models.TransientModel):
         'stock.quant.correction.wizard', required=True, ondelete='cascade')
     quant_id = fields.Many2one(
         'stock.quant', string='Original Quant', required=True)
-    package_id = fields.Many2one('stock.quant.package', string='Pallet #')
+    package_id = fields.Many2one('stock.package', string='Pallet #')
     x_studio_pallet_series_id = fields.Char(string='Placeholder')
     is_blast_freeze = fields.Boolean(
         related='quant_id.location_is_bf', string="Is Blast Freeze")
@@ -1122,7 +1120,7 @@ class StockQuantCorrectionLine(models.TransientModel):
     x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Heads UOM')
     owner_id = fields.Many2one('res.partner', string="Owner")
     quantity = fields.Float(
-        string='Quantity', digits='Product Unit of Measure')
+        string='Quantity', digits='Product Unit')
     lot_id = fields.Many2one('stock.lot', string='Lot/Serial', readonly=True)
     x_studio_return_count = fields.Integer(string="Return Count")
     x_studio_container_number = fields.Char(string="Container #")
@@ -1389,6 +1387,7 @@ class StockQuantAdjustmentRequest(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        # Odoo 19 always passes a list of vals dicts to create()
         for vals in vals_list:
             if vals.get('name', 'New') == 'New':
                 vals['name'] = self.env['ir.sequence'].next_by_code(
@@ -1685,11 +1684,11 @@ class StockQuantAdjustmentRequest(models.Model):
         group = self.env.ref(
             'multiple_relocation.group_adjustment_approver',
             raise_if_not_found=False)
-        approvers = group.users.filtered('active') if group else self.env['res.users']
+        approvers = group.user_ids.filtered('active') if group else self.env['res.users']
         if not approvers:
             legacy = self.env.ref(
                 'stock.group_stock_manager', raise_if_not_found=False)
-            approvers = legacy.users.filtered('active')[:1] if legacy else self.env['res.users']
+            approvers = legacy.user_ids.filtered('active')[:1] if legacy else self.env['res.users']
         return approvers or self.env.user
 
     def _notify_approvers(self):
@@ -1796,7 +1795,7 @@ class StockQuantAdjustmentLine(models.Model):
                     dom.append(('bf_pallet_char', '=',
                                 line.old_bf_pallet_char))
                 for ml in MoveLine.search(dom, limit=5):
-                    note = ml.vifel_correction_note or ml.reference
+                    note = ml.vifel_correction_note
                     if note and note not in refs:
                         refs.append(note)
             line.correction_move_reference = '\n'.join(refs) or False
@@ -1821,11 +1820,11 @@ class StockQuantAdjustmentLine(models.Model):
 
     # OLD VALUES
     old_package_id = fields.Many2one(
-        'stock.quant.package', string='Old Pallet #', readonly=True)
+        'stock.package', string='Old Pallet #', readonly=True)
     old_product_id = fields.Many2one(
         'product.product', string='Old Product', readonly=True)
     old_quantity = fields.Float(
-        string='Old Quantity', readonly=True, digits='Product Unit of Measure')
+        string='Old Quantity', readonly=True, digits='Product Unit')
     old_lot_id = fields.Many2one('stock.lot', string='Old Lot', readonly=True)
     old_owner_id = fields.Many2one(
         'res.partner', string='Old Owner', readonly=True)
@@ -1834,9 +1833,9 @@ class StockQuantAdjustmentLine(models.Model):
     old_x_studio_expiration_date = fields.Date(
         string='Old Expiration Date', readonly=True)
     old_x_studio_2nd_uom = fields.Float(
-        string='Old Total Quantity', readonly=True, digits='Product Unit of Measure')
+        string='Old Total Quantity', readonly=True, digits='Product Unit')
     old_x_studio_total_units = fields.Float(
-        string='Old Total Heads', readonly=True, digits='Product Unit of Measure')
+        string='Old Total Heads', readonly=True, digits='Product Unit')
     old_x_studio_quantity_uom = fields.Many2one(
         'uom.uom', string='Old Quantity UOM', readonly=True)
     old_x_studio_min_quantity_uom = fields.Many2one(
@@ -1850,18 +1849,18 @@ class StockQuantAdjustmentLine(models.Model):
 
     # NEW VALUES
     new_package_id = fields.Many2one(
-        'stock.quant.package', string='New Pallet #')
+        'stock.package', string='New Pallet #')
     new_product_id = fields.Many2one('product.product', string='New Product')
     new_quantity = fields.Float(
-        string='New Quantity', digits='Product Unit of Measure')
+        string='New Quantity', digits='Product Unit')
     new_lot_id = fields.Many2one('stock.lot', string='New Lot')
     new_owner_id = fields.Many2one('res.partner', string='New Owner')
     new_x_studio_production_date = fields.Date(string='New Production Date')
     new_x_studio_expiration_date = fields.Date(string='New Expiration Date')
     new_x_studio_2nd_uom = fields.Float(
-        string='New Total Quantity', digits='Product Unit of Measure')
+        string='New Total Quantity', digits='Product Unit')
     new_x_studio_total_units = fields.Float(
-        string='New Total Heads', digits='Product Unit of Measure')
+        string='New Total Heads', digits='Product Unit')
     new_x_studio_quantity_uom = fields.Many2one(
         'uom.uom', string='New Quantity UOM')
     new_x_studio_min_quantity_uom = fields.Many2one(
@@ -1937,7 +1936,7 @@ class StockQuantAdjustmentLine(models.Model):
         if field_name in ['package_id', 'product_id', 'owner_id', 'x_studio_quantity_uom', 'x_studio_min_quantity_uom']:
             if isinstance(value, int):
                 model_map = {
-                    'package_id': 'stock.quant.package',
+                    'package_id': 'stock.package',
                     'product_id': 'product.product',
                     'owner_id': 'res.partner',
                     'x_studio_quantity_uom': 'uom.uom',
@@ -2153,7 +2152,12 @@ class StockQuantAdjustmentLine(models.Model):
         if not changes:
             return
 
-        wizard = self.env['stock.quant.correction.wizard'].create(
+        # Internal wizard: must NOT inherit the caller's selection. On Odoo 19 the web client still carries
+        # active_ids/active_model from the screen the request was opened from (e.g. the correction wizard's
+        # own id, labelled stock.quant), and default_get would browse those as quants -> MissingError on
+        # "Approve All Pending", or a silent wrong pallet once wizard ids overlap real quant ids.
+        wizard = self.env['stock.quant.correction.wizard'].with_context(
+            active_ids=[], active_id=False, active_model=False).create(
             {'reason_for_adjustment': reason})
 
         line_vals = {

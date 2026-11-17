@@ -18,9 +18,9 @@ class PalletKilosXlsx(models.AbstractModel):
     def _get_kg_format_string(self):
         """Get the dynamic KG format string based on system decimal precision."""
         try:
-            # Get the decimal precision for 'Product Unit of Measure'
+            # Get the decimal precision for 'Product Unit'
             precision_model = self.env['decimal.precision']
-            precision_value = precision_model.precision_get('Product Unit of Measure')
+            precision_value = precision_model.precision_get('Product Unit')
             # Build format string like '#,##0.00' or '#,##0.000'
             if precision_value:
                 decimals = '0' * precision_value

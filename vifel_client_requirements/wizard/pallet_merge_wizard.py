@@ -50,7 +50,7 @@ class PalletMergeCandidate(models.TransientModel):
 
     wizard_id = fields.Many2one(
         'pallet.merge.wizard', required=True, ondelete='cascade', index=True)
-    package_id = fields.Many2one('stock.quant.package', string='Pallet #')
+    package_id = fields.Many2one('stock.package', string='Pallet #')
     psi = fields.Char(string='Pallet Series')
     psi_count = fields.Integer(string='PSI Count')
     product_summary = fields.Char(string='Product')
@@ -226,10 +226,10 @@ class PalletMergeWizard(models.TransientModel):
     # beyond the first CANDIDATE_CAP by name. Same owner-scoped domain as
     # the candidate table, so it can never pick a foreign pallet.
     manual_package_id = fields.Many2one(
-        'stock.quant.package', string='Other Pallet #',
+        'stock.package', string='Other Pallet #',
         domain="[('id', 'in', candidate_package_ids)]")
     candidate_package_ids = fields.Many2many(
-        'stock.quant.package', compute='_compute_candidate_package_ids')
+        'stock.package', compute='_compute_candidate_package_ids')
 
     # a live read-out of the current selection, for the inline warnings
     selected_candidate_id = fields.Many2one(
@@ -290,7 +290,7 @@ class PalletMergeWizard(models.TransientModel):
     # Pallets pinned as some client's Fixed Merge Pallet: dedicated, never
     # offered as a free empty pallet even while they hold no stock.
     vifel_pinned_package_ids = fields.Many2many(
-        'stock.quant.package', 'vifel_merge_wizard_pinned_pkg_rel',
+        'stock.package', 'vifel_merge_wizard_pinned_pkg_rel',
         compute='_compute_vifel_pinned_package_ids')
 
     @api.depends('move_line_id')
@@ -312,7 +312,7 @@ class PalletMergeWizard(models.TransientModel):
     #    confirmed to the real lines. Without this the wizard would offer a
     #    pallet/location another Magic Wizard row already took.
     vifel_receipt_used_package_ids = fields.Many2many(
-        'stock.quant.package', 'vifel_merge_wizard_used_pkg_rel',
+        'stock.package', 'vifel_merge_wizard_used_pkg_rel',
         compute='_compute_vifel_receipt_used')
     vifel_receipt_used_location_ids = fields.Many2many(
         'stock.location', 'vifel_merge_wizard_used_loc_rel',
@@ -365,7 +365,7 @@ class PalletMergeWizard(models.TransientModel):
             wizard.vifel_receipt_used_location_ids = used_locs
 
     new_package_id = fields.Many2one(
-        'stock.quant.package', string='New Empty Pallet',
+        'stock.package', string='New Empty Pallet',
         domain="[('location_id', '=', False), "
                "('package_type_id.name', '=', 'Pallet'), "
                "('x_studio_active', '=', True), "
@@ -472,7 +472,7 @@ class PalletMergeWizard(models.TransientModel):
         """
         if package:
             self.env.cr.execute(
-                'SELECT id FROM stock_quant_package WHERE id = %s FOR UPDATE',
+                'SELECT id FROM stock_package WHERE id = %s FOR UPDATE',
                 (package.id,))
 
     def _candidate_packages(self):
@@ -489,7 +489,7 @@ class PalletMergeWizard(models.TransientModel):
         self.ensure_one()
         partner = self.partner_id
         if not partner.vifel_can_merge_pallets:
-            return self.env['stock.quant.package']
+            return self.env['stock.package']
         if not partner.vifel_multiple_pallet_support:
             return partner.vifel_fixed_pallet_ids.mapped('package_id')
 
@@ -507,7 +507,7 @@ class PalletMergeWizard(models.TransientModel):
                 lambda q: q.location_id.warehouse_id == warehouse)
         prefixes = set(partner.vifel_psi_type_ids.mapped('prefix'))
         include_regular = partner.vifel_include_regular_pallets or not prefixes
-        packages = self.env['stock.quant.package']
+        packages = self.env['stock.package']
         for quant in quants:
             prefix = (quant.x_studio_pallet_series_id or '').rpartition('-')[0]
             if include_regular or prefix in prefixes:

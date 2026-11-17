@@ -341,7 +341,7 @@ class ProductTemplate(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        # Convert name to uppercase before saving
+        # Convert name to uppercase before saving (Odoo 19 passes a list of vals dicts)
         for vals in vals_list:
             if 'name' in vals and vals['name']:
                 vals['name'] = vals['name'].upper()
@@ -512,27 +512,29 @@ class StockLocation(models.Model):
         return res
     
     @api.model
-    def name_search(self, name='', args=None, operator='ilike', limit=100):
+    def name_search(self, name='', domain=None, operator='ilike', limit=100):
         """
         Override name search to include vifel_location_name field in Many2one dropdowns.
+        Odoo 19 signature: the filter argument is `domain` (was `args`), and
+        name_get() no longer exists - results are (id, display_name).
         """
-        args = args or []
-        
+        domain = list(domain or [])
+
         if name:
             # Search in both complete_name (default) and vifel_location_name
-            domain = ['|', 
-                      ('complete_name', operator, name),
-                      ('vifel_location_name', operator, name)]
-            domain += args
-            
-            locations = self.search(domain, limit=limit)
-            return locations.name_get()
-        
+            search_domain = ['|',
+                             ('complete_name', operator, name),
+                             ('vifel_location_name', operator, name)] + domain
+            locations = self.search(search_domain, limit=limit)
+            return [(location.id, location.display_name) for location in locations]
+
         # If no name provided, use default behavior
-        return super(StockLocation, self).name_search(name=name, args=args, operator=operator, limit=limit)
+        return super(StockLocation, self).name_search(name=name, domain=domain, operator=operator, limit=limit)
 
     
-    @api.depends('quant_ids.quantity', 'quant_ids')
+    # quant_ids.package_id: a Pallet # correction changes the quant in place and
+    # must refresh x_studio_pallets too
+    @api.depends('quant_ids.quantity', 'quant_ids', 'quant_ids.package_id')
     def _compute_x_studio_occupied_by_1(self):
         for record in self:
             
@@ -584,7 +586,7 @@ class StockLocation(models.Model):
 
 
 class StockQuantPackages(models.Model):
-    _inherit = 'stock.quant.package'
+    _inherit = 'stock.package'
 
     def remove_reservation(self):
         for record in self:

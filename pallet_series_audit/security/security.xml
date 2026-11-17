@@ -3,8 +3,7 @@
 
     <record id="group_pallet_audit" model="res.groups">
         <field name="name">Pallet Series Audit</field>
-        <field name="category_id" ref="base.module_category_inventory_inventory"/>
-        <field name="users" eval="[(4, ref('base.user_admin'))]"/>
+        <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
         <field name="comment">Users in this group can view pallet series audit logs on RR transfers.</field>
     </record>
 

@@ -39,6 +39,11 @@
                         <span class="o_vpc_value" t-esc="vc.weight"/>
                     </div>
                 </div>
+                <div t-if = "vc.breakdown.length > 1" class="o_vpc_breakdown">
+                    <span t-foreach="vc.breakdown" t-as="b" t-key="b.name" class="o_vpc_chip">
+                        <t t-esc="b.name"/>: <b t-esc="b.count"/>
+                    </span>
+                </div>
                 <div t-if="vifelShowMultiWrNote" class="o_vpc_note">
                     <i>Multi-truck withdrawal: this pallet count is not final. A shared pallet is counted on whichever transfer empties it last, so the total may change once the other transfers are validated.</i>
                 </div>

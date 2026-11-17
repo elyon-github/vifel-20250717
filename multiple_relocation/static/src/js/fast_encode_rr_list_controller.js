@@ -6,6 +6,17 @@ import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { onMounted, onWillUnmount, markup } from "@odoo/owl";
 
+// Id of a Many2one value: Odoo 19 records hold {id, display_name}; Odoo 17
+// held [id, name]. Reading [0] on the 19 object gave undefined, so the re-sync
+// dialog never opened and Confirm sent the whole object as the wizard id
+// ("unhashable type: 'dict'").
+const m2oId = (value) => {
+    if (Array.isArray(value)) {
+        return value[0];
+    }
+    return value && typeof value === "object" ? value.id : value;
+};
+
 export class FastEncodeRRListController extends ListController {
     setup() {
         super.setup();
@@ -65,11 +76,11 @@ export class FastEncodeRRListController extends ListController {
         const records = this.model.root.records || [];
         const pendingLines = [];
         for (const rec of records) {
-            const pendingPallet = rec.data.pending_resync_pallet_id;
-            if (pendingPallet && pendingPallet[0]) {
+            const pendingPalletId = m2oId(rec.data.pending_resync_pallet_id);
+            if (pendingPalletId) {
                 pendingLines.push({
                     lineId: rec.resId,
-                    palletId: pendingPallet[0],
+                    palletId: pendingPalletId,
                     oldSeries: rec.data.pending_resync_old_series || "?",
                     newSeries: rec.data.pending_resync_new_series || "?",
                     resyncType: rec.data.pending_resync_type || "resync",
@@ -279,9 +290,7 @@ export class FastEncodeRRListController extends ListController {
         // Try to get wizard_id from the first record
         const firstRecord = records[0];
         if (firstRecord.data.wizard_id) {
-            wizardId = Array.isArray(firstRecord.data.wizard_id) 
-                ? firstRecord.data.wizard_id[0] 
-                : firstRecord.data.wizard_id;
+            wizardId = m2oId(firstRecord.data.wizard_id);
         }
         
         // If still not found, search for the wizard record that has these lines

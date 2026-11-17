@@ -30,8 +30,8 @@ class PalletKilosRecordModel(models.Model):
     # Storage operation fields - these will be populated directly, not computed
     pallets_received = fields.Float(store=True, string="Pallets Received", readonly=True)
     pallets_withdrawn = fields.Float(store=True, string="Pallets Withdrawn", readonly=True)
-    kilos_received = fields.Float(store=True, string="Kilos Received", readonly=True, digits='Product Unit of Measure')
-    kilos_withdrawn = fields.Float(store=True, string="Kilos Withdrawn", readonly=True, digits='Product Unit of Measure')
+    kilos_received = fields.Float(store=True, string="Kilos Received", readonly=True, digits='Product Unit')
+    kilos_withdrawn = fields.Float(store=True, string="Kilos Withdrawn", readonly=True, digits='Product Unit')
 
     # Operation fields - stored, not computed
     packaging_received = fields.Float(string="Packaging Received", readonly=True, store=True)
@@ -42,7 +42,7 @@ class PalletKilosRecordModel(models.Model):
     # Balance fields - stored, calculated via method calls
     total_balance_in_units = fields.Float(store=True, string="Total Balance in Packs", readonly=True, group_operator=False)
     total_balance_in_packaging = fields.Float(store=True, string="Total Balance in Quantity", group_operator=False)
-    total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False, digits='Product Unit of Measure')
+    total_balance_in_kilos = fields.Float(store=True, string="Total Balance in Kilos (KG)", readonly=True, group_operator=False, digits='Product Unit')
     total_balance_in_pallets = fields.Float(store=True, string="Total Balance in Pallets", readonly=True, group_operator=False)
 
     # Return fields - stored, not computed
@@ -50,12 +50,12 @@ class PalletKilosRecordModel(models.Model):
     return_heads = fields.Float(string="Total Return Units", readonly=True)
     return_packaging = fields.Float(string="Total Return Packaging", readonly=True)
     return_pallets = fields.Float(string="Total Return Pallets", readonly=True)
-    return_kilos = fields.Float(string="Total Return Kilos", readonly=True, digits='Product Unit of Measure')
+    return_kilos = fields.Float(string="Total Return Kilos", readonly=True, digits='Product Unit')
 
     adjustment_heads = fields.Float(string="Total Adjustment Units", readonly=True)
     adjustment_packaging = fields.Float(string="Total Adjustment Packaging", readonly=True)
     adjustment_pallets = fields.Float(string="Total Adjustment Pallets", readonly=True)
-    adjustment_kilos = fields.Float(string="Total Adjustment Kilos", readonly=True, digits='Product Unit of Measure')
+    adjustment_kilos = fields.Float(string="Total Adjustment Kilos", readonly=True, digits='Product Unit')
     # Human-readable explanation of every adjustment posted to this row
     # (re-sync events, residuals, correction pallet legs). Rebuilt by the
     # Re-sync action; remarks keeps a compact plain-text copy for XLSX.
@@ -64,7 +64,7 @@ class PalletKilosRecordModel(models.Model):
 
     # Beginning balance fields - stored, calculated via method calls
     beginning_balance_in_pallets = fields.Float(string="Beginning Balance in Pallets", readonly=True, store=True)
-    beginning_balance_in_kilos = fields.Float(string="Beginning Balance in Kilos", readonly=True, store=True, digits='Product Unit of Measure')
+    beginning_balance_in_kilos = fields.Float(string="Beginning Balance in Kilos", readonly=True, store=True, digits='Product Unit')
 
     # Rate fields
     holding_rate = fields.Float(string='Holding Rate', related='owner_id.x_studio_holding_rate', store=True)
@@ -93,7 +93,7 @@ class PalletKilosRecordModel(models.Model):
 
     # Running balance fields - stored, not computed
     overall_pallets = fields.Float(string='Overall Pallets', store=True, group_operator=False)
-    overall_kilos = fields.Float(string='Overall Kilos', store=True, group_operator=False, digits='Product Unit of Measure')
+    overall_kilos = fields.Float(string='Overall Kilos', store=True, group_operator=False, digits='Product Unit')
 
     # Add blast freezer flag for efficient filtering
     is_blast_freezer = fields.Boolean(string="Is Blast Freezer", store=True, index=True)
@@ -771,10 +771,15 @@ class PalletKilosRecordModel(models.Model):
         
         return building_operations
 
-    @api.model
-    def create(self, vals):
-        """Override create to handle backdated insertions"""
-        record = super(PalletKilosRecordModel, self).create(vals)
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Override create to handle backdated insertions (Odoo 19: list of vals, one pass per record)"""
+        records = super(PalletKilosRecordModel, self).create(vals_list)
+        for record in records:
+            self._vifel_after_create(record)
+        return records
+
+    def _vifel_after_create(self, record):
 
         # Guard: If the source picking is a void transfer (is_void_wr or is_void_return),
         # immediately archive this record to prevent phantom entries.
@@ -787,7 +792,7 @@ class PalletKilosRecordModel(models.Model):
                 source_picking.name, source_picking.is_void_wr, source_picking.is_void_return
             )
             record.active = False
-            return record
+            return
 
         # Populate all data first
         record._populate_vehicle_data()
@@ -819,7 +824,7 @@ class PalletKilosRecordModel(models.Model):
                     record.start_time
                 )
 
-        return record
+        return
 
     def write(self, vals):
         """Override write to handle document changes, start_time changes, and adjustment field changes"""
@@ -1230,7 +1235,7 @@ class PalletKilosRecordModel(models.Model):
             events = 0
             event_pkgs = set()
             pkg_names = {p.id: p.name
-                         for p in self.env['stock.quant.package'].browse(list(dead_pkgs))}
+                         for p in self.env['stock.package'].browse(list(dead_pkgs))}
             for pkg_id in dead_pkgs:
                 # only post an event if the ledger still thinks the pallet is
                 # in (or out) — a pallet whose counted receipts and counted
@@ -1706,7 +1711,7 @@ class PalletKilosRecordModel(models.Model):
                             name_ids.add(t[1])
                             name_ids |= t[5]
                         pkg_name = {p.id: p.name
-                                    for p in self.env['stock.quant.package']
+                                    for p in self.env['stock.package']
                                     .browse(list(name_ids))}
                         # enrich pallet #s with the pallet series they
                         # carried — the identity warehouse staff recognize

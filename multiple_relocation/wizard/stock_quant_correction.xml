@@ -56,7 +56,7 @@
 
                 <!-- Adjustment Lines -->
                 <field name="line_ids" nolabel="1" invisible="not reason_for_adjustment" style="margin-top: 20px;">
-                    <tree editable="bottom" create="false" delete="false">
+                    <list editable="bottom" create="false" delete="false">
                         <!-- Hidden fields -->
                         <field name="quant_id" column_invisible="1"/>
                         <field name="lot_id" column_invisible="1"/>
@@ -80,12 +80,12 @@
                         <field name="x_studio_2nd_uom" string="Quantity"/>
                         <field name="x_studio_quantity_uom" 
                                string="Quantity UOM" 
-                               domain="[('category_id', 'ilike', 'Packaging UOM')]" 
+                               domain="['|', ('name', '=', 'SACKS'), ('relative_uom_id.name', '=', 'SACKS')]" 
                                options="{'no_create': True, 'no_open': True}"/>
                         <field name="x_studio_total_units" string="Packs"/>
                         <field name="x_studio_min_quantity_uom" 
                                string="Packs UOM" 
-                               domain="[('category_id', 'ilike', 'min')]" 
+                               domain="['|', ('name', '=', 'PIECES'), ('relative_uom_id.name', '=', 'PIECES')]" 
                                options="{'no_create': True, 'no_open': True}"/>
                         <field name="quantity" string="Weight (KG)"/>
                         <field name="x_studio_production_date" string="Production Date" optional="hide"/>
@@ -93,7 +93,7 @@
                         <field name="x_studio_container_number" string="Container #" optional="hide"/>
                         <field name="x_studio_return_count" string="Return Count" optional="hide"/>
                         <field name="x_studio_remarks" string="Remarks" optional="hide"/>
-                    </tree>
+                    </list>
                 </field>
 
             </sheet>
@@ -126,7 +126,7 @@
             <field name="model">stock.quant</field>
             <field name="inherit_id" ref="stock.view_stock_quant_tree_editable"/>
             <field name="arch" type="xml">
-                <xpath expr="//tree" position="inside">
+                <xpath expr="//list" position="inside">
                     <header>
                         <button name="action_stock_quant_relocate" 
                                 string="Relocate Pallets" 
@@ -173,7 +173,7 @@ else:
             <field name="name">stock.quant.adjustment.request.tree</field>
             <field name="model">stock.quant.adjustment.request</field>
             <field name="arch" type="xml">
-                <tree string="Adjustment Requests" 
+                <list string="Adjustment Requests" 
                       decoration-info="state == 'draft'" 
                       decoration-warning="state == 'pending'"
                       decoration-success="state == 'approved'"
@@ -203,7 +203,7 @@ else:
                            decoration-muted="state == 'cancelled'"/>
                     <field name="approved_by" optional="hide"/>
                     <field name="batch_number" optional="hide"/>
-                </tree>
+                </list>
             </field>
         </record>
 
@@ -361,7 +361,7 @@ else:
                         <notebook>
                             <page string="Adjustment Lines" name="lines">
                                 <field name="line_ids" nolabel="1">
-                                    <tree string="Lines" 
+                                    <list string="Lines" 
                                           decoration-success="line_state == 'approved'"
                                           decoration-danger="line_state == 'rejected' or conflict_status != 'ok'"
                                           decoration-warning="line_state == 'pending' and conflict_status == 'ok'"
@@ -415,7 +415,7 @@ else:
                                         <field name="quant_id" column_invisible="1"/>
                                         <field name="request_id" column_invisible="1"/>
                                         <field name="has_changes" column_invisible="1"/>
-                                    </tree>
+                                    </list>
                                 </field>
                             </page>
         
@@ -424,7 +424,7 @@ else:
                                   invisible="not has_conflicts">
                                 <field name="line_ids" nolabel="1" 
                                        domain="[('conflict_status', '!=', 'ok')]">
-                                    <tree string="Conflicted Lines" 
+                                    <list string="Conflicted Lines" 
                                           decoration-danger="1"
                                           create="false" 
                                           edit="false" 
@@ -476,18 +476,14 @@ else:
                                         <field name="quant_id" column_invisible="1"/>
                                         <field name="request_id" column_invisible="1"/>
                                         <field name="has_changes" column_invisible="1"/>
-                                    </tree>
+                                    </list>
                                 </field>
                             </page>
                         </notebook>
                     </sheet>
         
                     <!-- Chatter -->
-                    <div class="oe_chatter">
-                        <field name="message_follower_ids" groups="base.group_user"/>
-                        <field name="activity_ids"/>
-                        <field name="message_ids"/>
-                    </div>
+                    <chatter/>
                 </form>
             </field>
         </record>
@@ -561,8 +557,8 @@ else:
                         </group>
         
                         <!-- Lines to be Rejected with Changes -->
-                        <field name="line_ids" nolabel="1" readonly="1" mode="tree">
-                            <tree decoration-warning="1" create="false" delete="false" edit="false">
+                        <field name="line_ids" nolabel="1" readonly="1" mode="list">
+                            <list decoration-warning="1" create="false" delete="false" edit="false">
                                 <field name="is_blast_freeze" column_invisible="1"/>
                                 <field name="display_pallet_series" string="Pallet Series"
                                        invisible="is_blast_freeze"/>
@@ -571,7 +567,7 @@ else:
                                 <field name="display_location" string="Location" optional="hide"/>
                                 <field name="changed_fields_display" string="Changes" widget="html"/>
                                 <field name="line_state" widget="badge"/>
-                            </tree>
+                            </list>
                         </field>
         
                         <!-- Rejection Reason -->
@@ -601,7 +597,7 @@ else:
         <record id="action_stock_quant_adjustment_request" model="ir.actions.act_window">
             <field name="name">Pallet Detail Adjustment Requests</field>
             <field name="res_model">stock.quant.adjustment.request</field>
-            <field name="view_mode">tree,form</field>
+            <field name="view_mode">list,form</field>
             <field name="context">{}</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">
@@ -631,7 +627,7 @@ else:
                 <xpath expr="//page[@name='adjustment_information']" position="inside">
                     <separator string="Approved Adjustment Lines (audit trail)"/>
                     <field name="adjustment_line_ids" readonly="1">
-                        <tree>
+                        <list>
                             <field name="approved_date"/>
                             <field name="request_id" string="Adjustment Request"/>
                             <field name="display_pallet_series" string="PSI"/>
@@ -653,7 +649,7 @@ else:
                             <field name="reason_for_adjustment" string="Reason" optional="show"/>
                             <field name="correction_move_reference" string="Move Reference" optional="show"/>
                             <field name="approved_by" optional="hide"/>
-                        </tree>
+                        </list>
                     </field>
                 </xpath>
             </field>

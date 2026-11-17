@@ -248,7 +248,7 @@ class OccupancyXlsxReport(models.AbstractModel):
             SELECT pp.id, pt.uom_id
             FROM product_product pp
             JOIN product_template pt ON pp.product_tmpl_id = pt.id
-            WHERE pt.type = 'product'
+            WHERE pt.is_storable
         """)
         product_uom_map = dict(cr.fetchall())
 

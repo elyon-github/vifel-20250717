@@ -16,8 +16,8 @@
                 <field name="last_error"/>
                 <field name="resolved_last_run"/>
                 <templates>
-                    <t t-name="kanban-box">
-                        <div t-attf-class="oe_kanban_global_click #{record.open_count.raw_value ? (record.severity.raw_value == 'critical' ? 'border-danger' : 'border-warning') : 'border-success'}"
+                    <t t-name="card">
+                        <div t-attf-class="#{record.open_count.raw_value ? (record.severity.raw_value == 'critical' ? 'border-danger' : 'border-warning') : 'border-success'}"
                              style="border-left-width: 4px; border-left-style: solid;">
                             <div class="o_kanban_record_top">
                                 <b><field name="name"/></b>
@@ -94,7 +94,7 @@
         <field name="name">vifel.health.finding.tree</field>
         <field name="model">vifel.health.finding</field>
         <field name="arch" type="xml">
-            <tree create="false" delete="false"
+            <list create="false" delete="false"
                   decoration-danger="state != 'resolved' and severity == 'critical' and not ignored"
                   decoration-warning="state != 'resolved' and severity == 'warning' and not ignored"
                   decoration-muted="state == 'resolved' or ignored">
@@ -121,7 +121,7 @@
                         title="Open the affected record"/>
                 <button name="action_toggle_ignored" type="object" icon="fa-bell-slash"
                         title="Toggle Ignored (known and accepted)"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -187,12 +187,10 @@
                 <filter string="Ignored" name="ignored" domain="[('ignored', '=', True)]"/>
                 <separator/>
                 <filter string="Critical" name="critical" domain="[('severity', '=', 'critical')]"/>
-                <group expand="0" string="Group By">
-                    <filter string="Check" name="group_check" context="{'group_by': 'check_id'}"/>
+                <filter string="Check" name="group_check" context="{'group_by': 'check_id'}"/>
                     <filter string="Client" name="group_owner" context="{'group_by': 'owner_id'}"/>
                     <filter string="Severity" name="group_severity" context="{'group_by': 'severity'}"/>
                     <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
-                </group>
             </search>
         </field>
     </record>
@@ -202,7 +200,7 @@
         <field name="name">vifel.health.run.tree</field>
         <field name="model">vifel.health.run</field>
         <field name="arch" type="xml">
-            <tree create="false" delete="false"
+            <list create="false" delete="false"
                   decoration-danger="new_findings > 0 or checks_failed > 0">
                 <field name="run_date"/>
                 <field name="trigger"/>
@@ -213,7 +211,7 @@
                 <field name="open_findings"/>
                 <field name="duration_ms"/>
                 <field name="summary"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -227,7 +225,7 @@
     <record id="action_health_findings" model="ir.actions.act_window">
         <field name="name">Health Findings</field>
         <field name="res_model">vifel.health.finding</field>
-        <field name="view_mode">tree,form</field>
+        <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_health_finding_search"/>
         <field name="context">{'search_default_unresolved': 1, 'search_default_group_check': 1}</field>
     </record>
@@ -235,7 +233,7 @@
     <record id="action_health_runs" model="ir.actions.act_window">
         <field name="name">Health Run History</field>
         <field name="res_model">vifel.health.run</field>
-        <field name="view_mode">tree</field>
+        <field name="view_mode">list</field>
     </record>
 
     <record id="action_health_run_now" model="ir.actions.server">

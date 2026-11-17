@@ -21,6 +21,32 @@ class picking_type(models.Model):
     is_blast_freeze_operation = fields.Boolean(
         string="Is a Blast Freeze Operation?")
 
+    # ------------------------------------------------------------------
+    # Inventory Overview -> transfer list: keep the 17 behaviour.
+    # 17 opened the list with the operation type as a SEARCH FACET
+    # (search_default_picking_type_id), so clearing the search shows every
+    # RR, WR, BFRR, BFWR. 19 core hard-codes
+    # action['domain'] = [('picking_type_id', '=', self.id)], a hidden
+    # filter that cannot be removed from the search bar (clearing the search
+    # on "Meycauayan: WITHDRAWAL" still showed only withdrawals).
+    # ------------------------------------------------------------------
+    def _get_action(self, action_xmlid):
+        action = super()._get_action(action_xmlid)
+        if len(self) <= 1:
+            # the action's own domain, without core's picking-type lock
+            base = self.env['ir.actions.actions']._for_xml_id(action_xmlid)
+            action['domain'] = base.get('domain') or []
+            if self:
+                context = dict(action.get('context') or {})
+                context['search_default_picking_type_id'] = [self.id]
+                action['context'] = context
+        return action
+
+    def get_stock_picking_action_picking_type(self):
+        # 17 opened the same generic list for every type; 19 switches to the
+        # Receipts / Deliveries actions, which add their own default filter.
+        return self._get_action('stock.stock_picking_action_picking_type')
+
 
 class transfer_locations(models.Model):
     _inherit = 'stock.picking'
@@ -100,7 +126,7 @@ class transfer_locations(models.Model):
 
         return 'Starting'
 
-    # api.depends('move_ids_without_package.x_studio_number_of_lines')
+    # api.depends('move_ids.x_studio_number_of_lines')
 
     def _compute_next_step_status(self):
         for record in self:
@@ -116,11 +142,11 @@ class transfer_locations(models.Model):
             if is_receiving:
 
                 # Receiving step
-                if not record.move_ids_without_package and not record.partner_id:
+                if not record.move_ids and not record.partner_id:
                     record.next_step_status = 'Starting'
                 elif not record.move_line_ids and not record.return_id:
                     # Check if any line is missing number_of_lines
-                    if any(not line.x_studio_number_of_lines for line in record.move_ids_without_package) or not record.move_ids_without_package:
+                    if any(not line.x_studio_number_of_lines for line in record.move_ids) or not record.move_ids:
                         record.next_step_status = 'Estimate Pallet Lines'
                     else:
                         record.next_step_status = 'Generate Pallet Lines'
@@ -155,7 +181,7 @@ class transfer_locations(models.Model):
     total_quantity = fields.Float(
         string="Total Quantity", compute="_compute_totals", store=True)
     total_weight = fields.Float(
-        string="Total Weight (KG)", compute="_compute_totals", store=True, digits='Product Unit of Measure')
+        string="Total Weight (KG)", compute="_compute_totals", store=True, digits='Product Unit')
     transacted_pallet_count = fields.Integer(
         string="Transacted Pallet Count", compute="_compute_transacted_pallet_count", store=True)
     warehouse_id = fields.Many2one(
@@ -231,11 +257,9 @@ class transfer_locations(models.Model):
         help="Date and time when this record was validated (UTC)"
     )
 
-    # Deviation Report NOTED BY. 2026-09-24: an Inventory Analyst set by the
-    # noting account only. 2026-09-28 (team): the documentation staff pick it,
-    # from names the noting account TYPES in the Configuration tab - not from
-    # contacts. New field; migrations/0.3 carries any value of the old contact
-    # field (vifel_noted_by_id) over.
+    # Deviation Report NOTED BY (ported from MAIN, 17.0.0.3). The documentation
+    # staff pick it from names the noting account TYPES in the Configuration
+    # tab - not from contacts.
     vifel_noted_by_name_id = fields.Many2one(
         'vifel.noted.by.name', string="Noted By", copy=False, tracking=True,
         help="Printed as NOTED BY on the Deviation Report. The choices are the "
@@ -432,7 +456,7 @@ class transfer_locations(models.Model):
                 'name': _('Void Equivalent Records'),
                 'type': 'ir.actions.act_window',
                 'res_model': 'stock.picking',
-                'views': [[False, 'tree'], [False, 'form']],
+                'views': [[False, 'list'], [False, 'form']],
                 'domain': [('id', 'in', void_records.ids)],
             }
 
@@ -453,7 +477,7 @@ class transfer_locations(models.Model):
             'name': _('Returns'),
             'type': 'ir.actions.act_window',
             'res_model': 'stock.picking',
-            'views': [[False, 'tree'], [False, 'form']],
+            'views': [[False, 'list'], [False, 'form']],
             'domain': [('id', 'in', non_void_returns.ids)],
         }
 
@@ -601,12 +625,12 @@ class transfer_locations(models.Model):
             else:
                 record.vifel_type_of_operation = 'RR'
 
-    @api.depends('move_ids_without_package.quantity', 'move_ids_without_package.x_studio_actual_packaging_demand')
+    @api.depends('move_ids.quantity', 'move_ids.x_studio_actual_packaging_demand')
     def _compute_totals(self):
         for record in self:
             total_quantity = 0
             total_weight = 0
-            for move in record.move_ids_without_package:
+            for move in record.move_ids:
                 total_quantity += move.x_studio_actual_packaging_demand
                 total_weight += move.quantity
 
@@ -1118,7 +1142,7 @@ class transfer_locations(models.Model):
             _logger.info("Reusing existing void WR %s for voided RR %s",
                          existing_void_wr.name, record.name)
             # Clear old moves and re-populate from current quants
-            existing_void_wr.move_ids_without_package.unlink()
+            existing_void_wr.move_ids.unlink()
             existing_void_wr.x_studio_voided = False
 
             # Re-populate stock moves from current quants
@@ -1199,7 +1223,7 @@ class transfer_locations(models.Model):
         })
 
         # Remove copied moves - we'll create fresh ones from quants
-        wr_picking.move_ids_without_package.unlink()
+        wr_picking.move_ids.unlink()
 
         _logger.info("Created void WR %s from voided RR %s",
                      wr_picking.name, record.name)
@@ -1261,7 +1285,6 @@ class transfer_locations(models.Model):
                 move_vals = {
                     'picking_id': picking.id,
                     'product_id': prod_id,
-                    'name': product.display_name,
                     'product_uom': quant.product_uom_id.id,
                     'location_id': quant.location_id.id,
                     'location_dest_id': picking.location_dest_id.id,
@@ -1806,7 +1829,7 @@ class transfer_locations(models.Model):
         #    key stamped by the Return Packages wizard).
         freed_locations = self.env['stock.location'].search([
             ('x_studio_receiving_report_id', '=', child.id)])
-        freed_packages = self.env['stock.quant.package'].search([
+        freed_packages = self.env['stock.package'].search([
             ('x_studio_receiving_report_id', '=', child.id)])
         if freed_locations:
             freed_locations.write({
@@ -2156,62 +2179,6 @@ class transfer_locations(models.Model):
                 if quants:
                     quants.write({'x_studio_remarks': remarks})
 
-    def _vifel_check_loose_withdrawal(self):
-        """Raise when a no-pallet outgoing line takes more than the loose
-        (no-pallet) stock at its location. See button_validate."""
-        Quant = self.env['stock.quant'].sudo()
-        problems = []
-        for picking in self.filtered(
-                lambda p: p.picking_type_id.code == 'outgoing'):
-            needed = {}
-            for line in picking.move_line_ids:
-                if line.package_id or line.quantity <= 0:
-                    continue
-                if line.location_id.usage != 'internal':
-                    continue
-                product = line.product_id
-                qty = line.product_uom_id._compute_quantity(
-                    line.quantity, product.uom_id, rounding_method='HALF-UP')
-                key = (line.location_id, product, line.lot_id, line.owner_id)
-                needed[key] = needed.get(key, 0.0) + qty
-            for (location, product, lot, owner), qty in needed.items():
-                quants = Quant.search([
-                    ('location_id', '=', location.id),
-                    ('product_id', '=', product.id),
-                    ('lot_id', '=', lot.id),
-                    ('owner_id', '=', owner.id),
-                    ('package_id', '=', False),
-                ])
-                loose = sum(quants.mapped('quantity'))
-                if float_compare(qty, loose,
-                                 precision_rounding=product.uom_id.rounding) > 0:
-                    pallets = Quant.search([
-                        ('location_id', '=', location.id),
-                        ('product_id', '=', product.id),
-                        ('lot_id', '=', lot.id),
-                        ('owner_id', '=', owner.id),
-                        ('package_id', '!=', False),
-                        ('quantity', '>', 0),
-                    ]).mapped('package_id.name')
-                    problems.append(_(
-                        "%(doc)s: %(product)s at %(loc)s - %(qty)s %(uom)s "
-                        "without a pallet, but only %(loose)s %(uom)s is "
-                        "loose there.%(pallets)s",
-                        doc=picking.name, product=product.display_name,
-                        loc=location.complete_name,
-                        qty=round(qty, 3), loose=round(max(loose, 0.0), 3),
-                        uom=product.uom_id.name,
-                        pallets=(_(" The stock is on pallet(s): %s.",
-                                   ', '.join(pallets)) if pallets else '')))
-        if problems:
-            raise UserError(_(
-                "Cannot validate: some lines take stock without a pallet that "
-                "is not there loose.\n\n%(lines)s\n\nSet the Pallet # on these "
-                "lines (pick the pallet the stock is really on) and validate "
-                "again. Validating as is would leave negative loose stock next "
-                "to the pallet, and the pallet would keep its full weight.",
-                lines='\n'.join(problems)))
-
     def _action_done(self):
         # Snapshot the WR Remarks read-back onto the outgoing lines BEFORE the
         # source quants are consumed here: a full withdrawal removes the quant
@@ -2275,16 +2242,6 @@ class transfer_locations(models.Model):
                     "realign this return to %(wr)s, then validate.",
                     doc=record.name, ret=record.partner_id.name,
                     src=src.name, wr=src.partner_id.name))
-
-        # A WITHDRAWAL LINE WITHOUT A PALLET MAY ONLY TAKE LOOSE STOCK THAT IS THERE.
-        # Loose (no-pallet) withdrawals are normal (e.g. Blast Freeze), but when
-        # the stock only exists on a pallet, Odoo takes it "loose" anyway and
-        # leaves a negative no-pallet quant next to the pallet: the pallet keeps
-        # its full weight (stock overstated) and the next WR of that pallet reads
-        # the blank negative quant's Pallet Series ID / Container # (M/WR/15384
-        # -> M/WR/15388, 11-05).
-        if not self.env.context.get('skip_loose_stock_guard'):
-            self._vifel_check_loose_withdrawal()
 
         result = super(transfer_locations, self).button_validate()
 
@@ -2583,10 +2540,13 @@ class transfer_locations(models.Model):
                 # The PSI-anchored order can interleave description groups
                 # (mixed pallets), so a per-page "seen" set would blank the
                 # description when a group resumes under a different
-                # product. Compare with the previous row instead, and
-                # always re-show at a page start.
+                # product. Compare with the previous row instead.
+                # The repeat at the top of each printed page is decided by
+                # the Per Pallet templates (first row of their page loop):
+                # they paginate on their own, so a fixed items_per_page here
+                # drifted (M/RR/07876: description on rows 1, 16, 31).
                 show_description = False
-                if line_index == 0 or is_new_page or description_key != prev_description_key:
+                if line_index == 0 or description_key != prev_description_key:
                     show_description = True
                 prev_description_key = description_key
     
@@ -3435,7 +3395,7 @@ class transfer_locations(models.Model):
 
     def auto_fix_discrepancy(self):
         for record in self:
-            stock_moves = record.move_ids_without_package
+            stock_moves = record.move_ids
 
             for lines in stock_moves:
                 lines['x_studio_demand_packaging'] = lines.x_studio_actual_packaging_demand
@@ -3450,7 +3410,7 @@ class transfer_locations(models.Model):
         for record in self:
             record.action_confirm()
 
-            for move in record.move_ids_without_package:
+            for move in record.move_ids:
                 try:
                     if move.exists():
                         counter = move.regenerate_move_lines(counter)
@@ -3860,7 +3820,7 @@ class transfer_locations(models.Model):
         return {
             'name': 'Stock Quants',
             'type': 'ir.actions.act_window',
-            'view_mode': 'tree',
+            'view_mode': 'list',
             'res_model': 'stock.quant',
             # Specify the editable tree view
             'view_id': self.env.ref('multiple_relocation.view_stock_quant_tree_custom_2').id,
@@ -3968,7 +3928,7 @@ class transfer_locations(models.Model):
 
     @api.onchange('location_id', 'location_dest_id')
     def _onchange_locations(self):
-        (self.move_ids | self.move_ids_without_package).update({
+        self.move_ids.update({
             "location_id": self.location_id,
             "location_dest_id": self.location_dest_id
         })
@@ -4022,10 +3982,10 @@ class transfer_locations(models.Model):
             'stock.view_stock_move_line_detailed_operation_tree').id
         return {
             'name': _('Detailed Operations'),
-            'view_mode': 'tree',
+            'view_mode': 'list',
             'type': 'ir.actions.act_window',
             'res_model': 'stock.move.line',
-            'views': [(view_id, 'tree')],
+            'views': [(view_id, 'list')],
             'domain': [('picking_id', '=', self.id)],
             # The header counter totals the lines loaded in the browser, so load
             # them all: at the default 80 a long transfer showed too few pallets.

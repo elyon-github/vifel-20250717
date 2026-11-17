@@ -70,10 +70,10 @@ class VifelPsiType(models.Model):
         help='Freed numbers of this type, re-issued smallest-first before '
              'the counter advances.')
 
-    _sql_constraints = [
-        ('partner_prefix_uniq', 'unique(partner_id, prefix)',
-         'This client already has a PSI type with that prefix.'),
-    ]
+    _partner_prefix_uniq = models.Constraint(
+        'unique(partner_id, prefix)',
+        'This client already has a PSI type with that prefix.',
+    )
 
     @staticmethod
     def _normalize_prefix(prefix):

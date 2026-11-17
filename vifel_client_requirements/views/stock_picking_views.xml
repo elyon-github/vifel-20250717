@@ -14,6 +14,8 @@
         <!-- After multiple_relocation (priority 16), whose xpaths build the
              Operations tree this one anchors into. -->
         <field name="priority">30</field>
+        <!-- upgrade.odoo.com (17->19) left this view inactive; -u must switch it back on -->
+        <field name="active" eval="True"/>
         <field name="arch" type="xml">
 
             <!-- column_invisible is evaluated with the PARENT record in scope,
@@ -28,7 +30,7 @@
                  Batch # position on the Pallet Tag. Incoming only: on a
                  withdrawal the batch has become the read-back Prodcode, which
                  the Pallet Breakdown shows in its own column. -->
-            <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='x_studio_kg_variance']"
+            <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='x_studio_kg_variance']"
                    position="after">
                 <field name="batch_no_display" string="Batch #" optional="show"
                        readonly="1"

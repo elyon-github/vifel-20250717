@@ -28,7 +28,7 @@ class VifelFixedMergePallet(models.Model):
         'res.partner', string='Client', required=True, ondelete='cascade',
         index=True)
     package_id = fields.Many2one(
-        'stock.quant.package', string='Fixed Merge Pallet', required=True,
+        'stock.package', string='Fixed Merge Pallet', required=True,
         help='A pallet dedicated to this client and always offered as a merge '
              'target in Fixed mode. Must be empty and free when first pinned.')
     psi = fields.Char(
@@ -37,14 +37,16 @@ class VifelFixedMergePallet(models.Model):
              'still carries no stock. Permanent identity of the pallet — never '
              'recycled, and unique across all clients.')
 
-    _sql_constraints = [
-        ('package_uniq', 'unique(package_id)',
-         'That pallet is already pinned as a Fixed Merge Pallet — a pallet can '
-         'belong to only one client.'),
-        ('psi_uniq', 'unique(psi)',
-         'That Fixed Merge PSI is already used by another fixed pallet — a '
-         'Pallet Series identifies one pallet, so it must be globally unique.'),
-    ]
+    _package_uniq = models.Constraint(
+        'unique(package_id)',
+        'That pallet is already pinned as a Fixed Merge Pallet — a pallet can '
+         'belong to only one client.',
+    )
+    _psi_uniq = models.Constraint(
+        'unique(psi)',
+        'That Fixed Merge PSI is already used by another fixed pallet — a '
+         'Pallet Series identifies one pallet, so it must be globally unique.',
+    )
 
     # ------------------------------------------------------------------
     # Legacy migration - runs on EVERY module -u.
@@ -122,7 +124,7 @@ class VifelFixedMergePallet(models.Model):
         if vals.get('psi'):
             vals['psi'] = self._normalize_psi(vals['psi'])
         previous = self.mapped('package_id') if 'package_id' in vals \
-            else self.env['stock.quant.package']
+            else self.env['stock.package']
         res = super().write(vals)
         if 'package_id' in vals:
             self._assert_packages_selectable()

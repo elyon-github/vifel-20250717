@@ -9,7 +9,7 @@
         <field name="model">stock.quant</field>
         <field name="priority">120</field>
         <field name="arch" type="xml">
-            <tree create="false" delete="false" default_order="owner_id, x_studio_pallet_series_id">
+            <list create="false" delete="false" default_order="owner_id, x_studio_pallet_series_id">
                 <field name="owner_id" string="Client"/>
                 <field name="product_id"/>
                 <field name="x_studio_pallet_series_id" string="Pallet Series"/>
@@ -32,7 +32,7 @@
                 <!-- standard core quant History (move lines of this quant) -->
                 <button name="action_view_stock_moves" string="History"
                         type="object" class="btn-link" icon="fa-history"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -84,7 +84,7 @@
         <field name="model_id" ref="stock.model_stock_quant"/>
         <field name="binding_model_id" ref="stock.model_stock_quant"/>
         <field name="binding_view_types">list</field>
-        <field name="groups_id" eval="[(4, ref('multiple_relocation.inventory_super_admin'))]"/>
+        <field name="group_ids" eval="[(4, ref('multiple_relocation.inventory_super_admin'))]"/>
         <field name="state">code</field>
         <field name="code">action = records.action_resync_quant_details()</field>
     </record>

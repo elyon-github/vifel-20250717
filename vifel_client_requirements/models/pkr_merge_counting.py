@@ -198,7 +198,7 @@ class StockPickingMergeCounting(models.Model):
         Re-running finds nothing (flagged lines are skipped)."""
         MoveLine = self.env['stock.move.line']
         PKR = self.env['pallet_kilos_record_model.pallet_kilos_record_model']
-        pkgs = self.env['stock.quant.package'].search(
+        pkgs = self.env['stock.package'].search(
             [('vifel_is_merge_pallet', '=', True)]) \
             | self.env['res.partner']._vifel_fixed_merge_packages()
         if not pkgs:
