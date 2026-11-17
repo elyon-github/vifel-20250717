@@ -1,0 +1,68 @@
+[
+ {
+  "report": "BFRR (Final)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_1",
+  "file": "bfrr_final.xml",
+  "view_id_on_ct19": 884
+ },
+ {
+  "report": "BFRR (Final) (Per Pallet)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_2_copy_1_copy_1",
+  "file": "bfrr_final_per_pallet.xml",
+  "view_id_on_ct19": 1062
+ },
+ {
+  "report": "BFWR (Final)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document",
+  "file": "bfwr_final.xml",
+  "view_id_on_ct19": 859
+ },
+ {
+  "report": "BFWR - Per Pallet (Final)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_3_copy_1_copy_1",
+  "file": "bfwr_per_pallet_final.xml",
+  "view_id_on_ct19": 1065
+ },
+ {
+  "report": "Pallet Tag Form",
+  "key": "studio_customization.studio_report_docume_345e0dbd-6a9e-441f-9196-40eecdf0cc24_document",
+  "file": "pallet_tag_form.xml",
+  "view_id_on_ct19": 833
+ },
+ {
+  "report": "Picklist",
+  "key": "studio_customization.studio_report_docume_1127fe43-e7e7-4f7d-9b4b-abcd95f913ee_document",
+  "file": "picklist.xml",
+  "view_id_on_ct19": 812
+ },
+ {
+  "report": "Receiving Report (Final)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_2",
+  "file": "receiving_report_final.xml",
+  "view_id_on_ct19": 887
+ },
+ {
+  "report": "Receiving Report (Final) (Per Pallet)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_2_copy_1",
+  "file": "receiving_report_final_per_pallet.xml",
+  "view_id_on_ct19": 927
+ },
+ {
+  "report": "Tally Sheet (BFRR OR RR)",
+  "key": "studio_customization.studio_report_docume_e8d54ca9-85bc-4128-944b-cb3683c94741_document",
+  "file": "tally_sheet_bfrr_or_rr.xml",
+  "view_id_on_ct19": 865
+ },
+ {
+  "report": "Withdrawal Report - Consolidated (Final)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_3",
+  "file": "withdrawal_report_consolidated_final.xml",
+  "view_id_on_ct19": 890
+ },
+ {
+  "report": "Withdrawal Report - Per Pallet (Final)",
+  "key": "studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_3_copy_1",
+  "file": "withdrawal_report_per_pallet_final.xml",
+  "view_id_on_ct19": 937
+ }
+]
