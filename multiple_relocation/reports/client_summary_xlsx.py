@@ -59,10 +59,9 @@ class InventorySummary(models.AbstractModel):
         limit = int(self.env['ir.config_parameter'].sudo().get_param(
             'web.active_ids_limit', default='20000'))
         if domain and len(records) >= limit:
-            groups = self.env['stock.quant'].read_group(
-                domain, ['owner_id'], ['owner_id'], lazy=False)
+            groups = self.env['stock.quant']._read_group(domain, ['owner_id'])
             owners |= self.env['res.partner'].browse(
-                [g['owner_id'][0] for g in groups if g['owner_id']])
+                [owner.id for (owner,) in groups if owner])
         return owners
 
     def generate_xlsx_report(self, workbook, data, records):
