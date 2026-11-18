@@ -1,0 +1,928 @@
+<data>
+    <xpath expr="/t[@t-name='studio_report_document']" position="replace" mode="inner">
+        <!-- Logo (Odoo 19): look up the attachment by name, fall back to the company logo -->
+        <t t-set="logo_att" t-value="doc.env['ir.attachment'].sudo().search([('name', '=', 'jobscloud-removebg-preview.png'), ('res_field', '=', False)], limit=1)"/>
+        <t t-set="logo_src" t-value="(logo_att and image_data_uri(logo_att.datas)) or (doc.company_id.logo and image_data_uri(doc.company_id.logo)) or ''"/>
+        <t t-set="report_data" t-value="doc.prepare_report_data()"/>
+        <t t-set="pagination_data" t-value="report_data['pagination_data']"/>
+        <t t-set="total_out" t-value="doc.process_move_lines_get_total_out(doc.move_line_ids)"/>
+        <t t-foreach="pagination_data['pages']" t-as="page_info">
+            <div class="page" style="font-size:13px; max-height:100%; page-break-after: always; text-transform: uppercase; ">
+                <t t-if="doc.state == 'assigned'">
+                    <div style="position: absolute; top: 20px; left: 30px; font-size: 24px; color: red; opacity: 0.6; transform: rotate(-15deg); z-index: 1000;">
+        DRAFT
+    </div>
+                </t>
+                <table class="table-bordered table-sm mt-2" style="width: 100%; border-collapse: collapse; border: 1px solid black;">
+                    <tbody>
+                        <tr>
+                            <td rowspan="2" style="width: 25%; text-align: left; vertical-align: middle;">
+                                <table style="width: 100%;">
+                                    <tr style="border: 1px solid white">
+                                        <td style="width: 30%; vertical-align: middle;">
+                                            <img t-if="logo_src" t-att-src="logo_src" alt="" class="img img-fluid o_we_custom_image" style="max-width: 100%; height: auto;"/>
+                                        </td>
+                                        <td style="width: 70%; vertical-align: middle; padding-left: 10px;">
+                                            <span style="font-size: 10px;">Vifel Ice Plant AND
+                       
+                                                
+                                                
+                                                <br/>Cold Storage Inc
+                   
+                                            
+                                            
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </table>
+                                <br/>
+                                <div style="text-align: center;">
+                                    <span style="font-size: 10px;">INVENTORY MANAGEMENT SECTION</span>
+                                </div>
+                            </td>
+                            <td colspan="3" style="width: 80%; text-align: center; border-left: none;">
+                                <div style="font-size: 12px;">FORM</div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="3" style="text-align: center; color: black; border-left: none; ; padding-top: 20px">
+                                <div style="font-size: 20px; font-weight: bold;">BLAST FREEZE WITHDRAWAL REPORT</div>
+                            <div style="position: absolute; top: 25px; right: 15px; font-size: 10px; border: 1px solid black; padding: 2px; text-align: center;">
+                                First Print Date: 
+                                
+                                <t t-esc="doc.x_studio_first_date_time_printed and (doc.x_studio_first_date_time_printed + datetime.timedelta(hours=8)).strftime('%m/%d/%Y %H:%M:%S') or ''"/>
+                                <br/>Printed By: <t t-esc="doc.x_studio_printed_by_name or ''"/>
+                                <br/>Last Print Date: <t t-esc="(datetime.datetime.now() + datetime.timedelta(hours=8)).strftime('%m/%d/%Y %H:%M:%S')"/>
+                            </div>
+                                <br/>
+                                <div style="font-size: 12px;">
+                                    <b>F-IMS-005</b>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="row">
+                    <div class="col-3"/>
+                    <div class="col-3"/>
+                    <div class="col-3"/>
+                    <div class="col-3" style="text-align: right; font-size: 20px; color: black;">
+                        <span>NO.</span>
+                        <t t-esc="doc.name"/>
+                    </div>
+                </div>
+                <div class="row d-flex justify-content-end">
+                    <div class="col-3 text-end" style="padding-right: 5px">DATE:
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_start_time and (doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') or '-'">-</span>
+                    </div>
+                    <div class="col-3 text-start">TIME START:
+        
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_start_time and (doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%H%MH') or '-'">-</span>
+                    </div>
+                </div>
+                <div class="row d-flex justify-content-end">
+                    <div class="col-6 text-start">Customer:
+        
+                
+                    
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+                        <span t-field="doc.partner_id.name" class="ms-2" style="font-size:16px; white-space: nowrap"/>
+                    </div>
+                    <div class="col-3 text-end" style="padding-right: 5px">DATE:
+        
+                
+                    
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_end_time and (doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') or '-'">-</span>
+                    </div>
+                    <div class="col-3 text-start">TIME END:
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_end_time and (doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%H%MH') or '-'">-</span>
+                    </div>
+                </div>
+                <table class="col-12 table-bordered mt-2" style="border:1px solid black; text-align: center">
+                    <tbody>
+                        <tr>
+                            <td style="padding: 3px">BUILDING:</td>
+                            <td style="padding: 3px">RR NO.:</td>
+                            <td style="padding: 3px">GP NO.:</td>
+                            <td style="padding: 3px">LD NO.:</td>
+                            <td style="padding: 3px">Plate No.:</td>
+                            <td style="padding: 3px" colspan="2">Arrival Time</td>
+                            <td style="padding: 3px">Destination:</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 2px font-size: 17px" rowspan="3" class="align-middle">
+                                <t t-esc="doc.get_branch_from_location('BF')"/>
+                            </td>
+                            <td/>
+                            <td style="padding: 3px font-size: 17px">
+                                <span t-field="doc.x_studio_gate_pass"/>
+                            </td>
+                            <td style="padding: 3px font-size: 17px">
+                                <span t-field="doc.x_studio_loading_dock_no"/>
+                            </td>
+                            <td style="padding: 3px font-size: 17px">
+                                <span t-field="doc.x_studio_trucks_plate_"/>
+                            </td>
+                            <td style="padding: 3px font-size: 17px" class="align-middle" colspan="2">
+                                <span t-esc="doc.x_studio_truck_time and (doc.x_studio_truck_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y %H%MH') or '-'"/>
+                            </td>
+                            <td style="padding: 3px font-size: 17px" class="align-middle" rowspan="3">
+                                <span t-field="doc.x_studio_destination"/>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 3px" colspan="2">BFRR NO.:</td>
+                            <td style="padding: 3px" colspan="2">PRODUCT TEMP.:</td>
+                            <td style="padding: 3px" colspan="2">TRUCK TEMP.:</td>
+                        </tr>
+                        <tr style="height:30px">
+                            <td style="padding: 3px font-size: 15px" t-esc="doc.x_studio_last_operation_source_document.name or ''" colspan="2"/>
+                            <td style="padding: 3px font-size: 15px" colspan="2" t-esc="doc.x_studio_product_temperature or ''"/>
+                            <td style="padding: 3px font-size: 15px" colspan="2" t-esc="doc.x_studio_truck_temperature or ''"/>
+                        </tr>
+                    </tbody>
+                </table>
+                <div>
+                    <t t-set="service_count" t-value="len(doc.x_studio_additional_services)"/>
+                    <t t-set="counter" t-value="0"/>
+                    <span>
+                    OTHER CHARGES:
+                    
+                        
+                        
+                        
+                        
+                        <t t-foreach="doc.x_studio_additional_services" t-as="item">
+                            <t t-if="'SQM' in item.name">
+                                <t t-esc="item.name.replace('(SQM)', '').strip()"/> (
+                                
+                                
+                                
+                                
+                                <t t-esc="doc.x_studio_sqm"/> sqm) </t>
+                            <t t-else="">
+                                <t t-esc="item.name"/></t>
+                            <t t-set="counter" t-value="counter + 1"/>
+                            <t t-if="counter &lt; service_count">, </t>
+                        </t>
+                    </span>
+                </div>
+                <!-- FIXED height (px) of the whole records box. Everything below it (Remarks, signatories, Distribution, Page) therefore
+                     always sits at the same place at the bottom of every page.
+                     Empty space under the footer: raise it. Footer cut off / spills onto a 2nd sheet, or rows overlap the totals: lower it
+                     (and/or lower the rows-per-page in prepare_report_data(), which decides how many rows go on a page). -->
+                <t t-set="table_height" t-value="580"/>
+                <!-- Item Description: left gap from the Pallet Count column (px) and text size (px) of the 3-line breakdown -->
+                <t t-set="desc_pad_left" t-value="30"/>
+                <t t-set="desc_font" t-value="14"/>
+                <div t-attf-style="height: #{table_height}px">
+                    <table class="col-12 table table-bordered mt-2" style="font-size:12px; table-layout:auto; border-collapse:collapse; padding:0px; border: 1px solid white">
+                        <tbody>
+                            <tr class="text-center align-middle">
+                                <th class="align-middle" style="width: 5%; border-bottom: 1px solid black">PALLET COUNT</th>
+                                <th class="align-middle" t-attf-style="width: 70%; border-bottom: 1px solid black; padding-left: #{desc_pad_left}px; text-align: center;" align="center"><div style="text-align: center;">ITEM DESCRIPTION</div></th>
+                                <th style="width: 7%; padding: 2px; border-bottom: 1px solid black">QTY</th>
+                                <th style="border-bottom: 1px solid black">UOM</th>
+                                <th style="width: 7%; padding: 2px; border-bottom: 1px solid black">WEIGHT(KG)</th>
+                                <th style="width: 7%; padding: 2px; border-bottom: 1px solid black">PACKS</th>
+                            </tr>
+                            <tr style="height: 10px; border: none;">
+                                <td colspan="5" style="border: none; background: transparent;"/>
+                            </tr>
+                            <t t-foreach="page_info['moves']" t-as="move">
+                                <tr class="text-center" style="height: 20px; border-bottom: 1px solid white; font-size: 13px; border: 1px solid white;">
+                                    <td style="padding: 1px;">
+                                        <t t-esc="move['pallet_count']"/>
+                                    </td>
+                                    <td t-attf-style="padding: 0px 0px 0px #{desc_pad_left}px; white-space: nowrap; font-size: #{desc_font}px; line-height: 1.15;">
+                                        <t t-raw="move['product_name']"/>
+                                    </td>
+                                    <td style="padding: 1px; text-align: right">
+                                        <t t-esc="'{:,.0f}'.format(move['packaging_qty'])"/>
+                                    </td>
+                                    <td style="padding: 1px">
+                                        <t t-esc="move['uom_name']"/>
+                                    </td>
+                                    <td style="padding: 1px;  text-align: right">
+                                        <t t-esc="('{:,.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:,.2f}').format(move['weight_actual'])"/>
+                                    </td>
+                                    <td style="padding: 1px;  text-align: right">
+                                        <t t-esc="'{:,.2f}'.format(move['heads_actual'])" t-if="move['heads_actual']"/>
+                                    </td>
+                                </tr>
+                            </t>
+                            <tr>
+                                <td colspan="6" style="border-bottom: 1px solid black"/>
+                            </tr>
+                            <t t-if="len(pagination_data['pages']) &gt; 1">
+                                <tr style="font-size: 13px; font-weight: bold">
+                                    <td style="text-align: center">
+                                        <span t-raw="page_info['totals']['pallet_count']"/>
+                                    </td>
+                                    <td class="text-end">Page Subtotal:</td>
+                                    <td style="text-align: right">
+                                        <span t-raw="page_info['totals']['packaging_qty']"/>
+                                    </td>
+                                    <td style="text-align: right">
+                                        <span t-raw="page_info['totals']['uom_formatted']"/>
+                                    </td>
+                                    <td style="white-space: nowrap; text-align: right">
+                                        <span t-esc="('{:,.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:,.2f}').format(page_info['totals']['weight_actual'])"/>
+                                    </td>
+                                    <td style="white-space: nowrap; text-align: right">
+                                        <span t-esc="'{:,.0f}'.format(page_info['totals']['heads_actual'])"/>
+                                    </td>
+                                </tr>
+                            </t>
+                            <t t-if="page_info_index + 1 == pagination_data['pages_count']">
+                                <tr style="font-size: 13px; font-weight: bold">
+                                    <td style="text-align: center">
+                                        <span t-raw="pagination_data['grand_totals']['pallet_count']"/>
+                                    </td>
+                                    <td>
+                                        <div class="row">
+                                            <div class="col-8 text-center">
+                  Total Out:
+                    
+                                                <t t-foreach="total_out" t-as="lines">
+                                                    <span>
+                                                        <t t-esc="'{:.0f}'.format(lines['packaging'])"/>
+                                                        <t t-esc="lines['uom']"/> | 
+                            
+                                                        <t t-esc="('{:.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:.2f}').format(lines['kg'])"/>KG
+                        
+                                                    </span>
+                                                    <br/>
+                                                </t>
+                                            </div>
+                                            <div class="col-4 text-end">
+                                                <t>Grand Total:</t>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="text-align: right">
+                                        <span t-raw="pagination_data['grand_totals']['qty_actual_formatted']"/>
+                                    </td>
+                                    <td style="text-align: right">
+                                        <span t-raw="pagination_data['grand_totals']['uom_formatted']"/>
+                                    </td>
+                                    <td style="white-space: nowrap; text-align: right">
+                                        <span t-raw="pagination_data['grand_totals']['kg_actual_formatted']"/>
+                                    </td>
+                                    <td style="white-space: nowrap; text-align: right">
+                                        <span t-raw="pagination_data['grand_totals']['heads_actual_formatted']"/>
+                                    </td>
+                                </tr>
+                                <!-- Add underline separator only under quantity and weight columns -->
+                                <tr>
+                                    <td style="border: none;"/>
+                                    <td style="border: none;"/>
+                                    <td style="border-bottom: 1px solid black"/>
+                                    <td style="border: none;"/>
+                                    <td style="border-bottom: 1px solid black"/>
+                                    <td style="border-bottom: 1px solid black"/>
+                                </tr>
+                                <!-- Add final combined totals -->
+                                <tr class="text-center" style="font-size: 13px; font-weight: bold">
+                                    <td style="text-align: right"/>
+                                    <td style="text-align: right"/>
+                                    <td style="text-align: right">
+                                        <!-- Sum the grand total quantities from the displayed grand total rows -->
+                                        <t t-set="total_qty" t-value="0"/>
+                                        <t t-set="grand_total_qty_raw" t-value="pagination_data['grand_totals']['qty_actual_formatted']"/>
+                                        <!-- Extract numeric values from the formatted grand total -->
+                                        <t t-set="qty_values" t-value="[]"/>
+                                        <t t-foreach="pagination_data['grand_totals']['qty_actual_formatted'].split('&lt;br/&gt;')" t-as="qty_line">
+                                            <t t-if="qty_line.strip()">
+                                                <t t-set="clean_qty" t-value="float(qty_line.strip().replace(',', ''))"/>
+                                                <t t-set="total_qty" t-value="total_qty + clean_qty"/></t>
+                                        </t>
+                                        <span t-esc="'{:.0f}'.format(total_qty)"/>
+                                    </td>
+                                    <td style="text-align: right"/>
+                                    <td style="text-align: right">
+                                        <!-- Sum the grand total weights from the displayed grand total rows -->
+                                        <t t-set="total_weight" t-value="0"/>
+                                        <t t-set="grand_total_weight_raw" t-value="pagination_data['grand_totals']['kg_actual_formatted']"/>
+                                        <!-- Extract numeric values from the formatted grand total -->
+                                        <t t-foreach="pagination_data['grand_totals']['kg_actual_formatted'].split('&lt;br/&gt;')" t-as="weight_line">
+                                            <t t-if="weight_line.strip()">
+                                                <t t-set="clean_weight" t-value="float(weight_line.strip().replace(',', ''))"/>
+                                                <t t-set="total_weight" t-value="total_weight + clean_weight"/></t>
+                                        </t>
+                                        <span t-esc="('{:.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:.2f}').format(total_weight)"/>
+                                    </td>
+                                    <td style="text-align: right">
+                                        <!-- Sum the grand total quantities from the displayed grand total rows -->
+                                        <t t-set="total_heads" t-value="0"/>
+                                        <t t-set="grand_total_heads_raw" t-value="pagination_data['grand_totals']['heads_actual_formatted']"/>
+                                        <!-- Extract numeric values from the formatted grand total -->
+                                        <t t-set="qty_values" t-value="[]"/>
+                                        <t t-foreach="pagination_data['grand_totals']['heads_actual_formatted'].split('&lt;br/&gt;')" t-as="heads_line">
+                                            <t t-if="heads_line.strip()">
+                                                <t t-set="clean_heads" t-value="float(heads_line.strip().replace(',', ''))"/>
+                                                <t t-set="total_heads" t-value="total_heads + clean_heads"/></t>
+                                        </t>
+                                        <span t-esc="'{:.0f}'.format(total_heads)" t-if="total_heads"/>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Remarks + signatories are printed on every page -->
+                <div class="row col-12 mt-2" style="height: 30px;">
+                    <span style="margin: 5px">
+                        <b>Remarks: </b>
+                        <t t-esc="doc.note"/> | 
+                        
+                        
+                        
+                        
+                        <t t-if="doc.return_ids">
+                            Return Reference: 
+
+                            
+                            
+                            
+                            
+                            <t t-esc="', '.join(return_id.name for return_id in doc.return_ids)"/></t>
+                        <t t-if="doc.return_ids and doc.x_studio_remarks"> | </t>
+                        <t t-esc="doc.x_studio_record_remarks"/> |
+                        
+                        
+                        
+                        
+                        <t t-esc="doc.x_studio_remarks"/>
+                    </span>
+                </div>
+                <!-- Signature Section -->
+                <div style="margin-left: 50px; page-break-inside: avoid; margin-top: 4px;font-size: 12px">
+                    <div class="mt-1 text-center d-flex justify-content-around">
+                        <div class="col-3" style="white-space: nowrap">
+                            <span t-esc="doc.documentation_staff_id.name or doc.create_uid.name"/>
+                        </div>
+                        <div class="col-1"/>
+                        <div class="col-3" style="white-space: nowrap">
+                            <t t-esc="doc.x_studio_warehouse_checker.name"/>
+                        </div>
+                        <div class="col-1"/>
+                        <div class="col-3" style="white-space: nowrap">
+                            <t t-esc="doc.x_studio_warehouse_supervisor.name"/>
+                        </div>
+                        <div class="col-1"/></div>
+                    <div class="text-center d-flex justify-content-around">
+                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">ENCODED BY:</div>
+                        <div class="col-1"/>
+                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">WAREHOUSE CHECKER:</div>
+                        <div class="col-1"/>
+                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">APPROVED BY:</div>
+                        <div class="col-1"/></div>
+                    <div class="text-center d-flex justify-content-around" style="font-size:12px">
+                        <div class="col-3">(Printed Name and Signature)</div>
+                        <div class="col-1"/>
+                        <div class="col-3">(Printed Name and Signature)</div>
+                        <div class="col-1"/>
+                        <div class="col-3">(Printed Name and Signature)</div>
+                    </div>
+                    <div class="mt-2 text-center d-flex justify-content-around mt-5" style="margin-left: 65px; white-space: nowrap">
+                        <div class="col-3" style="white-space: nowrap">
+                            <span t-esc="doc.x_studio_inventory_analyst.name or doc.x_studio_validated_by.name"/>
+                        </div>
+                        <div class="col-3"/>
+                        <div class="col-4"/>
+                        <div class="col-2"/></div>
+                       <div class="text-center d-flex justify-content-around" style="margin-left: 75px">
+                   <div class="col-3" style="border-top:2px solid black; padding-top: 2px; position: relative;">
+                        <div style="position: absolute; top: -50px; left: -130px; font-size: 10px; border: 1px solid black; padding: 2px; text-align: center;">
+                            Validated On: <t t-esc="doc.validated_on and (doc.validated_on + datetime.timedelta(hours=8)).strftime('%m/%d/%Y %H:%M:%S') or ''"/>
+                        </div>
+                        VALIDATED BY:
+                    </div>
+                        <div class="col-2"/>
+                        <div class="col-5" style="border-top:2px solid black; padding-top: 2px; white-space: nowrap;">RECEIVED AND ACKNOWLEDGED BY CLIENT:</div>
+                        <div class="col-1"/></div>
+                    <div class="text-center d-flex justify-content-around" style="font-size:12px; margin-left: 65px">
+                        <div class="col-3" style="white-space: nowrap;">(Printed Name and Signature)</div>
+                        <div class="col-2"/>
+                        <div class="col-5" style="white-space: nowrap;">(Printed Name and Signature)</div>
+                        <div class="col-1"/></div>
+                </div>
+            <div class="row mt-3">
+                <!--<div class="col-4">-->
+                <!--<span>F-IMS-005</span>-->
+                <!--</div>-->
+                <div class="col-12 text-center" style="border-bottom: 1px solid black">
+                    <span>
+                        <b>Distribution:</b> White(Billing Attachment); Blue(Acctg);  Pink(Client Copy); Green(Master File)
+                    
+                    
+                    
+                    
+                    </span>
+                </div>
+                <!--<div class="col-4" style="text-align: right"/>--></div>
+            <div class="row">
+                <div class="col-4">
+                    <!--<span>F-IMS-005</span>-->
+                </div>
+                <div class="col-4 text-center">
+             Page: 
+                
+                    
+                    
+                    
+                    
+                    
+                    <span t-esc="page_info_index + 1"/> / 
+                
+                    
+                    
+                    
+                    
+                    
+                    <span t-esc="pagination_data['pages_count']"/>
+                </div>
+                    <div class="col-4" style="text-align: right">REV 01 09/01/2025</div>
+                </div>
+            </div>
+        </t>
+    </xpath>
+    
+<!--<data>-->
+<!--    <xpath expr="/t[@t-name='studio_report_document']" position="replace" mode="inner">-->
+<!--        <t t-set="report_data" t-value="doc.prepare_report_data()"/>-->
+<!--        <t t-set="pagination_data" t-value="report_data['pagination_data']"/>-->
+<!--        <t t-set="total_out" t-value="doc.process_move_lines_get_total_out(doc.move_line_ids)"/>-->
+<!--        <t t-foreach="pagination_data['pages']" t-as="page_info">-->
+<!--            <div class="page" style="font-size:13px; max-height:100%; page-break-after: always; text-transform: uppercase; ">-->
+<!--                <t t-if="doc.state == 'assigned'">-->
+<!--                    <div style="position: absolute; top: 20px; left: 30px; font-size: 24px; color: red; opacity: 0.6; transform: rotate(-15deg); z-index: 1000;">-->
+<!--        DRAFT-->
+<!--    </div>-->
+<!--                </t>-->
+<!--                <table class="table-bordered table-sm mt-2" style="width: 100%; border-collapse: collapse; border: 1px solid black;">-->
+<!--                    <tbody>-->
+<!--                        <tr>-->
+<!--                            <td rowspan="2" style="width: 25%; text-align: left; vertical-align: middle;">-->
+<!--                                <table style="width: 100%;">-->
+<!--                                    <tr style="border: 1px solid white">-->
+<!--                                        <td style="width: 30%; vertical-align: middle;">-->
+<!--                                            <img src="/web/image/532-ee9f38ad/jobscloud-removebg-preview.png" alt="" class="img img-fluid o_we_custom_image" style="max-width: 100%; height: auto;"/>-->
+<!--                                        </td>-->
+<!--                                        <td style="width: 70%; vertical-align: middle; padding-left: 10px;">-->
+<!--                                            <span style="font-size: 10px;">Vifel Ice Plant AND-->
+                       
+                                                
+                                                
+<!--                                                <br/>Cold Storage Inc-->
+                   
+                                            
+                                            
+<!--                                            </span>-->
+<!--                                        </td>-->
+<!--                                    </tr>-->
+<!--                                </table>-->
+<!--                                <br/>-->
+<!--                                <div style="text-align: center;">-->
+<!--                                    <span style="font-size: 10px;">INVENTORY MANAGEMENT SECTION</span>-->
+<!--                                </div>-->
+<!--                            </td>-->
+<!--                            <td colspan="3" style="width: 80%; text-align: center; border-left: none;">-->
+<!--                                <div style="font-size: 12px;">FORM</div>-->
+<!--                            </td>-->
+<!--                        </tr>-->
+<!--                        <tr>-->
+<!--                            <td colspan="3" style="text-align: center; color: black; border-left: none; ; padding-top: 20px">-->
+<!--                                <div style="font-size: 20px; font-weight: bold;">BLAST FREEZE WITHDRAWAL REPORT</div>-->
+<!--                                <br/>-->
+<!--                                <div style="font-size: 12px;">-->
+<!--                                    <b>F-IMS-005</b>-->
+<!--                                </div>-->
+<!--                            </td>-->
+<!--                        </tr>-->
+<!--                    </tbody>-->
+<!--                </table>-->
+<!--                <div class="row">-->
+<!--                    <div class="col-3"/>-->
+<!--                    <div class="col-3"/>-->
+<!--                    <div class="col-3"/>-->
+<!--                    <div class="col-3" style="text-align: right; font-size: 20px; color: black;">-->
+<!--                        <span>NO.</span>-->
+<!--                        <t t-esc="doc.name"/>-->
+<!--                    </div>-->
+<!--                </div>-->
+<!--                <div class="row d-flex justify-content-end">-->
+<!--                    <div class="col-3 text-end" style="padding-right: 5px">DATE:-->
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_start_time and (doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') or '-'">-</span>-->
+<!--                    </div>-->
+<!--                    <div class="col-3 text-start">TIME START:-->
+        
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_start_time and (doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%H%MH') or '-'">-</span>-->
+<!--                    </div>-->
+<!--                </div>-->
+<!--                <div class="row d-flex justify-content-end">-->
+<!--                    <div class="col-6 text-start">Customer:-->
+        
+                
+                    
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span t-field="doc.partner_id.name" class="ms-2" style="font-size:17px"/>-->
+<!--                    </div>-->
+<!--                    <div class="col-3 text-end" style="padding-right: 5px">DATE:-->
+        
+                
+                    
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_end_time and (doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') or '-'">-</span>-->
+<!--                    </div>-->
+<!--                    <div class="col-3 text-start">TIME END:-->
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_end_time and (doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%H%MH') or '-'">-</span>-->
+<!--                    </div>-->
+<!--                </div>-->
+<!--                <table class="col-12 table-bordered mt-2" style="border:1px solid black; text-align: center">-->
+<!--                    <tbody>-->
+<!--                        <tr>-->
+<!--                            <td style="padding: 3px">BUILDING:</td>-->
+<!--                            <td style="padding: 3px">RR NO.:</td>-->
+<!--                            <td style="padding: 3px">GP NO.:</td>-->
+<!--                            <td style="padding: 3px">LD NO.:</td>-->
+<!--                            <td style="padding: 3px">Plate No.:</td>-->
+<!--                            <td style="padding: 3px" colspan="2">Arrival Time</td>-->
+<!--                            <td style="padding: 3px">Destination:</td>-->
+<!--                        </tr>-->
+<!--                        <tr>-->
+<!--                            <td style="padding: 2px font-size: 17px" rowspan="3" class="align-middle">-->
+<!--                                <t t-esc="doc.get_branch_from_location('BF')"/>-->
+<!--                            </td>-->
+<!--                            <td/>-->
+<!--                            <td style="padding: 3px font-size: 17px">-->
+<!--                                <span t-field="doc.x_studio_gate_pass"/>-->
+<!--                            </td>-->
+<!--                            <td style="padding: 3px font-size: 17px">-->
+<!--                                <span t-field="doc.x_studio_loading_dock_no"/>-->
+<!--                            </td>-->
+<!--                            <td style="padding: 3px font-size: 17px">-->
+<!--                                <span t-field="doc.x_studio_trucks_plate_"/>-->
+<!--                            </td>-->
+<!--                            <td style="padding: 3px font-size: 17px" class="align-middle" colspan="2">-->
+<!--                                <span t-esc="doc.x_studio_truck_time and (doc.x_studio_truck_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y %H%MH') or '-'"/>-->
+<!--                            </td>-->
+<!--                            <td style="padding: 3px font-size: 17px" class="align-middle" rowspan="3">-->
+<!--                                <span t-field="doc.x_studio_destination"/>-->
+<!--                            </td>-->
+<!--                        </tr>-->
+<!--                        <tr>-->
+<!--                            <td style="padding: 3px" colspan="2">BFRR NO.:</td>-->
+<!--                            <td style="padding: 3px" colspan="2">PRODUCT TEMP.:</td>-->
+<!--                            <td style="padding: 3px" colspan="2">TRUCK TEMP.:</td>-->
+<!--                        </tr>-->
+<!--                        <tr style="height:30px">-->
+<!--                            <td style="padding: 3px font-size: 15px" t-esc="doc.x_studio_last_operation_source_document.name or ''" colspan="2"/>-->
+<!--                            <td style="padding: 3px font-size: 15px" colspan="2" t-esc="doc.x_studio_product_temperature or ''"/>-->
+<!--                            <td style="padding: 3px font-size: 15px" colspan="2" t-esc="doc.x_studio_truck_temperature or ''"/>-->
+<!--                        </tr>-->
+<!--                    </tbody>-->
+<!--                </table>-->
+<!--                <div>-->
+<!--                    <t t-set="service_count" t-value="len(doc.x_studio_additional_services)"/>-->
+<!--                    <t t-set="counter" t-value="0"/>-->
+<!--                    <span>-->
+<!--                    OTHER CHARGES:-->
+                    
+                        
+                        
+                        
+                        
+<!--                        <t t-foreach="doc.x_studio_additional_services" t-as="item">-->
+<!--                            <t t-if="'SQM' in item.name">-->
+<!--                                <t t-esc="item.name.replace('(SQM)', '').strip()"/> (-->
+                                
+                                
+                                
+                                
+<!--                                <t t-esc="doc.x_studio_sqm"/> sqm) </t>-->
+<!--                            <t t-else="">-->
+<!--                                <t t-esc="item.name"/></t>-->
+<!--                            <t t-set="counter" t-value="counter + 1"/>-->
+<!--                            <t t-if="counter &lt; service_count">, </t>-->
+<!--                        </t>-->
+<!--                    </span>-->
+<!--                </div>-->
+<!--                <div style="height: 650px">-->
+<!--                    <table class="col-12 table table-bordered mt-2" style="font-size:12px; table-layout:auto; border-collapse:collapse; padding:0px; border: 1px solid white">-->
+<!--                        <tbody>-->
+<!--                            <tr class="text-center align-middle">-->
+<!--                                <th class="align-middle" style="width: 5%; border-bottom: 1px solid black">PALLET COUNT</th>-->
+<!--                                <th class="align-middle" style="width: 70%; border-bottom: 1px solid black">ITEM DESCRIPTION</th>-->
+<!--                                <th style="width: 5%; padding: 2px; border-bottom: 1px solid black">QTY</th>-->
+<!--                                <th style="border-bottom: 1px solid black">UOM</th>-->
+<!--                                <th style="width: 5%; padding: 2px; border-bottom: 1px solid black">WEIGHT(KG)</th>-->
+                                <!--<th style="width: 5%; padding: 2px; border-bottom: 1px solid black">PACKS</th>-->
+<!--                            </tr>-->
+<!--                            <tr style="height: 10px; border: none;">-->
+<!--                                <td colspan="5" style="border: none; background: transparent;"/>-->
+<!--                            </tr>-->
+<!--                            <t t-foreach="page_info['moves']" t-as="move">-->
+<!--                                <tr class="text-center" style="height: 25px; border-bottom: 1px solid white; font-size: 13px; border: 1px solid white;">-->
+<!--                                    <td style="padding: 1px;">-->
+<!--                                        <t t-esc="move['pallet_count']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="padding: 0px; white-space: nowrap">-->
+<!--                                        <t t-raw="move['product_name']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="padding: 1px; text-align: right">-->
+<!--                                        <t t-esc="'{:,.0f}'.format(move['packaging_qty'])"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="padding: 1px">-->
+<!--                                        <t t-esc="move['uom_name']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="padding: 1px;  text-align: right">-->
+<!--                                        <t t-esc="'{:,.2f}'.format(move['weight_actual'])"/>-->
+<!--                                    </td>-->
+                                    <!--<td style="padding: 1px;  text-align: right">-->
+                                    <!--    <t t-esc="'{:,.2f}'.format(move['heads_actual'])" t-if="move['heads_actual']"/>-->
+                                    <!--</td>-->
+<!--                                </tr>-->
+<!--                            </t>-->
+<!--                            <tr>-->
+<!--                                <td colspan="5" style="border-bottom: 1px solid black"/>-->
+<!--                            </tr>-->
+<!--                            <t t-if="len(pagination_data['pages']) &gt; 1">-->
+<!--                                <tr style="font-size: 13px; font-weight: bold">-->
+<!--                                    <td style="text-align: center">-->
+<!--                                        <span t-raw="page_info['totals']['pallet_count']"/>-->
+<!--                                    </td>-->
+<!--                                    <td class="text-end">Page Subtotal:</td>-->
+<!--                                    <td style="text-align: right">-->
+<!--                                        <span t-raw="page_info['totals']['packaging_qty']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="text-align: right">-->
+<!--                                        <span t-raw="page_info['totals']['uom_formatted']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="white-space: nowrap; text-align: right">-->
+<!--                                        <span t-esc="'{:,.2f}'.format(page_info['totals']['weight_actual'])"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="white-space: nowrap; text-align: right">-->
+<!--                                        <span t-esc="'{:,.2f}'.format(page_info['totals']['heads'])"/>-->
+<!--                                    </td>-->
+<!--                                </tr>-->
+<!--                            </t>-->
+<!--                            <t t-if="page_info_index + 1 == pagination_data['pages_count']">-->
+<!--                                <tr style="font-size: 13px; font-weight: bold">-->
+<!--                                    <td style="text-align: center">-->
+<!--                                        <span t-raw="pagination_data['grand_totals']['pallet_count']"/>-->
+<!--                                    </td>-->
+<!--                                    <td>-->
+<!--                                        <div class="row">-->
+<!--                                            <div class="col-8 text-center">-->
+<!--                  Total Out:-->
+                    
+<!--                                                <t t-foreach="total_out" t-as="lines">-->
+<!--                                                    <span>-->
+<!--                                                        <t t-esc="'{:.0f}'.format(lines['packaging'])"/>-->
+<!--                                                        <t t-esc="lines['uom']"/> | -->
+                            
+<!--                                                        <t t-esc="'{:.2f}'.format(lines['kg'])"/>KG-->
+                        
+<!--                                                    </span>-->
+<!--                                                    <br/>-->
+<!--                                                </t>-->
+<!--                                            </div>-->
+<!--                                            <div class="col-4 text-end">-->
+<!--                                                <t>Grand Total:</t>-->
+<!--                                            </div>-->
+<!--                                        </div>-->
+<!--                                    </td>-->
+<!--                                    <td style="text-align: right">-->
+<!--                                        <span t-raw="pagination_data['grand_totals']['qty_actual_formatted']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="text-align: right">-->
+<!--                                        <span t-raw="pagination_data['grand_totals']['uom_formatted']"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="white-space: nowrap; text-align: right">-->
+<!--                                        <span t-raw="pagination_data['grand_totals']['kg_actual_formatted']"/>-->
+<!--                                    </td>-->
+<!--                                </tr>-->
+                                <!-- Add underline separator only under quantity and weight columns -->
+<!--                                <tr>-->
+<!--                                    <td style="border: none;"/>-->
+<!--                                    <td style="border: none;"/>-->
+<!--                                    <td style="border-bottom: 1px solid black"/>-->
+<!--                                    <td style="border: none;"/>-->
+<!--                                    <td style="border-bottom: 1px solid black"/>-->
+<!--                                </tr>-->
+                                <!-- Add final combined totals -->
+<!--                                <tr class="text-center" style="font-size: 13px; font-weight: bold">-->
+<!--                                    <td style="text-align: right"/>-->
+<!--                                    <td style="text-align: right"/>-->
+<!--                                    <td style="text-align: right">-->
+                                        <!-- Sum the grand total quantities from the displayed grand total rows -->
+<!--                                        <t t-set="total_qty" t-value="0"/>-->
+<!--                                        <t t-set="grand_total_qty_raw" t-value="pagination_data['grand_totals']['qty_actual_formatted']"/>-->
+                                        <!-- Extract numeric values from the formatted grand total -->
+<!--                                        <t t-set="qty_values" t-value="[]"/>-->
+<!--                                        <t t-foreach="pagination_data['grand_totals']['qty_actual_formatted'].split('&lt;br/&gt;')" t-as="qty_line">-->
+<!--                                            <t t-if="qty_line.strip()">-->
+<!--                                                <t t-set="clean_qty" t-value="float(qty_line.strip().replace(',', ''))"/>-->
+<!--                                                <t t-set="total_qty" t-value="total_qty + clean_qty"/></t>-->
+<!--                                        </t>-->
+<!--                                        <span t-esc="'{:.2f}'.format(total_qty)"/>-->
+<!--                                    </td>-->
+<!--                                    <td style="text-align: right"/>-->
+<!--                                    <td style="text-align: right">-->
+                                        <!-- Sum the grand total weights from the displayed grand total rows -->
+<!--                                        <t t-set="total_weight" t-value="0"/>-->
+<!--                                        <t t-set="grand_total_weight_raw" t-value="pagination_data['grand_totals']['kg_actual_formatted']"/>-->
+                                        <!-- Extract numeric values from the formatted grand total -->
+<!--                                        <t t-foreach="pagination_data['grand_totals']['kg_actual_formatted'].split('&lt;br/&gt;')" t-as="weight_line">-->
+<!--                                            <t t-if="weight_line.strip()">-->
+<!--                                                <t t-set="clean_weight" t-value="float(weight_line.strip().replace(',', ''))"/>-->
+<!--                                                <t t-set="total_weight" t-value="total_weight + clean_weight"/></t>-->
+<!--                                        </t>-->
+<!--                                        <span t-esc="'{:.2f}'.format(total_weight)"/>-->
+<!--                                    </td>-->
+<!--                                </tr>-->
+<!--                            </t>-->
+<!--                        </tbody>-->
+<!--                    </table>-->
+<!--                </div>-->
+                <!--<t t-if="page_info_index + 1 == pagination_data['pages_count']">-->
+<!--                <div class="row col-12 mt-2" style="height: 40px;">-->
+<!--                    <span style="margin: 5px">-->
+<!--                        <b>Remarks: </b>-->
+<!--                        <t t-esc="doc.note"/>-->
+<!--                        <t t-if="doc.return_ids">-->
+<!--                            Return Reference: -->
+                            
+                            
+                            
+                            
+                            
+                            
+                                
+                                
+                                
+                            
+<!--                            <t t-esc="', '.join(return_id.name for return_id in doc.return_ids)"/></t>-->
+<!--                        <t t-if="doc.return_ids and doc.x_studio_remarks"> | </t>-->
+<!--                        <t t-esc="doc.x_studio_record_remarks"/> |-->
+                            
+                        
+<!--                        <t t-esc="doc.x_studio_remarks"/>-->
+<!--                    </span>-->
+<!--                </div>-->
+<!--                <div style="margin-left: 50px; page-break-inside: avoid; margin-top: 20px;font-size: 11px">-->
+<!--                    <div class="mt-2 text-center d-flex justify-content-around">-->
+<!--                        <div class="col-3" style="white-space: nowrap">-->
+<!--                            <span t-field="doc.create_uid.name"/>-->
+<!--                        </div>-->
+<!--                        <div class="col-1"/>-->
+<!--                        <div class="col-3" style="white-space: nowrap">-->
+<!--                            <t t-esc="doc.x_studio_checked_by"/>-->
+<!--                        </div>-->
+<!--                        <div class="col-1"/>-->
+<!--                        <div class="col-3" style="white-space: nowrap">-->
+<!--                            <t t-esc="doc.x_studio_approved_by"/>-->
+<!--                        </div>-->
+<!--                        <div class="col-1"/></div>-->
+<!--                    <div class="text-center d-flex justify-content-around">-->
+<!--                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">ENCODED BY:</div>-->
+<!--                        <div class="col-1"/>-->
+<!--                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">WAREHOUSE CHECKER:</div>-->
+<!--                        <div class="col-1"/>-->
+<!--                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">WAREHOUSE SUPERVISOR:</div>-->
+<!--                        <div class="col-1"/></div>-->
+<!--                    <div class="text-center d-flex justify-content-around" style="font-size:11px">-->
+<!--                        <div class="col-3">(Printed Name and Signature)</div>-->
+<!--                        <div class="col-1"/>-->
+<!--                        <div class="col-3">(Printed Name and Signature)</div>-->
+<!--                        <div class="col-1"/>-->
+<!--                        <div class="col-3">(Printed Name and Signature)</div>-->
+<!--                    </div>-->
+<!--                    <div class="mt-1 text-center d-flex justify-content-around mt-5" style="margin-left: 75px">-->
+<!--                        <div class="col-3">-->
+<!--                            <span t-field="doc.x_studio_validated_by.name"/>-->
+<!--                        </div>-->
+<!--                        <div class="col-3"/>-->
+<!--                        <div class="col-4"/>-->
+<!--                        <div class="col-2"/></div>-->
+<!--                    <div class="text-center d-flex justify-content-around" style="margin-left: 75px">-->
+<!--                        <div class="col-3" style="border-top:2px solid black; padding-top: 2px">VALIDATED BY:</div>-->
+<!--                        <div class="col-2"/>-->
+<!--                        <div class="col-5" style="border-top:2px solid black; padding-top: 2px; white-space: nowrap;">RECEIVED AND ACKNOWLEDGED BY CLIENT:</div>-->
+<!--                        <div class="col-1"/></div>-->
+<!--                    <div class="text-center d-flex justify-content-around" style="font-size:11px; margin-left: 75px">-->
+<!--                        <div class="col-3" style="white-space: nowrap;">(Printed Name and Signature)</div>-->
+<!--                        <div class="col-2"/>-->
+<!--                        <div class="col-5" style="white-space: nowrap;">(Printed Name and Signature)</div>-->
+<!--                        <div class="col-1"/></div>-->
+<!--                </div>-->
+                <!--</t>-->
+<!--                <div class="row mt-3">-->
+<!--                    <div class="col-12 text-center" style="border-bottom: 1px solid black">-->
+<!--                        <span>-->
+<!--                            <b>Distribution:</b> White(Billing AttacHment); Blue(Acctg);  Green(Client Copy); Pink(Master File)-->
+                        
+                        
+                        
+                        
+<!--                        </span>-->
+<!--                    </div>-->
+<!--                </div>-->
+<!--                <div class="row mt-1">-->
+<!--                    <div class="col-4"/>-->
+<!--                    <div class="col-4 text-center">-->
+<!--             Page: -->
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span t-esc="page_info_index + 1"/> / -->
+
+                    
+                    
+                    
+                        
+                        
+                        
+                        
+<!--                        <span t-esc="pagination_data['pages_count']"/>-->
+<!--                    </div>-->
+<!--                    <div class="col-4" style="text-align: right">REV 01 09/01/2025</div>-->
+<!--                </div>-->
+<!--            </div>-->
+<!--        </t>-->
+<!--    </xpath>-->
+<!--</data>-->
+</data>
