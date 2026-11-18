@@ -8,8 +8,8 @@ to 0 on Consultant-Test-19, so any difference between demand and actual
 Deviation Report. Each push to Consultant-Test-19 restores the live backup
 (1 / 5 / 5), so this step sets them to 0 again.
 
-!! REMOVE THIS STEP BEFORE THE REAL LIVE UPGRADE unless the client has
-!! agreed to 0 tolerance on live: it would override live's values.
+Settled with the client on 11-18: 0 tolerance applies on live too, so this
+step stays for the real live upgrade.
 """
 import logging
 

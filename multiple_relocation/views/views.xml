@@ -1116,11 +1116,11 @@
         <!-- 19.0.0.4.28: RR/WR print buttons call the print server actions
              directly (on 17 a Studio xpath swapped them in; a Studio save on
              19 garbled that swap into <b>/<br> tags, see migration 4.28). -->
-        <button string="Receiving R. Summary" name="studio_customization.print_receiving_r_summary" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
-        <button string="Receiving R. Per Pallet" name="studio_customization.print_receiving_r_per_pallet" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
+        <button string="Receiving R. Summary" name="action_vifel_print_rr_summary" type="object" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Receiving R. Per Pallet" name="action_vifel_print_rr_per_pallet" type="object" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
         <button string="Picklist" name="studio_customization.transfer_report_17e4fed6-498f-4f57-b063-790dd85fb781" type="action" invisible="picking_type_code != &quot;outgoing&quot;" class="btn btn-info" data-hotkey="shift+1"/>
-        <button string="Withdrawal R. Summary" name="studio_customization.print_withdrawal_r_summary" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
-        <button string="Withdrawal R. Per Pallet" name="studio_customization.print_withdrawal_r_per_pallet" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Withdrawal R. Summary" name="action_vifel_print_wr_summary" type="object" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
+        <button string="Withdrawal R. Per Pallet" name="action_vifel_print_wr_per_pallet" type="object" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
 
         <!-- Orphan cleanup: visible ONLY on a void child whose parent is
              no longer voided; supervisors + super admins. -->
@@ -1133,9 +1133,14 @@
 
       </xpath>
 
-      <xpath expr="//button[@name='studio_customization.print_withdrawal_r_per_pallet']" position="after">
-        <button string="BF Receiving R. Summary" name="studio_customization.print_bf_receiving_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+2"/>
-        <button string="BF Withdrawal R. Summary" name="studio_customization.print_bf_withdrawal_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+2"/>
+      <!-- 19.0.0.4.31: all 8 RR/WR/BFRR/BFWR print buttons call methods that
+           require Printed By first (models/stock_picking_print_guard.py). The
+           BF Per Pallet buttons moved here from the Studio view. -->
+      <xpath expr="//button[@name='action_vifel_print_wr_per_pallet']" position="after">
+        <button string="BF Receiving R. Summary" name="action_vifel_print_bfrr_summary" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+2"/>
+        <button string="BF Withdrawal R. Summary" name="action_vifel_print_bfwr_summary" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+2"/>
+        <button string="BF Receiving R. Per Pallet" name="action_vifel_print_bfrr_per_pallet" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+3"/>
+        <button string="BF Withdrawal R. Per Pallet" name="action_vifel_print_bfwr_per_pallet" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+3"/>
       </xpath>
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_id'][2]" position="after">
         <field name="x_studio_last_operation_destination_location" options="{'create_name_field': 'complete_name'}" invisible="picking_type_code != &quot;outgoing&quot; or not x_studio_last_operation_destination_location"/>
