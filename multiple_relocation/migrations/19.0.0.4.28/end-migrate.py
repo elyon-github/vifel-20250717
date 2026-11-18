@@ -101,7 +101,9 @@ def _printed_by(env, cr):
         })
         _logger.info("%s: field stock.picking.%s created", TAG, PRINTED_BY)
 
-    combined = env['stock.picking'].get_view(view_type='form')['arch']
+    # load_all_views: during -u Odoo leaves DB-only (Studio) views out of the
+    # combined arch, and the anchor field lives in the Studio view.
+    combined = env['stock.picking'].with_context(load_all_views=True).get_view(view_type='form')['arch']
     if ('name="%s"' % PRINTED_BY) in combined:
         return
     if ('name="%s"' % PRINTED_BY_ANCHOR) not in combined:
