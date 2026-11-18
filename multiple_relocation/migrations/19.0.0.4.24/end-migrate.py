@@ -13,7 +13,8 @@ With all modules loaded, for every stored char/text/html field whose 19
 definition is not translated but whose column is still jsonb, convert the
 column back to text with Odoo's own helper (keeps the en_US value) and clear
 the stale 'translate' flag in ir_model_fields. Columns already right are
-left alone; running it again changes nothing.
+left alone; so are columns that are jsonb on 19 by design (company_dependent
+fields such as res.partner.barcode). Running it again changes nothing.
 """
 import logging
 
@@ -34,6 +35,10 @@ def migrate(cr, version):
             if (not field.store or field.translate
                     or field.type not in ('char', 'text', 'html')
                     or field.inherited):
+                continue
+            if field.column_type[1] == 'jsonb':
+                # jsonb on purpose (company_dependent, e.g. res.partner.barcode
+                # {"<company id>": "X"}): not a translation, leave it alone.
                 continue
             cr.execute("""
                 SELECT udt_name FROM information_schema.columns
