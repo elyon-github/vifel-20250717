@@ -1113,11 +1113,14 @@
       <xpath expr="//button[@name='action_cancel']" position="after">
         <button string="Tally Sheet" name="studio_customization.transfer_report_727aa140-c77b-4126-a892-b8be901802ad" type="action" invisible="picking_type_code != &quot;incoming&quot; or state == &quot;done&quot;" class="btn btn-info" data-hotkey="shift+1"/>
         <button string="Pallet Tag Forms" name="studio_customization.transfer_report_5aa8718d-5c53-4570-a81e-37046f13be0f" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
-        <button string="Receiving R. Summary" name="studio_customization.bfwr_final_69f184c6-7101-4113-bf02-559f8e2f89eb" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
-        <button string="Receiving R. Per Pallet" name="studio_customization.receiving_report_fin_73786620-334b-443e-8828-5d6872e62187" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
+        <!-- 19.0.0.4.28: RR/WR print buttons call the print server actions
+             directly (on 17 a Studio xpath swapped them in; a Studio save on
+             19 garbled that swap into <b>/<br> tags, see migration 4.28). -->
+        <button string="Receiving R. Summary" name="studio_customization.print_receiving_r_summary" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Receiving R. Per Pallet" name="studio_customization.print_receiving_r_per_pallet" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
         <button string="Picklist" name="studio_customization.transfer_report_17e4fed6-498f-4f57-b063-790dd85fb781" type="action" invisible="picking_type_code != &quot;outgoing&quot;" class="btn btn-info" data-hotkey="shift+1"/>
-        <button string="Withdrawal R. Summary" name="studio_customization.bfwr_final_129e37d2-2dc6-4e1d-ac5b-fd830adb4bfc" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
-        <button string="Withdrawal R. Per Pallet" name="studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Withdrawal R. Summary" name="studio_customization.print_withdrawal_r_summary" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
+        <button string="Withdrawal R. Per Pallet" name="studio_customization.print_withdrawal_r_per_pallet" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
 
         <!-- Orphan cleanup: visible ONLY on a void child whose parent is
              no longer voided; supervisors + super admins. -->
@@ -1130,7 +1133,7 @@
 
       </xpath>
 
-      <xpath expr="//button[@name='studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36']" position="after">
+      <xpath expr="//button[@name='studio_customization.print_withdrawal_r_per_pallet']" position="after">
         <button string="BF Receiving R. Summary" name="studio_customization.print_bf_receiving_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+2"/>
         <button string="BF Withdrawal R. Summary" name="studio_customization.print_bf_withdrawal_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+2"/>
       </xpath>
