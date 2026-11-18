@@ -11,6 +11,14 @@ registry
             const type = action.report_type;
             let url = `/report/${type}/${action.report_name}`;
             const actionContext = action.context || {};
+            // VIFEL: also pass the list's domain. "Select all" only sends the
+            // first active_ids_limit (20,000) ids, so a report can use
+            // active_domain to cover the rest. report_download reads the
+            // context posted below (not the one in the url) for id reports.
+            const reportContext = {...user.context};
+            if (actionContext.active_domain) {
+                reportContext.active_domain = actionContext.active_domain;
+            }
             if (action.data && JSON.stringify(action.data) !== "{}") {
                 // Build a query string with `action.data` (it's the place where reports
                 // using a wizard to customize the output traditionally put their options)
@@ -23,7 +31,7 @@ registry
                 }
                 if (type === "xlsx") {
                     const context = encodeURIComponent(
-                        JSON.stringify(user.context)
+                        JSON.stringify(reportContext)
                     );
                     url += `?context=${context}`;
                 }
@@ -34,7 +42,7 @@ registry
                     url: "/report/download",
                     data: {
                         data: JSON.stringify([url, action.report_type]),
-                        context: JSON.stringify(user.context),
+                        context: JSON.stringify(reportContext),
                     },
                 });
             } finally {
