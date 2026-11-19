@@ -12,7 +12,7 @@ counting itself lives inside ``_populate_operations_data`` (~150 lines) and
 change three lines would guarantee drift from core, so core asks and this
 module answers.
 """
-from odoo import api, models
+from odoo import SUPERUSER_ID, api, models
 
 
 class PkrMergeCounting(models.Model):
@@ -170,9 +170,16 @@ class StockPickingMergeCounting(models.Model):
     @api.model
     def _vifel_pkg_qty_before(self, package, picking, before_dt, internal_ids):
         """Stock on ``package`` in internal locations just before ``before_dt``,
-        rebuilt from done move lines (all owners, like vifel_holds_stock)."""
+        rebuilt from done move lines (all owners, like vifel_holds_stock).
+
+        A package is ONE physical pallet in ONE place: every line that touches
+        it says where it stands, and whatever the history still books at any
+        OTHER location is dropped. Stock can leave a package without a move
+        line of its own (19.0.1.0.3: R 3292 kept 566.33 kg of a 04-29 OB at
+        M/EX/31/B/R14 forever; the 08-07 clearing line at another bin moved
+        0 kg), so a plain running sum showed emptied pallets as still full."""
         MoveLine = self.env['stock.move.line']
-        qty = 0.0
+        bal = {}
         for ml in MoveLine.search_read([
                 ('state', '=', 'done'),
                 ('date', '<', before_dt),
@@ -180,15 +187,21 @@ class StockPickingMergeCounting(models.Model):
                 '|', ('package_id', '=', package.id),
                 ('result_package_id', '=', package.id)],
                 ['quantity', 'package_id', 'result_package_id',
-                 'location_id', 'location_dest_id']):
-            pass_in = ml['result_package_id'] \
-                and ml['result_package_id'][0] == package.id
-            pass_out = ml['package_id'] and ml['package_id'][0] == package.id
-            if pass_in and ml['location_dest_id'][0] in internal_ids:
-                qty += ml['quantity']
-            if pass_out and ml['location_id'][0] in internal_ids:
-                qty -= ml['quantity']
-        return qty
+                 'location_id', 'location_dest_id'],
+                order='date asc, id asc'):
+            src, dst = ml['location_id'][0], ml['location_dest_id'][0]
+            pass_out = bool(ml['package_id']) \
+                and ml['package_id'][0] == package.id and src in internal_ids
+            pass_in = bool(ml['result_package_id']) \
+                and ml['result_package_id'][0] == package.id \
+                and dst in internal_ids
+            if pass_out:
+                bal = {src: bal.get(src, 0.0) - ml['quantity']}
+            if pass_in:
+                if not pass_out:
+                    bal = {dst: bal.get(dst, 0.0)}
+                bal[dst] = bal.get(dst, 0.0) + ml['quantity']
+        return sum(bal.values())
 
     @api.model
     def _vifel_backfill_return_merge_counts(self, dry_run=False):
@@ -231,7 +244,15 @@ class StockPickingMergeCounting(models.Model):
         to_flag.with_context(vifel_pallet_merge=True,
                              skip_pallet_series_sync=True).write(
             {'is_pallet_merge': True})
-        pickings = to_flag.mapped('picking_id')
+        report.extend(self._vifel_rebuild_return_ledger(
+            to_flag.mapped('picking_id')))
+        return report
+
+    @api.model
+    def _vifel_rebuild_return_ledger(self, pickings):
+        """Recount ``pickings`` and rebuild their (and their WRs') ledger rows
+        plus the running balances after them."""
+        PKR = self.env['pallet_kilos_record_model.pallet_kilos_record_model']
         pickings._compute_transacted_pallet_count()
         rows = PKR.search([('effective_document', 'in',
                             (pickings | pickings.mapped('return_id')).ids),
@@ -245,6 +266,59 @@ class StockPickingMergeCounting(models.Model):
                 parts[key] = r.start_time
         for (wh, bf), start in parts.items():
             PKR._recompute_owner_running_balances(wh, bf, from_datetime=start)
-        report.append('rebuilt %d ledger row(s) in %d partition(s)' % (
-            len(rows), len(parts)))
+        return ['rebuilt %d ledger row(s) in %d partition(s)' % (
+            len(rows), len(parts))]
+
+    @api.model
+    def _vifel_undo_ghost_return_merge_flags(self, dry_run=False):
+        """19.0.1.0.3: undo backfill flags that rest on ghost history.
+
+        The earlier backfill (run as the superuser) flagged a return +0 when
+        the rebuilt history said its merge / Fixed pallet still held stock.
+        With the corrected rebuild above, re-check exactly those groups (every
+        line of one return onto one pallet flagged and last written by the
+        superuser - a validation-time flag is written by the validating user,
+        and a co-birth keeps one +1 line) and put back +1 where the pallet was
+        in fact empty (M/RR/06528 R 3292: WR/10210 had emptied it 19 s
+        earlier)."""
+        MoveLine = self.env['stock.move.line']
+        pkgs = self.env['stock.package'].search(
+            [('vifel_is_merge_pallet', '=', True)]) \
+            | self.env['res.partner']._vifel_fixed_merge_packages()
+        if not pkgs:
+            return []
+        internal_ids = set(self.env['stock.location'].with_context(
+            active_test=False).search([('usage', '=', 'internal')]).ids)
+        lines = MoveLine.search([
+            ('state', '=', 'done'),
+            ('result_package_id', 'in', pkgs.ids),
+            ('is_pallet_merge', '=', True),
+            ('write_uid', '=', SUPERUSER_ID),
+            ('picking_id.return_id', '!=', False),
+            ('picking_id.picking_type_id.code', '=', 'incoming')])
+        report, to_clear = [], MoveLine
+        for picking in lines.mapped('picking_id'):
+            if picking.is_void_return or picking.x_studio_is_a_blast_freezer:
+                continue
+            plines = lines.filtered(lambda l: l.picking_id == picking)
+            before_dt = min(plines.mapped('date'))
+            for pkg in plines.mapped('result_package_id'):
+                hit = plines.filtered(lambda l: l.result_package_id == pkg)
+                if picking.move_line_ids.filtered(
+                        lambda l: l.result_package_id == pkg) - hit:
+                    continue
+                qty = self._vifel_pkg_qty_before(
+                    pkg, picking, before_dt, internal_ids)
+                if qty <= 0.0001:
+                    to_clear |= hit
+                    report.append('%s: %d line(s) onto %s, which was empty '
+                                  '-> +1 pallet again' % (
+                                      picking.name, len(hit), pkg.name))
+        if dry_run or not to_clear:
+            return report
+        to_clear.with_context(vifel_pallet_merge=True,
+                              skip_pallet_series_sync=True).write(
+            {'is_pallet_merge': False})
+        report.extend(self._vifel_rebuild_return_ledger(
+            to_clear.mapped('picking_id')))
         return report
