@@ -2583,10 +2583,13 @@ class transfer_locations(models.Model):
                 # The PSI-anchored order can interleave description groups
                 # (mixed pallets), so a per-page "seen" set would blank the
                 # description when a group resumes under a different
-                # product. Compare with the previous row instead, and
-                # always re-show at a page start.
+                # product. Compare with the previous row instead.
+                # The repeat at the top of each printed page is decided by
+                # the Per Pallet templates (first row of their page loop):
+                # they paginate on their own, so a fixed items_per_page here
+                # drifted (M/RR/07876: description on rows 1, 16, 31).
                 show_description = False
-                if line_index == 0 or is_new_page or description_key != prev_description_key:
+                if line_index == 0 or description_key != prev_description_key:
                     show_description = True
                 prev_description_key = description_key
     

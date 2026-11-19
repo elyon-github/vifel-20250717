@@ -7,3 +7,4 @@ from . import stock_picking
 from . import noted_by_name
 from . import res_partner_readonly
 from . import stock_picking_create_lock
+from . import print_printed_by_guard

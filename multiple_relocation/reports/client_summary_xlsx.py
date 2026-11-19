@@ -44,6 +44,26 @@ class InventorySummary(models.AbstractModel):
             return days, 'NEARLY EXPIRED'
         return days, 'GOOD'
 
+    def _selected_owners(self, records):
+        """Owners to print, in the order they appear in the selection.
+
+        "Select all" on the Inventory Overview passes only the first
+        web.active_ids_limit (20,000) quants; the overview holds more, so
+        owners whose lines fall past that cut got no sheet (11-18: 57 of 81).
+        When the selection is that large, the owners are taken from the
+        list's domain too (active_domain, sent by report_xlsx). A smaller,
+        hand-ticked selection is used as is.
+        """
+        owners = records.mapped('owner_id')
+        domain = self.env.context.get('active_domain')
+        limit = int(self.env['ir.config_parameter'].sudo().get_param(
+            'web.active_ids_limit', default='20000'))
+        if domain and len(records) >= limit:
+            groups = self.env['stock.quant']._read_group(domain, ['owner_id'])
+            owners |= self.env['res.partner'].browse(
+                [owner.id for (owner,) in groups if owner])
+        return owners
+
     def generate_xlsx_report(self, workbook, data, records):
         # Define formats with improved color scheme
         title_format = workbook.add_format({
@@ -136,7 +156,7 @@ class InventorySummary(models.AbstractModel):
 
         Quant = self.env['stock.quant']
 
-        for owner in records.mapped('owner_id'):
+        for owner in self._selected_owners(records):
             # Re-fetch each owner's COMPLETE on-hand internal inventory instead of trusting the
             # ticked selection. Selecting "all owners" in the list only passes a page/limit-bound
             # subset, so per-owner totals came out inaccurate; selecting one owner at a time

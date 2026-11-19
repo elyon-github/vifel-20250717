@@ -458,10 +458,14 @@ class PalletKilosXlsx(models.AbstractModel):
             totals['total_units_withdrawn'] += record.units_withdrawn or 0
             totals['total_kilos_withdrawn'] += record.kilos_withdrawn or 0
             totals['total_pallets_withdrawn'] += record.pallets_withdrawn or 0
-            totals['total_returned_qty'] += record.return_packaging or 0
-            totals['total_returned_heads'] += record.return_heads or 0
-            totals['total_returned_kilos'] += record.return_kilos or 0
-            totals['total_returned_pallets'] += record.return_pallets or 0
+            # A return voided after the WR row was booked keeps stale
+            # return_* figures on the row (the void does not re-run
+            # _populate_returns_data): leave them out (M/WR/12966).
+            if not (record.return_id and getattr(record.return_id, 'x_studio_voided', False)):
+                totals['total_returned_qty'] += record.return_packaging or 0
+                totals['total_returned_heads'] += record.return_heads or 0
+                totals['total_returned_kilos'] += record.return_kilos or 0
+                totals['total_returned_pallets'] += record.return_pallets or 0
             totals['total_adjustment_pallets'] += record.adjustment_pallets or 0
             totals['total_adjustment_packaging'] += record.adjustment_packaging or 0
             totals['total_adjustment_heads'] += record.adjustment_heads or 0
@@ -792,11 +796,14 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 6, line.kilos_received or 0, received_vivid_fmt)
                         sheet.write(row_index, 7, line.pallets_received or 0, received_vivid_fmt)
 
-                        # Validate return ID
+                        # Validate return ID. A voided return (still 'done')
+                        # is skipped, like the ledger (_populate_returns_data):
+                        # M/WR/12285 showed voided M/RR/07873 as its return.
                         validated_return_id = False
                         if line.record_reference.return_ids:
                             for return_id in line.record_reference.return_ids:
-                                if return_id.state == 'done':
+                                if return_id.state == 'done' and not getattr(
+                                        return_id, 'x_studio_voided', False):
                                     validated_return_id = return_id
                                     break
 
@@ -820,12 +827,15 @@ class PalletKilosXlsx(models.AbstractModel):
                         sheet.write(row_index, 14, line.kilos_withdrawn or 0, withdrawn_fmt)
                         sheet.write(row_index, 15, return_weight or 0, received_fmt)
                         sheet.write(row_index, 16, line.pallets_withdrawn or 0, withdrawn_fmt)
-                        sheet.write(row_index, 17, line.return_pallets or 0, received_fmt)
+                        # Return pallets only with a valid (non-voided) return:
+                        # a stale count from a later-voided return stays out.
+                        return_pallets = (line.return_pallets or 0) if validated_return_id else 0
+                        sheet.write(row_index, 17, return_pallets, received_fmt)
 
                         # Net columns with dark red text and light red background
                         net_qty_out = (line.packaging_withdrawn or 0) - return_qty
                         net_weight_out = (line.kilos_withdrawn or 0) - return_weight
-                        total_pallet_out = (line.pallets_withdrawn or 0) - (line.return_pallets or 0)
+                        total_pallet_out = (line.pallets_withdrawn or 0) - return_pallets
                         
                         sheet.write(row_index, 18, net_qty_out, net_fmt)
                         sheet.write(row_index, 19, net_weight_out, net_fmt)
