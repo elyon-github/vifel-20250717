@@ -72,7 +72,8 @@ class IrActionsServerPrintedBy(models.Model):
                 for picking in self.env['stock.picking'].browse(ids).exists():
                     if not (picking[field] or '').strip():
                         raise UserError(_(
-                            "Please indicate your name under Printed By before printing %s.",
+                            "Please indicate your name under Printed By next to NCR-Remarks "
+                            "before printing %s.",
                             picking.name))
                 break
         return super().run()
