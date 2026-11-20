@@ -17,7 +17,7 @@ from odoo import api, SUPERUSER_ID
 _logger = logging.getLogger(__name__)
 
 TAG = '19.0.0.4.34'
-MARK = "x_studio_printed_by_name"
+MARK = "Printed By is required too"
 ANCHOR = re.compile(
     r'\n(?P<ind>[ \t]*)if missing_fields:\n[ \t]*raise UserError\(\s*'
     r'"Please complete the following required fields')
@@ -26,9 +26,9 @@ ANCHOR = re.compile(
 def _block(ind):
     return (
         "\n{i}# Printed By is required too ({tag})\n"
-        "{i}if '{f}' in record._fields and not (record['{f}'] or '').strip():\n"
+        "{i}if record.vifel_printed_by_missing():\n"
         "{i}    missing_fields.append(\"\u2022 Printed By - next to NCR-Remarks\")\n"
-    ).format(i=ind, tag=TAG, f=MARK)
+    ).format(i=ind, tag=TAG)
 
 
 def migrate(cr, version):
