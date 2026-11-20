@@ -47,10 +47,6 @@
                             <field name="name" string="Noted By Names"/>
                         </list>
                     </field>
-                    <div class="text-muted">
-                        Names the documentation staff can choose as Noted By (Additional Info tab).
-                        Removing a name here hides it from the list; transfers that already use it keep it.
-                    </div>
                 </page>
             </xpath>
         </field>
