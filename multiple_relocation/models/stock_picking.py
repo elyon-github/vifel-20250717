@@ -2497,7 +2497,7 @@ class transfer_locations(models.Model):
             for line in sorted_move_lines:
                 move = line
                 product_name = line.product_id.name if line.product_id else ''
-                container_number = move.x_studio_container_number or ''
+                container_number = move._vifel_print_container_number()
     
                 production_date = ''
                 if move.x_studio_production_date:
@@ -2529,7 +2529,7 @@ class transfer_locations(models.Model):
                 move = line
     
                 product_name = line.product_id.name if line.product_id else ''
-                container_number = move.x_studio_container_number or ''
+                container_number = move._vifel_print_container_number()
     
                 production_date = ''
                 if move.x_studio_production_date:
@@ -2895,8 +2895,7 @@ class transfer_locations(models.Model):
                     move_line, 'x_studio_production_date') else None
                 exp_date = move_line.x_studio_expiration_date if hasattr(
                     move_line, 'x_studio_expiration_date') else None
-                cont_number = move_line.x_studio_container_number if hasattr(
-                    move_line, 'x_studio_container_number') else None
+                cont_number = move_line._vifel_print_container_number() or None
                 lot_no = doc._vifel_report_lot_no(move_line) if show_lot_no else ''
 
                 # Convert dates to string for consistent grouping
