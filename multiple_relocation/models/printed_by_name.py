@@ -72,6 +72,14 @@ class StockPickingPrintedByName(models.Model):
         inverse='_inverse_vifel_printed_by_name_ids',
         groups='multiple_relocation.group_deviation_noted_by')
 
+    def vifel_printed_by_missing(self):
+        """True when no Printed By is chosen. The dropdown is what the user
+        sees, so it decides: a name typed in the old (now hidden) text field
+        before 19.0.0.4.38 no longer counts. Used by Verify Transfer and the
+        print buttons. Public so the Verify server action can call it."""
+        self.ensure_one()
+        return not self.vifel_printed_by_name_id
+
     def _vifel_write_printed_by_text(self, name):
         # Write the text only, without running the dropdown sync again.
         if PRINTED_BY_TEXT in self._fields:

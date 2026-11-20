@@ -73,7 +73,7 @@ class IrActionsServerPrintedBy(models.Model):
                     break
                 ids = ctx.get('active_ids') or ([ctx['active_id']] if ctx.get('active_id') else [])
                 for picking in self.env['stock.picking'].browse(ids).exists():
-                    if not (picking[field] or '').strip():
+                    if picking.vifel_printed_by_missing():
                         raise UserError(_(
                             "Please indicate your name under Printed By next to NCR-Remarks "
                             "before printing %s.", picking.name))
