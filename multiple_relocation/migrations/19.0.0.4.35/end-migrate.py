@@ -3,8 +3,8 @@
 
 The 8 Summary / Per Pallet templates (19.0.0.4.29) print
     Last Print Date: <now>
-This appends " | Print Count: <Transfer's vifel_print_count>" on the same
-line (models/print_count.py counts each PDF print). Views found by key, old
+This adds "Print Count: <Transfer's vifel_print_count>" on its own line
+right below it (models/print_count.py counts each PDF print). Views found by key, old
 arch kept as an attachment, a template already carrying it is skipped.
 Existing Transfers start at 0: earlier prints were never counted.
 """
@@ -21,7 +21,7 @@ P = 'studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3a
 KEYS = [P + s for s in ('', '_copy_1', '_copy_2', '_copy_3', '_copy_2_copy_1',
                         '_copy_3_copy_1', '_copy_2_copy_1_copy_1', '_copy_3_copy_1_copy_1')]
 LAST = re.compile(r'(Last Print Date:\s*<t\b[^>]*?t-esc="[^"]*"[^>]*?/>)')
-ADD = ' | Print Count: <t t-esc="doc.vifel_print_count or 0"/>'
+ADD = '<br/>Print Count: <t t-esc="doc.vifel_print_count or 0"/>'
 
 
 def migrate(cr, version):
