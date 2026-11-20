@@ -9,3 +9,4 @@ from . import res_partner_readonly
 from . import stock_picking_create_lock
 from . import stock_picking_print_guard
 from . import print_adjusted_container
+from . import print_count
