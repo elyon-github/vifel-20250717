@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="stock.vpicktree"/>
         <field name="arch" type="xml">
           <xpath expr="//field[@name='scheduled_date']" position="replace"/>
-          <xpath expr="//tree[1]/field[@name='name']" position="after">
+          <xpath expr="//list[1]/field[@name='name']" position="after">
             <xpath expr="//field[@name='partner_id']" position="move"/>
           </xpath>
           <xpath expr="//field[@name='name']" position="before">
@@ -41,7 +41,7 @@
             <field name="x_studio_end_time" optional="show"/>
           </xpath>
 
-          <xpath expr="//tree[1]" position="attributes">
+          <xpath expr="//list[1]" position="attributes">
             <attribute name="default_order">x_studio_start_time asc</attribute>
           </xpath>
           <xpath expr="//field[@name='state']" position="after">
@@ -49,7 +49,7 @@
              <field name="total_quantity" optional="show"/>
              <field name="total_weight" optional="show"/>
           </xpath>
-          <xpath expr="//tree[1]/field[@name='partner_id'][2]" position="replace"/>
+          <xpath expr="//list[1]/field[@name='partner_id'][2]" position="replace"/>
         </field>
     </record>
 
@@ -60,29 +60,6 @@
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
 
-
-            <xpath expr="//field[@name='user_id']" position="after">
-                <field name="vifel_noted_by_name_id"
-                       options="{'no_create': True, 'no_open': True}"/>
-            </xpath>
-
-            <!-- The Noted By names, typed in from the transfer itself by the
-                 noting account (team request 2026-09-28). -->
-            <xpath expr="//page[@name='extra']" position="after">
-                <page string="Configuration" name="vifel_configuration"
-                      groups="multiple_relocation.group_deviation_noted_by">
-                    <field name="vifel_noted_by_name_ids" nolabel="1">
-                        <tree editable="bottom">
-                            <field name="sequence" widget="handle"/>
-                            <field name="name" string="Noted By Names"/>
-                        </tree>
-                    </field>
-                    <div class="text-muted">
-                        Names the documentation staff can choose as Noted By (Additional Info tab).
-                        Removing a name here hides it from the list; transfers that already use it keep it.
-                    </div>
-                </page>
-            </xpath>
 
             <xpath expr="//form" position="inside">
                 <!-- Ensure this field is included in the view -->
@@ -96,7 +73,7 @@
                 <field name="non_void_return_count" invisible="1"/>
             </xpath>
 
-             <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom']" position="after">
+             <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_uom']" position="after">
                 <button name="select_quants" type="object" string="Select Stocks" class="btn-primary" invisible="parent.picking_type_code == 'incoming' or parent.state == 'done' or parent.x_studio_is_a_blast_freezer" data-hotkey="f"/>
 
               </xpath>
@@ -182,12 +159,13 @@
     <field name="name">stock.move.line.operations.tree.inherit</field>
     <field name="model">stock.move.line</field>
     <field name="inherit_id" ref="stock.view_stock_move_line_detailed_operation_tree"/>
+    <!-- upgrade.odoo.com (17->19) left this view inactive; -u must switch it back on -->
+    <field name="active" eval="True"/>
     <field name="arch" type="xml">
 
 <!-- Invisible Fields: Declare fields that should not be shown in the view -->
-        <xpath expr="//tree" position="inside">
+        <xpath expr="//list" position="inside">
             <field name="x_studio_type_of_pallet" invisible="1" column_invisible="1"/>
-            <field name="package_level_id" invisible="1" column_invisible="1"/>
             <field name="picking_type_id" invisible="1" column_invisible="1"/>
         </xpath>
 
@@ -204,7 +182,7 @@
 
              The receiving read-back survives as an optional, hidden-by-default
              column beside it, renamed so the two can be told apart. -->
-        <xpath expr="//tree" position="inside">
+        <xpath expr="//list" position="inside">
             <field name="vifel_remarks" string="Remarks"
                    readonly="state == 'cancel'"/>
             <field name="vifel_remarks_display" string="Remarks (from receiving)"
@@ -214,7 +192,7 @@
         </xpath>
 
         <!-- Action Buttons in Header -->
-        <xpath expr="//tree/header" position="inside">
+        <xpath expr="//list/header" position="inside">
             <!-- Verify Transfer Button -->
 
             <button string="Verify Transfer" name="call_server_action_verify_pallet_series" type="object" invisible="context.get('x_studio_record_lines_counter') == 0 or context.get('picking_type_code') != 'incoming'                      or context.get('state') == 'done' or context.get('picking_type_id') not in [1, 6, 45, 46]                      or context.get('x_studio_verified') == True" class="btn-success"/>
@@ -236,13 +214,13 @@
         </xpath>
 
         <!-- Attribute Overrides: Modify attributes of specific fields -->
-        <xpath expr="//tree//field[@name='lot_name']" position="attributes">
+        <xpath expr="//list//field[@name='lot_name']" position="attributes">
             <attribute name="column_invisible">True</attribute>
         </xpath>
-        <xpath expr="//tree//field[@name='lot_id']" position="attributes">
+        <xpath expr="//list//field[@name='lot_id']" position="attributes">
             <attribute name="column_invisible">True</attribute>
         </xpath>
-        <xpath expr="//tree//field[@name='lot_id']" position="attributes">
+        <xpath expr="//list//field[@name='lot_id']" position="attributes">
             <attribute name="column_invisible">True</attribute>
         </xpath>
         <xpath expr="//header//button[@name='action_put_in_pack']" position="attributes">
@@ -250,28 +228,26 @@
         </xpath>
 
         <!-- Insert Fields Before Product ID -->
-        <xpath expr="//tree//field[@name='product_id']" position="after">
+        <xpath expr="//list//field[@name='product_id']" position="after">
             <field optional="show" name="x_studio_use_as_template" column_invisible="picking_code == 'outgoing'" readonly="state == 'done'"/>
         </xpath>
 
         <!-- Set Tree View Editable Mode -->
-        <xpath expr="//tree" position="attributes">
+        <xpath expr="//list" position="attributes">
             <attribute name="editable">bottom</attribute>
             <attribute name="default_order">x_studio_, x_studio_pallet_series_id asc, product_id, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id</attribute>
             <attribute name="js_class">magic_wizard_list_view</attribute>
         </xpath>
 
         <!-- Define Domain for Location Destination Field -->
-        <xpath expr="//tree//field[@name='location_dest_id'][2]" position="attributes">
+        <xpath expr="//list//field[@name='location_dest_id'][2]" position="attributes">
             <attribute name="domain">[
                 '&amp;',
                     ('id', 'child_of', context.get('default_location_dest_id')),
                     '|',
                         ('x_studio_is_an_aisle', '=', True),
                         '&amp;',
-                            '|',
-                                ('x_studio_occupied_by_1', '=', ''),
-                                ('x_studio_occupied_by_1', '=', False),
+                            ('x_studio_occupied_by_1', '=', False),
                             ('child_ids', '=', False),
                 '|',
                     ('x_studio_receiving_report_id', '=', False),
@@ -281,11 +257,11 @@
         </xpath>
 
 
-        <xpath expr="//tree//field[@name='product_id']" position="before">
+        <xpath expr="//list//field[@name='product_id']" position="before">
         <field name="x_studio_" optional="show" readonly="True"/>
             </xpath>
         <!-- Insert Additional Fields Before Location Destination Field -->
-        <xpath expr="//tree//field[@name='location_dest_id'][1]" position="before">
+        <xpath expr="//list//field[@name='location_dest_id'][1]" position="before">
             <!-- <field name="x_studio_brand" optional="show" readonly="True" widget="many2many_tags"/> -->
             
             <field name="x_studio_return_count" optional="show" readonly="True" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]"/>
@@ -302,7 +278,7 @@
         <!-- Replace the 'result_package_id' Field and Add Domain -->
 
         
-        <xpath expr="//tree//field[@name='result_package_id'][2]" position="replace">
+        <xpath expr="//list//field[@name='result_package_id'][last()]" position="replace">
             <!-- <field name="result_package_id" column_invisible="picking_code == 'outgoing'"
                    readonly="package_level_id and parent.picking_type_entire_packs"
                    groups="stock.group_tracking_lot"
@@ -320,13 +296,13 @@
             <field name="bf_pallet_char" column_invisible="not context.get('is_blast_freeze')" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" readonly="picking_code == 'outgoing' or state == 'done'"/>
             <field optional="hide" name="original_pallet_series_id" groups="base.group_erp_manager"/>
             <field optional="show" name="x_studio_pallet_series_display" invisible="picking_type_id in [45, 46, 47, 48]" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" readonly="1"/>   
-            <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="package_level_id and parent.picking_type_entire_packs or context.get('is_blast_freeze') or state == 'done' or 1" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
+            <field name="result_package_id" string="Pallet #" column_invisible="picking_code == 'outgoing' or context.get('is_blast_freeze')" readonly="1" decoration-danger="is_package_multiple_withdraw" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[                        ('location_id', '=', False),                        ('package_type_id.name', '=', x_studio_type_of_pallet),                        '|',                        ('x_studio_receiving_report_id', '=', False),                        ('x_studio_receiving_report_id', 'in',                            context.get('default_picking_id') and [context.get('default_picking_id')] or []                        )                    ]" options="{'no_create': True, 'no_open':True}"/>
 
 
         </xpath>
 
         <!-- Insert New Fields After 'result_package_id' -->
-        <xpath expr="//tree//field[@name='result_package_id'][2]" position="after">
+        <xpath expr="//list//field[@name='result_package_id'][last()]" position="after">
             <field optional="show" name="x_studio_exp_warned" column_invisible="1" invisible="1"/>
             <field optional="show" name="x_studio_container_number" required="False" readonly="picking_code == 'outgoing' or state == 'done'" column_invisible="context.get('picking_type_id') in [45, 46, 47, 48]" width="120"/>
             <field optional="show" name="x_studio_production_date" string="Prod. Date" invisible="False" readonly="picking_code == 'outgoing' or state == 'done'" options="{'max_date': 'today'}" width="120"/>
@@ -342,45 +318,45 @@
 
             
             <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Quantity" readonly="picking_code == 'outgoing' or state == 'done'" width="120"/>
-            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="[('category_id', 'ilike', 'Packaging UOM')]" readonly="picking_code == 'outgoing' or state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120" options="{'no_create': True, 'no_open':True}"/>
+            <field optional="show" name="x_studio_quantity_uom" string="Quantity UOM" domain="['|', ('name', '=', 'SACKS'), ('relative_uom_id.name', '=', 'SACKS')]" readonly="picking_code == 'outgoing' or state == 'done'" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" width="120" options="{'no_create': True, 'no_open':True}"/>
 
 
         </xpath>
 
-        <xpath expr="//tree//field[@name='quantity']" position="after">
+        <xpath expr="//list//field[@name='quantity']" position="after">
                         <field name="x_studio_max_total_units" string="Original Units" readonly="1" column_invisible="context.get('picking_code') != 'outgoing'" sum="Total"/>
                         <field optional="show" name="x_studio_withdraw_units" column_invisible="context.get('picking_code') == 'incoming'" string="Packs" width="120" readonly="1" class="fw-bolder"/>
                         <field optional="show" name="x_studio_actual_min" column_invisible="context.get('picking_code') == 'incoming'" string="Actual Packs" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
             <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="context.get('picking_code') == 'outgoing'" string="Packs QTY" required="False" width="120" readonly="state == 'done'"/>
-            <field name="x_studio_min_quantity_uom" optional="show" domain="[('category_id', 'ilike', 'min uom')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120" options="{'no_create': True, 'no_open':True}"/>
+            <field name="x_studio_min_quantity_uom" optional="show" domain="['|', ('name', '=', 'PIECES'), ('relative_uom_id.name', '=', 'PIECES')]" string="Packs UOM" readonly="picking_code == 'outgoing' or state == 'done'" width="120" options="{'no_create': True, 'no_open':True}"/>
         </xpath>
-                <xpath expr="//tree//field[@name='quantity']" position="after">
+                <xpath expr="//list//field[@name='quantity']" position="after">
                     <field optional="show" name="x_studio_actual_kg" digits="[16,3]" column_invisible="context.get('picking_code') == 'incoming'" string="Actual KG" width="120" decoration-warning="1" class="fw-bolder" readonly="state == 'done' and not x_studio_edit_record"/>
                 </xpath>
 
 
-                <xpath expr="//tree//field[@name='x_studio_affected_2nd_uom']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_affected_2nd_uom']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='x_studio_actual_packaging']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_actual_packaging']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='x_studio_withdraw_units']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_withdraw_units']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='x_studio_actual_min']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_actual_min']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='x_studio_2nd_uom']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_2nd_uom']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='x_studio_total_units']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_total_units']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='x_studio_actual_kg']" position="attributes">
+                <xpath expr="//list//field[@name='x_studio_actual_kg']" position="attributes">
                     <attribute name="sum">Total</attribute>
                 </xpath>
-                <xpath expr="//tree//field[@name='quantity']" position="attributes">
+                <xpath expr="//list//field[@name='quantity']" position="attributes">
                     <attribute name="sum">Total</attribute>
                     <attribute name="string">Weight (KG)</attribute>
                     <attribute name="class">fw-bolder</attribute>
@@ -399,13 +375,13 @@
             <!-- Insert your new group -->
             <group colspan="2">
                 <field name="client_expiry_table_ids">
-                    <tree editable="bottom">
+                    <list editable="bottom">
                         <field name="dynamic_attribute_value_ids" invisible="1" column_invisible="1"/>
                         <field name="partner_ids" widget="many2many_tags"/>
                         <field name="line_attribute_value_ids" widget="many2many_tags"
                                domain="[('id', 'in', dynamic_attribute_value_ids)]" options="{'no_create': True, 'no_create_edit':True}"/>
                         <field name="expiry_date_range_id"/>
-                    </tree>
+                    </list>
                 </field>
             </group>
         </xpath>
@@ -460,6 +436,8 @@
     <field name="name">stock.picking.form.custom</field>
     <field name="model">stock.picking</field>
     <field name="inherit_id" ref="stock.view_picking_form"/>
+    <!-- upgrade.odoo.com (17->19) left this view inactive; -u must switch it back on -->
+    <field name="active" eval="True"/>
     <field name="arch" type="xml">
 
       <!-- First Partss -->
@@ -509,9 +487,14 @@
         <attribute name="invisible">True</attribute>
         <attribute name="studio_approval">False</attribute>
       </xpath>
-      <xpath expr="//button[@name='action_open_label_type']" position="attributes">
-        <attribute name="invisible">True</attribute>
+      <!-- The RR/WR alerts tell users to open "Pallet Breakdown (top-center of screen)". On 17 that label was a
+           direct DB edit of the core stock.picking.form (view 678), which the 19 upgrade reset to "Moves".
+           Keep it in code instead. -->
+      <xpath expr="//button[@name='action_detailed_operations']//span[hasclass('o_stat_text')]" position="replace">
+        <span class="o_stat_text">Pallet Breakdown</span>
       </xpath>
+      <!-- Odoo 19: "Print Labels" (action_open_label_type) is no longer a form button - it moved to the
+           Print menu as a server action - so there is nothing to hide here any more. -->
       <xpath expr="//button[@name='207']" position="attributes">
         <attribute name="invisible">True</attribute>
       </xpath>
@@ -855,8 +838,16 @@
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='picking_type_id']" position="after">
         <field name="x_studio_preferred_locations" domain="[ '&amp;', '&amp;', '&amp;', '&amp;',  ('child_ids.child_ids', '!=', False), ('usage', '=', 'internal'), ('name', '!=', 'Stock'), ('warehouse_id.code', 'in', [x_studio_warehouse_sh]), ('x_studio_is_a_blast_freezer', '=', False), ('complete_name', 'not ilike', 'BF')]" invisible="picking_type_code == &quot;outgoing&quot; or picking_type_id in [45, 46]"/>
       </xpath>
+      <!-- Odoo 19's stock.view_picking_form puts domain="[('usage','!=','view')]" on
+           the header Destination Location. A view domain replaces the field's own
+           domain ([('id', 'in', allowed_value_ids)], _compute_allowed_value_ids), so
+           BFRR listed every storage location (M/A/...) instead of the Blast Freeze
+           ones (M/BF/...). 17's form had no view domain. Restore the field domain. -->
+      <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_dest_id'][2]" position="attributes">
+        <attribute name="domain">[('id', 'in', allowed_value_ids)]</attribute>
+      </xpath>
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_dest_id'][2]" position="after">
-        <field widget="many2many_tags" name="x_studio_additional_services" domain="[(&quot;detailed_type&quot;, &quot;=&quot;, &quot;service&quot;)]" force_save="0" readonly="False" string="Additional Charges"/>
+        <field widget="many2many_tags" name="x_studio_additional_services" domain="[(&quot;type&quot;, &quot;=&quot;, &quot;service&quot;)]" force_save="0" readonly="False" string="Additional Charges"/>
         <field name="return_reason" invisible="not return_reason"/>
         <field name="other_reasons" invisible="not other_reasons"/>
         <field name="x_studio_edit_record" invisible="True"/>
@@ -903,13 +894,13 @@
         <field name="x_studio_ncr_remarks" invisible="state == &quot;draft&quot;"/>
         <field name="x_studio_record_lines_counter" invisible="True"/>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_id']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_id']" position="attributes">
         <attribute name="domain">[("id", "=", parent.allowed_product_ids)]</attribute>
         <attribute name="options">{"no_create_edit":true,"no_create":true}</attribute>
         <attribute name="readonly">parent.picking_type_code != 'incoming' or parent.state == 'done'</attribute>
       </xpath>
       <!-- Second Part -->
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_id']" position="after">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_id']" position="after">
         
         <field optional="show" name="x_studio_client_ref" column_invisible="parent.picking_type_code == 'outgoing'" required="True"/>
         <field optional="show" name="x_studio_atw_no" column_invisible="parent.picking_type_code == 'incoming' or not parent.picking_type_id in [2, 7] or 1" required="picking_type_id in [2, 7]"/>
@@ -919,43 +910,50 @@
         <field optional="show" name="x_studio_demand_packaging" string="Quantity" readonly="False"/>
         <field optional="show" name="x_studio_actual_packaging_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
         <field name="x_studio_packaging_variance" string="Variance" optional="show" column_invisible="parent.state == 'draft'" widget="badge" decoration-danger="x_studio_packaging_variance &lt; 0" decoration-success="x_studio_packaging_variance &gt; 0"/>
-        <field optional="show" name="x_studio_packaging_unit" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;Packaging UOM&quot;)]" string="UOM" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_demand_packaging" options="{&quot;no_create&quot;:true}"/>
+        <field optional="show" name="x_studio_packaging_unit" domain="[&quot;|&quot;, (&quot;name&quot;, &quot;=&quot;, &quot;SACKS&quot;), (&quot;relative_uom_id.name&quot;, &quot;=&quot;, &quot;SACKS&quot;)]" string="UOM" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_demand_packaging" options="{&quot;no_create&quot;:true}"/>
         <field optional="show" name="x_studio_variance" column_invisible="True" invisible="False"/>
       </xpath>
-      <xpath expr="//field[@name='product_packaging_id']" position="after">
+      <!-- Odoo 19 removed product.packaging; on 17 product_packaging_id sat directly before Demand -->
+      <xpath expr="//field[@name='product_uom_qty']" position="before">
         <field optional="show" name="x_studio_packaging_uom" column_invisible="True"/>
         <field optional="show" name="x_studio_min_uom" column_invisible="False" invisible="False" string="Minimum" required="x_studio_demand_packaging"/>
         <field optional="show" name="x_studio_min_actual_demand" column_invisible="parent.state == &quot;draft&quot;" string="Actual Demand"/>
         <field name="x_studio_min_variance" optional="show" column_invisible="parent.state == 'draft'" widget="badge" decoration-danger="x_studio_min_variance &lt; 0" decoration-success="x_studio_min_variance &gt; 0"/>
 
-        <field optional="show" name="x_studio_min_unit" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;min&quot;)]" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_min_uom" options="{&quot;no_quick_create&quot;:true}" string="UOM"/>
+        <field optional="show" name="x_studio_min_unit" domain="[&quot;|&quot;, (&quot;name&quot;, &quot;=&quot;, &quot;PIECES&quot;), (&quot;relative_uom_id.name&quot;, &quot;=&quot;, &quot;PIECES&quot;)]" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_min_uom" options="{&quot;no_quick_create&quot;:true}" string="UOM"/>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom_qty']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_uom_qty']" position="attributes">
         <attribute name="readonly">False</attribute>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='quantity']" position="attributes">
         <attribute name="readonly">False</attribute>
         <attribute name="string">Weight (KG)</attribute>
       </xpath>
 
-            <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="after">
+            <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='quantity']" position="after">
                 <field name="automatically_added" invisible="1" column_invisible="1"/>
             </xpath>
 
-            <!-- <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="attributes">
+            <!-- <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='quantity']" position="attributes">
                         <attribute name="decoration-success">automatically_added</attribute>
           </xpath> -->
         
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="after">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='quantity']" position="after">
             <field name="x_studio_kg_variance" string="Variance" optional="show" column_invisible="False" invisible="False" widget="badge" decoration-danger="x_studio_kg_variance &lt; 0" decoration-success="x_studio_kg_variance &gt; 0"/>
 
       </xpath>
+      <!-- Odoo 19's "Details" button opens the standard Detailed Operations
+           popup; VIFEL opens the line's Move Detail form with the list icon
+           instead, as on 17 (static/src/js/stock_move_open_detail.js). -->
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/button[@name='action_show_details']" position="attributes">
+        <attribute name="column_invisible">True</attribute>
+      </xpath>
       <!-- Last column of the item list: typed per item, printed in the
-           Deviation Report's Concern/Remarks column. -->
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]" position="inside">
+           Deviation Report's Concern/Remarks column (ported from MAIN 9512c0b). -->
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]" position="inside">
         <field name="vifel_concern_remarks" optional="show"/>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]" position="after">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]" position="after">
         <form string="Move Detail">
           <field name="sequence" invisible="1"/>
           <field name="company_id" invisible="1"/>
@@ -965,14 +963,11 @@
           <field name="picking_id" invisible="1" readonly="state == 'done'"/>
           <field name="picking_type_id" invisible="1"/>
           <field name="is_locked" invisible="1"/>
-          <field name="picking_type_entire_packs" invisible="1"/>
           <field name="display_assign_serial" invisible="1"/>
           <field name="display_import_lot" invisible="1"/>
-          <field name="product_uom_category_id" invisible="1"/>
           <field name="product_uom" invisible="1" groups="!uom.group_uom"/>
           <field name="picking_code" invisible="1"/>
           <field name="has_tracking" invisible="1"/>
-          <field name="show_reserved" invisible="1"/>
           <field name="show_quant" invisible="1"/>
           <field name="show_lots_text" invisible="1"/>
           <field name="show_lots_m2o" invisible="1"/>
@@ -1003,13 +998,11 @@
             <widget class="btn btn-link btn-group" name="import_lots" invisible="not display_import_lot"/>
           </div>
           <field name="move_line_ids" readonly="state == 'cancel' or (state == 'done' and is_locked) or not product_id" context="{'tree_view_ref': 'stock.view_stock_move_line_operation_tree', 'form_view_ref': 'stock.view_move_line_mobile_form', 'default_picking_id': picking_id, 'default_move_id': id, 'default_product_id': product_id, 'default_location_id': location_id, 'default_location_dest_id': location_dest_id, 'default_company_id': company_id, 'active_picking_id': picking_id}" widget="sml_x2_many">
-            <tree editable="bottom" decoration-muted="state == 'done' and is_locked == True" default_order="x_studio_, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id" delete="false">
+            <list editable="bottom" decoration-muted="state == 'done' and is_locked == True" default_order="x_studio_, result_package_id desc, location_id asc, location_dest_id asc, picking_id asc, id" delete="false">
               <field name="company_id" column_invisible="True" force_save="1"/>
               <field name="picking_id" column_invisible="True" force_save="1"/>
               <field name="move_id" column_invisible="True" force_save="1"/>
-              <field name="product_uom_category_id" column_invisible="True"/>
               <field name="product_id" column_invisible="True"/>
-              <field name="package_level_id" column_invisible="True"/>
               <field name="location_id" column_invisible="True"/>
               <!--<field optional="show" name="consume_line_ids"/>-->
               <field name="warehouse_id" invisible="True"/>
@@ -1033,14 +1026,14 @@
               <field name="product_uom_id" column_invisible="True" groups="!uom.group_uom"/>
               <field name="quant_id" domain="[('product_id', '=', product_id), ('location_id', 'child_of', parent.location_id)]" context="{'default_location_id': location_id, 'default_product_id': product_id, 'search_view_ref': 'stock.quant_search_view', 'tree_view_ref': 'stock.view_stock_quant_tree', 'form_view_ref': 'stock.view_stock_quant_form', 'readonly_form': True}" widget="pick_from" column_invisible="not parent.show_quant" options="{'no_create': True, 'no_open': True}"/>
               <!--<field name="lot_id"  groups="stock.group_production_lot" column_invisible="parent.has_tracking == 'none' or not parent.show_lots_m2o" readonly="package_level_id and parent.picking_type_entire_packs" domain="[('product_id', '=', parent.product_id), ('company_id', '=', company_id)]" context="{ 'active_picking_id': picking_id, 'default_company_id': parent.company_id, 'default_product_id': parent.product_id, }"/>-->
-              <field name="lot_id" groups="stock.group_production_lot" column_invisible="True" readonly="package_level_id and parent.picking_type_entire_packs" domain="[('product_id', '=', parent.product_id), ('company_id', '=', company_id)]" context="{'active_picking_id': picking_id, 'default_company_id': parent.company_id, 'default_product_id': parent.product_id}"/>
+              <field name="lot_id" groups="stock.group_production_lot" column_invisible="True" readonly="False" domain="[('product_id', '=', parent.product_id), ('company_id', '=', company_id)]" context="{'active_picking_id': picking_id, 'default_company_id': parent.company_id, 'default_product_id': parent.product_id}"/>
               <!--<field name="lot_name" column_invisible="True" string="Lot/Serial Number" groups="stock.group_production_lot" placeholder="e.g. SN000001" column_invisible="parent.has_tracking == 'none' or not parent.show_lots_text" readonly="package_level_id and parent.picking_type_entire_packs"/>-->
-              <field name="lot_name" string="Lot/Serial Number" groups="stock.group_production_lot" placeholder="e.g. SN000001" column_invisible="True" readonly="package_level_id and parent.picking_type_entire_packs"/>
-              <field name="location_dest_id" string="Store To" column_invisible="True or parent.picking_code == 'outgoing'" readonly="package_level_id and parent.picking_type_entire_packs" domain="[('id', 'child_of', parent.location_dest_id), '|', ('company_id', '=', False), ('company_id', '=', company_id), ('usage', '!=', 'view')]" groups="stock.group_stock_multi_locations"/>
-              <field name="package_id" column_invisible="not parent.show_quant" readonly="package_level_id and parent.picking_type_entire_packs" groups="stock.group_tracking_lot"/>
+              <field name="lot_name" string="Lot/Serial Number" groups="stock.group_production_lot" placeholder="e.g. SN000001" column_invisible="True" readonly="False"/>
+              <field name="location_dest_id" string="Store To" column_invisible="True or parent.picking_code == 'outgoing'" readonly="False" domain="[('id', 'child_of', parent.location_dest_id), '|', ('company_id', '=', False), ('company_id', '=', company_id), ('usage', '!=', 'view')]" groups="stock.group_stock_multi_locations"/>
+              <field name="package_id" column_invisible="not parent.show_quant" readonly="False" groups="stock.group_tracking_lot"/>
               <!-- <field name="result_package_id" string="Pallet" column_invisible="parent.picking_code == 'outgoing'" readonly="package_level_id and parent.picking_type_entire_packs" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[('x_studio_assigned_location', 'parent_of', parent.location_dest_id), ('location_id', '=', False), ('package_type_id.name', '=', x_studio_type_of_pallet)]"/> -->
-              <field name="result_package_id" string="Pallet" column_invisible="parent.picking_code == 'outgoing'" readonly="package_level_id and parent.picking_type_entire_packs" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[('location_id', '=', False), ('package_type_id.name', '=', x_studio_type_of_pallet), ('x_studio_active', '=', True), ('x_studio_warehouse', '=', parent.warehouse_id)]"/>
-              <field name="owner_id" column_invisible="parent.picking_code == 'incoming'" readonly="package_level_id and parent.picking_type_entire_packs or picking_code == &quot;outgoing&quot;" invisible="False" domain="[('name', '=', x_studio_partner_id)]" required="False"/>
+              <field name="result_package_id" string="Pallet" column_invisible="parent.picking_code == 'outgoing'" readonly="False" groups="stock.group_tracking_lot" context="{'picking_id': picking_id}" domain="[('location_id', '=', False), ('package_type_id.name', '=', x_studio_type_of_pallet), ('x_studio_active', '=', True), ('x_studio_warehouse', '=', parent.warehouse_id)]"/>
+              <field name="owner_id" column_invisible="parent.picking_code == 'incoming'" readonly="picking_code == &quot;outgoing&quot;" invisible="False" domain="[('name', '=', x_studio_partner_id)]" required="False"/>
               <!--<field optional="show" name="x_studio_rr_tally_sheet_" invisible="False" readonly="True" column_invisible="False"/>-->
               <!--<field optional="show" name="x_studio_rr_trucks_plate_" invisible="False" readonly="True" column_invisible="False"/>-->
               <field optional="show" name="x_studio_sub_owner_id" column_invisible="True"/>
@@ -1054,24 +1047,25 @@
               <field optional="show" name="x_studio_actual_min" decoration-warning="1" column_invisible="parent.picking_code == 'incoming'"/>
               <field optional="show" name="x_studio_partner_id" invisible="True" column_invisible="True"/>
               <field optional="show" name="x_studio_2nd_uom" invisible="picking_type_id in [2]" column_invisible="parent.picking_code == 'outgoing'" string="Quantity" readonly="picking_code == &quot;outgoing&quot;"/>
-              <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;Packaging UOM&quot;)]" readonly="False" invisible="picking_type_id in [2]" column_invisible="parent.picking_code == 'outgoing'" required="x_studio_2nd_uom" options="{&quot;no_create&quot;:true}"/>
+              <field optional="show" name="x_studio_quantity_uom" string="Unit of Measure" domain="[&quot;|&quot;, (&quot;name&quot;, &quot;=&quot;, &quot;SACKS&quot;), (&quot;relative_uom_id.name&quot;, &quot;=&quot;, &quot;SACKS&quot;)]" readonly="False" invisible="picking_type_id in [2]" column_invisible="parent.picking_code == 'outgoing'" required="x_studio_2nd_uom" options="{&quot;no_create&quot;:true}"/>
               <field optional="show" name="x_studio_total_units" invisible="picking_type_id in [2]" column_invisible="parent.picking_code == 'outgoing'" string="Min UOM" required="False" readonly="picking_code == &quot;outgoing&quot;"/>
-              <field name="x_studio_min_quantity_uom" optional="show" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;min uom&quot;)]" string="Unit of Measure" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_total_units" options="{&quot;no_create&quot;:true}"/>
+              <field name="x_studio_min_quantity_uom" optional="show" domain="[&quot;|&quot;, (&quot;name&quot;, &quot;=&quot;, &quot;PIECES&quot;), (&quot;relative_uom_id.name&quot;, &quot;=&quot;, &quot;PIECES&quot;)]" string="Unit of Measure" readonly="picking_code == &quot;outgoing&quot;" required="x_studio_total_units" options="{&quot;no_create&quot;:true}"/>
               <field name="state" column_invisible="True"/>
               <field name="is_locked" column_invisible="True"/>
               <field name="picking_code" column_invisible="True"/>
-              <field name="quantity" string="Kilogram" readonly="(state == 'done' and is_locked) or (package_level_id and parent.picking_type_entire_packs)" sum="Quantity"/>
+              <field name="quantity" string="Kilogram" readonly="state == 'done' and is_locked" sum="Quantity"/>
               <field optional="show" name="x_studio_actual_kg" decoration-warning="1" column_invisible="parent.picking_code == 'incoming'"/>
               <field optional="show" name="x_studio_max_quant" invisible="True" column_invisible="True"/>
               <field optional="show" name="x_studio_max_2nd_uom" invisible="True" column_invisible="True"/>
               <field optional="show" name="x_studio_max_total_units" invisible="True" column_invisible="True"/>
-              <field name="product_uom_id" options="{'no_open': True, 'no_create': True}" string="Unit of Measure" groups="uom.group_uom" readonly="(package_level_id and parent.picking_type_entire_packs) or (state == 'done' and id)"/>
-            </tree>
+              <field name="product_uom_id" options="{'no_open': True, 'no_create': True}" string="Unit of Measure" groups="uom.group_uom" readonly="state == 'done' and id"/>
+            </list>
           </field>
         </form>
       </xpath>
       <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='note']/field[@name='note']" position="after">
-        <field name="date"/>
+        <!-- Odoo 19 removed stock.picking.date (creation date); create_date is the same value -->
+        <field name="create_date" string="Creation Date"/>
       </xpath>
       <xpath expr="//field[@name='origin']" position="attributes">
         <attribute name="invisible">True</attribute>
@@ -1119,11 +1113,14 @@
       <xpath expr="//button[@name='action_cancel']" position="after">
         <button string="Tally Sheet" name="studio_customization.transfer_report_727aa140-c77b-4126-a892-b8be901802ad" type="action" invisible="picking_type_code != &quot;incoming&quot; or state == &quot;done&quot;" class="btn btn-info" data-hotkey="shift+1"/>
         <button string="Pallet Tag Forms" name="studio_customization.transfer_report_5aa8718d-5c53-4570-a81e-37046f13be0f" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
-        <button string="Receiving R. Summary" name="studio_customization.bfwr_final_69f184c6-7101-4113-bf02-559f8e2f89eb" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
-        <button string="Receiving R. Per Pallet" name="studio_customization.receiving_report_fin_73786620-334b-443e-8828-5d6872e62187" type="action" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
+        <!-- 19.0.0.4.28: RR/WR print buttons call the print server actions
+             directly (on 17 a Studio xpath swapped them in; a Studio save on
+             19 garbled that swap into <b>/<br> tags, see migration 4.28). -->
+        <button string="Receiving R. Summary" name="action_vifel_print_rr_summary" type="object" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Receiving R. Per Pallet" name="action_vifel_print_rr_per_pallet" type="object" invisible="picking_type_code != &quot;incoming&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+4"/>
         <button string="Picklist" name="studio_customization.transfer_report_17e4fed6-498f-4f57-b063-790dd85fb781" type="action" invisible="picking_type_code != &quot;outgoing&quot;" class="btn btn-info" data-hotkey="shift+1"/>
-        <button string="Withdrawal R. Summary" name="studio_customization.bfwr_final_129e37d2-2dc6-4e1d-ac5b-fd830adb4bfc" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
-        <button string="Withdrawal R. Per Pallet" name="studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36" type="action" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
+        <button string="Withdrawal R. Summary" name="action_vifel_print_wr_summary" type="object" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+2"/>
+        <button string="Withdrawal R. Per Pallet" name="action_vifel_print_wr_per_pallet" type="object" invisible="picking_type_code != &quot;outgoing&quot; or x_studio_is_a_blast_freezer" class="btn btn-info" data-hotkey="shift+3"/>
 
         <!-- Orphan cleanup: visible ONLY on a void child whose parent is
              no longer voided; supervisors + super admins. -->
@@ -1136,9 +1133,14 @@
 
       </xpath>
 
-      <xpath expr="//button[@name='studio_customization.withdrawal_report_co_bcde3da2-155e-480b-a43d-604c0359ca36']" position="after">
-        <button string="BF Receiving R. Summary" name="studio_customization.print_bf_receiving_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+2"/>
-        <button string="BF Withdrawal R. Summary" name="studio_customization.print_bf_withdrawal_r_summary" type="action" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+2"/>
+      <!-- 19.0.0.4.31: all 8 RR/WR/BFRR/BFWR print buttons call methods that
+           require Printed By first (models/stock_picking_print_guard.py). The
+           BF Per Pallet buttons moved here from the Studio view. -->
+      <xpath expr="//button[@name='action_vifel_print_wr_per_pallet']" position="after">
+        <button string="BF Receiving R. Summary" name="action_vifel_print_bfrr_summary" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+2"/>
+        <button string="BF Withdrawal R. Summary" name="action_vifel_print_bfwr_summary" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+2"/>
+        <button string="BF Receiving R. Per Pallet" name="action_vifel_print_bfrr_per_pallet" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;incoming&quot;" data-hotkey="shift+3"/>
+        <button string="BF Withdrawal R. Per Pallet" name="action_vifel_print_bfwr_per_pallet" type="object" class="btn btn-info" invisible="x_studio_is_a_blast_freezer != True or picking_type_code != &quot;outgoing&quot;" data-hotkey="shift+3"/>
       </xpath>
       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_id'][2]" position="after">
         <field name="x_studio_last_operation_destination_location" options="{'create_name_field': 'complete_name'}" invisible="picking_type_code != &quot;outgoing&quot; or not x_studio_last_operation_destination_location"/>
@@ -1175,7 +1177,7 @@
       <xpath expr="//field[@name='x_studio_driver']" position="attributes">
         <attribute name="required">True</attribute>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_id']" position="after">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_id']" position="after">
         <!-- <field optional="show" name="x_studio_brand" widget="many2many_tags"/> -->
         <field optional="show" name="x_studio_for_revision" column_invisible="True"/>
       </xpath>
@@ -1197,10 +1199,10 @@
       <xpath expr="//field[@name='x_studio_min_actual_demand']" position="attributes">
         <attribute name="sum">Sum of Actual Demand</attribute>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom_qty']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_uom_qty']" position="attributes">
         <attribute name="sum">Sum of Demand</attribute>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='quantity']" position="attributes">
         <attribute name="sum">Sum of Weight (KG)</attribute>
       </xpath>
       <xpath expr="//field[@name='x_studio_']" position="after">
@@ -1219,10 +1221,10 @@
       <xpath expr="//button[@name='341']" position="attributes">
         <attribute name="invisible">True</attribute>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='product_uom_qty']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='product_uom_qty']" position="attributes">
         <attribute name="string">Total Weight (KG)</attribute>
       </xpath>
-      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids_without_package']/tree[1]/field[@name='quantity']" position="attributes">
+      <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='operations']/field[@name='move_ids']/list[1]/field[@name='quantity']" position="attributes">
         <attribute name="string">Actual Weight (KG)</attribute>
       </xpath>
 
@@ -1241,7 +1243,7 @@
         <field name="name">stock.quant.tree.custom_2</field>
         <field name="model">stock.quant</field>
         <field name="arch" type="xml">
-            <tree>
+            <list>
                 <header>
                     <button name="373" string="Checkout Stocks" type="action" class="btn btn-primary" invisible="context.get('state') == 'done'"/>
                 </header>
@@ -1292,7 +1294,7 @@
                      stamped from the receiving line at validation, so the
                      move line is the place to edit it. -->
                 <field name="x_studio_remarks" string="Remarks" readonly="1"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -1302,7 +1304,7 @@
         <field name="model">stock.quant</field>
         <field name="inherit_id" ref="stock.view_stock_quant_tree_editable"/>
         <field name="arch" type="xml">
-              <xpath expr="//tree[1]" position="attributes">
+              <xpath expr="//list[1]" position="attributes">
                 <attribute name="default_order">x_studio_production_date asc</attribute>
               </xpath>
               <xpath expr="//field[@name='location_id']" position="after">
@@ -1339,9 +1341,9 @@
               <xpath expr="//field[@name='owner_id']" position="after">
                 <field name="x_studio_truck_number" optional="hide"/>
                 <field name="x_studio_2nd_uom" optional="show" string="Total Quantity"/>
-                <field name="x_studio_quantity_uom" optional="show" domain="[(&quot;category_id&quot;, &quot;ilike&quot;, &quot;Pack&quot;)]" string="QTY Unit of Measure"/>
+                <field name="x_studio_quantity_uom" optional="show" domain="[&quot;|&quot;, (&quot;name&quot;, &quot;=&quot;, &quot;SACKS&quot;), (&quot;relative_uom_id.name&quot;, &quot;=&quot;, &quot;SACKS&quot;)]" string="QTY Unit of Measure"/>
                 <field name="x_studio_total_units" optional="show" string="Total Minimum"/>
-                <field name="x_studio_min_quantity_uom" optional="show" domain="[(&quot;category_id.name&quot;, &quot;ilike&quot;, &quot;Min UOM&quot;)]" string="Packs Unit of Measure"/>
+                <field name="x_studio_min_quantity_uom" optional="show" domain="[&quot;|&quot;, (&quot;name&quot;, &quot;=&quot;, &quot;PIECES&quot;), (&quot;relative_uom_id.name&quot;, &quot;=&quot;, &quot;PIECES&quot;)]" string="Packs Unit of Measure"/>
               </xpath>
               <xpath expr="//field[@name='inventory_quantity_auto_apply']" position="attributes">
                 <attribute name="string">On Hand KG</attribute>
@@ -1487,11 +1489,11 @@
 
 
     <record id="view_stock_quant_package_tree_highlighting" model="ir.ui.view">
-        <field name="name">stock.quant.package.tree.highlighting</field>
-        <field name="model">stock.quant.package</field>
-        <field name="inherit_id" ref="stock.view_quant_package_tree"/>
+        <field name="name">stock.package.tree.highlighting</field>
+        <field name="model">stock.package</field>
+        <field name="inherit_id" ref="stock.stock_package_view_list"/>
         <field name="arch" type="xml">
-          <xpath expr="//field[@name='display_name']" position="after">
+          <xpath expr="//field[@name='name']" position="after">
             <field name="x_studio_is_reserved" optional="show"/>
             <field name="x_studio_receiving_report_id" optional="show" string="Reserved RR ID"/>
             <field name="x_studio_warehouse" optional="show"/>
@@ -1503,9 +1505,9 @@
       </record>
 
     <record id="view_stock_quant_package_form_highlighting" model="ir.ui.view">
-        <field name="name">stock.quant.package.form.highlighting</field>
-        <field name="model">stock.quant.package</field>
-        <field name="inherit_id" ref="stock.view_quant_package_form"/>
+        <field name="name">stock.package.form.highlighting</field>
+        <field name="model">stock.package</field>
+        <field name="inherit_id" ref="stock.stock_package_view_form"/>
         <field name="arch" type="xml">
           <xpath expr="//field[@name='package_type_id']" position="after">
             <field name="x_studio_warehouse"/>
@@ -1518,7 +1520,7 @@
         <field name="model">stock.location</field>
         <field name="inherit_id" ref="stock.view_location_tree2"/>
         <field name="arch" type="xml">
-          <xpath expr="//tree[1]" position="attributes">
+          <xpath expr="//list[1]" position="attributes">
             <attribute name="default_order">id asc</attribute>
           </xpath>
           <xpath expr="//field[@name='active']" position="after">
@@ -1589,7 +1591,7 @@
         <field name="name">stock.move.line.tree</field>
         <field name="model">stock.move.line</field>
         <field name="arch" type="xml">
-            <tree string="Move Lines" create="0" default_order="id desc" action="action_open_reference" type="object" duplicate="0" >
+            <list string="Move Lines" create="0" default_order="id desc" action="action_open_reference" type="object" duplicate="0" >
                 <header>
                     <button string="Mark as Done" name="332" type="action" class="btn-primary"/>
                 </header>
@@ -1622,7 +1624,7 @@
                        decoration-success="state == 'done'"
                        decoration-warning="state not in ('draft','cancel','done','assigned')"/>
                 <field name="create_uid" string="Done By" widget="many2one_avatar_user" optional="hide"/>
-            </tree>
+            </list>
         </field>
     </record>
     
@@ -1630,7 +1632,7 @@
         <field name="name">stock.move.line.tree</field>
         <field name="model">stock.move.line</field>
         <field name="arch" type="xml">
-            <tree string="Move Lines" create="0" default_order="id desc" action="action_open_reference" type="object" duplicate="0" >
+            <list string="Move Lines" create="0" default_order="id desc" action="action_open_reference" type="object" duplicate="0" >
                 <field name="location_usage" column_invisible="True"/>
                 <field name="location_dest_usage" column_invisible="True"/>
                 <field name="warehouse_id" column_invisible="True"/>
@@ -1658,7 +1660,7 @@
                        decoration-success="state == 'done'"
                        decoration-warning="state not in ('draft','cancel','done','assigned')"/>
                 <field name="create_uid" string="Done By" widget="many2one_avatar_user" optional="hide"/>
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -1714,7 +1716,7 @@
                         <notebook invisible="not building">
                             <page string="Relocation Lines" name="relocation_lines">
                                 <field name="quant_relocation_line_ids" nolabel="1" readonly="False">
-                                    <tree editable="bottom" create="false" delete="false">
+                                    <list editable="bottom" create="false" delete="false">
                                         <field name="relocate_wizard_id" invisible="1" column_invisible="1"/>
                                         <field name="building" invisible="1" column_invisible="1"/>
                                         <field name="x_studio_is_a_blast_freezer" invisible="1" column_invisible="1"/>
@@ -1732,7 +1734,7 @@
                                         <field name="x_studio_2nd_uom" readonly="1" string="Quantity" force_save="1"/>
                                         <field name="x_studio_quantity_uom" readonly="1" string="Quantity UOM" force_save="1" options="{'no_create': True, 'no_open': True}"/>
                                         <field name="quantity" readonly="1" string="Weight (KG)" force_save="1"/>
-                                    </tree>
+                                    </list>
                                 </field>
                             </page>
                         </notebook>

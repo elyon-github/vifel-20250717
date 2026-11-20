@@ -506,7 +506,7 @@ class FastEncodeRRWizard(models.TransientModel):
             
             # Only remove reservation if no other lines are using it
             if not other_usage:
-                pallet = self.env['stock.quant.package'].browse(pallet_id)
+                pallet = self.env['stock.package'].browse(pallet_id)
                 if pallet.exists():
                     pallet.remove_reservation()
         
@@ -578,8 +578,8 @@ class FastEncodeRRWizardLine(models.TransientModel):
     
     product_id = fields.Many2one('product.product', string="Products", readonly=True)
     pallet_series_id = fields.Char(string='Pallet Series ID', readonly=True)
-    result_package_id = fields.Many2one('stock.quant.package', string='RR Pallet #')
-    pallet_number = fields.Many2one('stock.quant.package', string='BFRR Pallet #')
+    result_package_id = fields.Many2one('stock.package', string='RR Pallet #')
+    pallet_number = fields.Many2one('stock.package', string='BFRR Pallet #')
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     quantity = fields.Float(string="Quantity")
     min_uom_unit = fields.Float(string="Packs")
@@ -613,7 +613,7 @@ class FastEncodeRRWizardLine(models.TransientModel):
 
     # Pending re-sync: stores the pallet the user tried to select that would cause a re-sync.
     # The JS confirmation dialog reads this to ask the user before applying.
-    pending_resync_pallet_id = fields.Many2one('stock.quant.package', string='Pending Resync Pallet')
+    pending_resync_pallet_id = fields.Many2one('stock.package', string='Pending Resync Pallet')
     pending_resync_old_series = fields.Char(string='Pending Resync Old Series')
     pending_resync_new_series = fields.Char(string='Pending Resync New Series')
     pending_resync_type = fields.Char(string='Pending Resync Type')

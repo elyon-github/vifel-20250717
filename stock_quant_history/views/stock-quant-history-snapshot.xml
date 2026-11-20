@@ -11,10 +11,9 @@
                     string="Stock date"
                     name="inventory_date"
                     date="inventory_date"
-                    default_period="this_month"
+                    default_period="month"
                 />
-                <group expand="0" string="Group By">
-                    <filter
+                <filter
                         name="group_by_state"
                         string="Status"
                         context="{'group_by':'state'}"
@@ -24,7 +23,6 @@
                         string="Inventory date"
                         context="{'group_by':'inventory_date'}"
                     />
-                </group>
             </search>
         </field>
     </record>
@@ -33,12 +31,12 @@
         <field name="name">stock.quant.history.snapshot.list</field>
         <field name="model">stock.quant.history.snapshot</field>
         <field name="arch" type="xml">
-            <tree js_class="stock_quant_history_snapshot_list_button">
+            <list js_class="stock_quant_history_snapshot_list_button">
                 <field name="inventory_date" />
                 <field name="state" />
                 <field name="generated_date" optional="show" />
                 <field name="previous_snapshot_id" optional="hide" />
-            </tree>
+            </list>
         </field>
     </record>
 

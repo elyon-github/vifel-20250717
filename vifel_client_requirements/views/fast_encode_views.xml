@@ -14,7 +14,7 @@
         <field name="arch" type="xml">
 
             <!-- Selection-bar 'Merge Selected' inside the Magic Wizard. -->
-            <xpath expr="//tree" position="inside">
+            <xpath expr="//list" position="inside">
                 <header>
                     <button name="action_merge_selected_from_fast_encode"
                             type="object" string="Merge Selected"

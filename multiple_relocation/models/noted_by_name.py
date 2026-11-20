@@ -18,9 +18,11 @@ class VifelNotedByName(models.Model):
     sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True)
 
-    _sql_constraints = [
-        ('name_unique', 'unique(name)', 'This name is already in the Noted By list.'),
-    ]
+    # Odoo 19: _sql_constraints is replaced by models.Constraint.
+    _name_unique = models.Constraint(
+        'unique(name)',
+        'This name is already in the Noted By list.',
+    )
 
     @api.model_create_multi
     def create(self, vals_list):

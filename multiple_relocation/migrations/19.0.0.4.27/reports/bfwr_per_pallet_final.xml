@@ -1,0 +1,531 @@
+<t t-name="studio_customization.studio_report_docume_603fbdfc-3014-4b3d-a461-45261cb3aeba_document_copy_3_copy_1_copy_1">
+    <!-- Logo (Odoo 19): look up the attachment by name, fall back to the company logo -->
+    <t t-set="logo_att" t-value="doc.env['ir.attachment'].sudo().search([('name', '=', 'jobscloud-removebg-preview.png'), ('res_field', '=', False)], limit=1)"/>
+    <t t-set="logo_src" t-value="(logo_att and image_data_uri(logo_att.datas)) or (doc.company_id.logo and image_data_uri(doc.company_id.logo)) or ''"/>
+    <!-- Get preprocessed data -->
+    <t t-set="report_data" t-value="doc.get_grouped_move_lines_for_report()"/>
+    <t t-set="processed_lines" t-value="report_data[0]"/>
+    <t t-set="grand_total_by_uom" t-value="report_data[1]"/>
+    <!-- ===================== TUNABLES ===================== -->
+    <!-- table_height: FIXED height (px) of the whole records box. Everything below it (Remarks, signatories, Distribution, Page) therefore
+         always sits at the same place at the bottom of every page. Rows are packed into this box; when they no longer fit, a new page starts.
+         Raise it if there is empty space under the footer; lower it if the footer is cut off / spills onto a 2nd sheet. -->
+    <t t-set="table_height" t-value="580"/>
+    <!-- Space (px) used inside the box by the parts that are not item rows (tune these only if rows touch the totals) -->
+    <t t-set="header_px" t-value="76"/>   <!-- column headings (incl. the spacer row under them) -->
+    <t t-set="divider_px" t-value="18"/>  <!-- the line under the last item row -->
+    <t t-set="sub_px" t-value="36"/>      <!-- Page Subtotal row (multi-page only) -->
+    <t t-set="grand_px" t-value="80"/>    <!-- Total Out / Grand Total + underline + summary rows (last page only) -->
+    <!-- Space left for item rows: page_budget = normal page; the last page also has to hold the grand totals -->
+    <t t-set="page_budget" t-value="table_height - header_px - divider_px - sub_px"/>
+    <!-- Item Description: left gap from the Pallet column (px) and text size (px) of the 3-line breakdown -->
+    <t t-set="desc_pad_left" t-value="30"/>
+    <t t-set="desc_font" t-value="14"/>
+
+    <!-- Space (px) each row needs: a plain row is about 26px (about 17 per page); 2-3 line descriptions are taller.
+         If the last row of a page still touches the Page Subtotal / Remarks, raise the 26 (e.g. 28); to fit more rows per page, lower it. -->
+    <t t-set="row_min_px" t-value="26"/>
+    <t t-set="total_items" t-value="len(processed_lines)"/>
+    <t t-set="row_px" t-value="[]"/><t t-set="row_desc_px" t-value="[]"/>
+    <t t-foreach="processed_lines" t-as="ld">
+        <t t-set="n_lines" t-value="(1 + str(ld['item_description'] or '').count('&lt;br')) if ld['show_description'] else 1"/>
+        <t t-set="_a" t-value="row_px.append(max(row_min_px, int(n_lines * desc_font * 1.15) + 2))"/><t t-set="_ad" t-value="row_desc_px.append(max(row_min_px, int((1 + str(ld['item_description'] or '').count('&lt;br')) * desc_font * 1.15) + 2))"/>
+    </t>
+    <!-- Pack rows page by page until the page is full (state kept in dicts/lists: safe inside loops) -->
+    <t t-set="pg" t-value="{'start': 0, 'px': 0, 'bounds': []}"/>
+    <t t-foreach="range(total_items)" t-as="ix">
+        <t t-if="pg['px'] and pg['px'] + row_px[ix] &gt; page_budget">
+            <t t-set="_b" t-value="pg['bounds'].append((pg['start'], ix))"/>
+            <t t-set="_c" t-value="pg.update({'start': ix, 'px': 0})"/>
+        </t>
+        <t t-set="_d" t-value="pg.update({'px': pg['px'] + (row_px[ix] if pg['px'] else row_desc_px[ix])})"/>
+    </t>
+    <!-- The last page also carries the grand totals (a single page has no Page Subtotal, so it gets sub_px back).
+         If its rows leave no room for them, the last min_last_rows rows move to a final page, so the totals never sit alone on an empty page -->
+    <t t-set="min_last_rows" t-value="4"/>
+    <t t-set="last_allowed" t-value="page_budget - grand_px + (0 if pg['bounds'] else sub_px)"/>
+    <t t-set="fin" t-value="{'start': pg['start']}"/>
+    <t t-if="pg['px'] &gt; last_allowed and total_items - pg['start'] &gt; min_last_rows">
+        <t t-set="_g" t-value="fin.update({'start': total_items - min_last_rows})"/>
+        <t t-set="_h" t-value="pg['bounds'].append((pg['start'], fin['start']))"/>
+    </t>
+    <t t-set="page_bounds" t-value="pg['bounds'] + [(fin['start'], total_items)]"/>
+    <t t-set="total_pages" t-value="len(page_bounds)"/>
+    <t t-set="total_pallets" t-value="0"/>
+
+    <!-- Dynamic PACKS flag — reads total_units from dict (no closure risk) -->
+    <!-- BFWR is outgoing so backend maps total_units = x_studio_withdraw_units or x_studio_actual_min -->
+    <t t-set="has_total_units" t-value="any(l['total_units'] for l in processed_lines)"/>
+
+    <!-- Grand total weight + grand packs by UOM — safe accumulator, no closures -->
+    <t t-set="grand_total_weight" t-value="0"/>
+    <t t-set="uom_weights" t-value="{}"/>
+    <t t-set="grand_packs_by_uom" t-value="{}"/>
+    <t t-set="total_out" t-value="doc.process_move_lines_get_total_out(doc.move_line_ids)"/>
+    <t t-foreach="processed_lines" t-as="line_data">
+        <t t-set="grand_total_weight" t-value="grand_total_weight + (line_data.get('weight') or 0)"/>
+        <t t-set="uom" t-value="line_data.get('uom')"/>
+        <t t-if="uom">
+            <t t-set="uom_weights" t-value="uom_weights.update({uom: uom_weights.get(uom, 0) + (line_data.get('weight') or 0)}) or uom_weights"/>
+            <t t-if="line_data['total_units']">
+                <t t-set="grand_packs_by_uom" t-value="grand_packs_by_uom.update({uom: grand_packs_by_uom.get(uom, 0) + line_data['total_units']}) or grand_packs_by_uom"/>
+            </t>
+        </t>
+    </t>
+
+    <!-- Loop through each page -->
+    <t t-foreach="range(total_pages)" t-as="page_num">
+        <div class="page" style="font-size:13px; max-height:100%; page-break-after: always; text-transform: uppercase; ">
+            <t t-if="doc.state == 'assigned'">
+                <div style="position: absolute; top: 20px; left: 30px; font-size: 24px; color: red; opacity: 0.6; transform: rotate(-15deg); z-index: 1000;">
+        DRAFT
+    </div>
+            </t>
+            <table class="table-bordered table-sm mt-2" style="width: 100%; border-collapse: collapse; border: 1px solid black;">
+                <tbody>
+                    <tr>
+                        <td rowspan="2" style="width: 25%; text-align: left; vertical-align: middle;">
+                            <table style="width: 100%;">
+                                <tr style="border: 1px solid white">
+                                    <td style="width: 30%; vertical-align: middle;">
+                                        <img t-if="logo_src" t-att-src="logo_src" alt="" class="img img-fluid o_we_custom_image" style="max-width: 100%; height: auto;"/>
+                                    </td>
+                                    <td style="width: 70%; vertical-align: middle; padding-left: 10px;">
+                                        <span style="font-size: 10px;">Vifel Ice Plant AND
+                                            <br/>Cold Storage, Inc.
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                            <br/>
+                            <div style="text-align: center;">
+                                <span style="font-size: 10px;">INVENTORY MANAGEMENT SECTION</span>
+                            </div>
+                        </td>
+                        <td colspan="3" style="width: 80%; text-align: center; border-left: none;">
+                            <div style="font-size: 12px;">FORM</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" style="text-align: center; color: black; border-left: none; padding-top: 20px">
+                            <div style="font-size: 20px; font-weight: bold;">BLAST FREEZE WITHDRAWAL REPORT</div>
+                            <div style="position: absolute; top: 25px; right: 15px; font-size: 10px; border: 1px solid black; padding: 2px; text-align: center;">
+                                First Print Date:
+                                <t t-esc="doc.x_studio_first_date_time_printed and (doc.x_studio_first_date_time_printed + datetime.timedelta(hours=8)).strftime('%m/%d/%Y %H:%M:%S') or ''"/>
+                            </div>
+                            <br/>
+                            <div style="font-size: 12px;">
+                                <b>F-IMS-005</b>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="row">
+                <div class="col-3"/>
+                <div class="col-3"/>
+                <div class="col-3"/>
+                <div class="col-3" style="text-align: right; font-size: 20px; color: black;">
+                    <span>NO.</span>
+                    <t t-esc="doc.name"/>
+                </div>
+            </div>
+            <div class="row d-flex justify-content-end">
+                <div class="col-3 text-end" style="padding-right: 5px">DATE:
+                    <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_start_time and (doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') or '-'">-</span>
+                </div>
+                <div class="col-3 text-start">TIME START:
+                    <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_start_time and (doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%H%MH') or '-'">-</span>
+                </div>
+            </div>
+            <div class="row d-flex justify-content-end">
+                <div class="col-6 text-start">Customer:
+                    <span t-field="doc.partner_id.name" class="ms-2" style="font-size:16px; white-space: nowrap"/>
+                </div>
+                <div class="col-3 text-end" style="padding-right: 5px">DATE:
+                    <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_end_time and (doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') or '-'">-</span>
+                </div>
+                <div class="col-3 text-start">TIME END:
+                    <span style="border-bottom: 1px solid black;" t-esc="doc.x_studio_end_time and (doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%H%MH') or '-'">-</span>
+                </div>
+            </div>
+            <table class="col-12 table-bordered mt-2" style="border:1px solid black; text-align: center">
+                <tbody>
+                    <tr>
+                        <td style="padding: 3px">BUILDING:</td>
+                        <td style="padding: 3px">RR NO.:</td>
+                        <td style="padding: 3px">GP NO.:</td>
+                        <td style="padding: 3px">LD NO.:</td>
+                        <td style="padding: 3px">Plate No.:</td>
+                        <td style="padding: 3px" colspan="2">Arrival Time</td>
+                        <td style="padding: 3px">Destination:</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 2px font-size: 17px" rowspan="3" class="align-middle">
+                            <t t-esc="doc.get_branch_from_location('BF')"/>
+                        </td>
+                        <td/>
+                        <td style="padding: 3px font-size: 17px">
+                            <span t-field="doc.x_studio_gate_pass"/>
+                        </td>
+                        <td style="padding: 3px font-size: 17px">
+                            <span t-field="doc.x_studio_loading_dock_no"/>
+                        </td>
+                        <td style="padding: 3px font-size: 17px">
+                            <span t-field="doc.x_studio_trucks_plate_"/>
+                        </td>
+                        <td style="padding: 3px font-size: 17px" class="align-middle" colspan="2">
+                            <span t-esc="doc.x_studio_truck_time and (doc.x_studio_truck_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y %H%MH') or '-'"/>
+                        </td>
+                        <td style="padding: 3px font-size: 17px" class="align-middle" rowspan="3">
+                            <span t-field="doc.x_studio_destination"/>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 3px" colspan="2">BFRR NO.:</td>
+                        <td style="padding: 3px" colspan="2">PRODUCT TEMP.:</td>
+                        <td style="padding: 3px" colspan="2">TRUCK TEMP.:</td>
+                    </tr>
+                    <tr style="height:30px">
+                        <td style="padding: 3px font-size: 15px" t-esc="doc.x_studio_last_operation_source_document.name or ''" colspan="2"/>
+                        <td style="padding: 3px font-size: 15px" colspan="2" t-esc="doc.x_studio_product_temperature or ''"/>
+                        <td style="padding: 3px font-size: 15px" colspan="2" t-esc="doc.x_studio_truck_temperature or ''"/>
+                    </tr>
+                </tbody>
+            </table>
+            <div>
+                <t t-set="service_count" t-value="len(doc.x_studio_additional_services)"/>
+                <t t-set="counter" t-value="0"/>
+                <span>
+                    OTHER CHARGES:
+                    <t t-foreach="doc.x_studio_additional_services" t-as="item">
+                        <t t-if="'SQM' in item.name">
+                            <t t-esc="item.name.replace('(SQM)', '').strip()"/> (
+                            <t t-esc="doc.x_studio_sqm"/> sqm) </t>
+                        <t t-else="">
+                            <t t-esc="item.name"/>
+                        </t>
+                        <t t-set="counter" t-value="counter + 1"/>
+                        <t t-if="counter &lt; service_count">, </t>
+                    </t>
+                </span>
+            </div>
+
+            <!-- Initialize page subtotals -->
+            <t t-set="page_weight_subtotal" t-value="0"/>
+            <!-- Calculate start and end indices for current page -->
+            <t t-set="start_idx" t-value="page_bounds[page_num][0]"/>
+            <t t-set="end_idx" t-value="page_bounds[page_num][1]"/>
+            <!-- Get page UOM totals -->
+            <t t-set="page_total_by_uom" t-value="doc.get_uom_totals_for_page(processed_lines, start_idx, end_idx)"/>
+            <t t-set="page_weight_by_uom" t-value="doc.get_weight_totals_for_page(processed_lines, start_idx, end_idx)"/>
+            <t t-set="page_total_by_pallet" t-value="doc.get_pallet_count_for_page(processed_lines, start_idx, end_idx)"/>
+
+            <!-- Page packs by UOM — reads total_units from dict, no closure risk -->
+            <t t-set="page_packs_by_uom" t-value="{}"/>
+            <t t-foreach="processed_lines[start_idx:end_idx]" t-as="pl">
+                <t t-set="pl_uom" t-value="pl.get('uom')"/>
+                <t t-if="pl_uom and pl['total_units']">
+                    <t t-set="page_packs_by_uom" t-value="page_packs_by_uom.update({pl_uom: page_packs_by_uom.get(pl_uom, 0) + pl['total_units']}) or page_packs_by_uom"/>
+                </t>
+            </t>
+
+            <!-- Main Data Table with Pagination -->
+            <div t-attf-style="height: #{table_height}px">
+                <table class="col-12 table mt-2" style="font-size:11px; table-layout:auto; border-collapse:collapse; padding:0px; border: 1px solid white">
+                    <tbody>
+                        <!-- HEADER ROW -->
+                        <tr class="text-center align-middle">
+                            <th style="width: 5%; border-bottom: 1px solid black" class="align-middle">PALLET #</th>
+                            <th t-attf-style="width: 70%; border-bottom: 1px solid black; padding-left: #{desc_pad_left}px; text-align: center;" class="align-middle" align="center"><div style="text-align: center;">ITEM DESCRIPTION</div></th>
+                            <th style="width: 5%; padding: 2px; border-bottom: 1px solid black">QTY</th>
+                            <!-- Dynamic column label: PACKS or UOM -->
+                            <th style="border-bottom: 1px solid black">
+                                <t t-if="has_total_units">PACKS</t>
+                                <t t-else="">UOM</t>
+                            </th>
+                            <th style="width: 5%; padding: 2px; border-bottom: 1px solid black">WEIGHT(KG)</th>
+                        </tr>
+                        <tr style="height: 10px;">
+                            <td colspan="5" style="border-bottom: 1px solid white; background: transparent;"/>
+                        </tr>
+
+                        <!-- DATA ROWS -->
+                        <t t-foreach="processed_lines[start_idx:end_idx]" t-as="line_data">
+                            <t t-set="page_weight_subtotal" t-value="page_weight_subtotal + line_data['weight']"/>
+                            <tr class="text-center" style="height:24px; border-bottom: 1px solid white; font-size: 13px;">
+                                <!-- PALLET # -->
+                                <td style="padding: 1px; text-align: left; white-space: nowrap">
+                                    <t t-esc="line_data['pallet_no']"/>
+                                    <t t-esc="line_data['original_line'].x_studio_building_dropped" t-if="line_data['pallet_no']"/>
+                                </td>
+                                <!-- ITEM DESCRIPTION -->
+                                <td t-attf-style="padding: 0px 0px 0px #{desc_pad_left}px; white-space: nowrap; font-size: #{desc_font}px; line-height: 1.15;">
+                                    <t t-if="line_data['show_description'] or line_data_index == 0">
+                                        <t t-raw="line_data['item_description']"/>
+                                    </t>
+                                </td>
+                                <!-- QTY -->
+                                <td style="padding: 1px">
+                                    <t t-esc="int(line_data['quantity'])" t-if="int(line_data['quantity']) or ''"/>
+                                </td>
+                                <!-- Dynamic column: PACKS value or UOM name -->
+                                <!-- uom guard ensures Nothing Follows row stays blank -->
+                                <td style="padding: 1px; text-align: right;">
+                                    <t t-if="has_total_units">
+                                        <t t-if="line_data['uom'] and line_data['total_units']">
+                                            <t t-esc="int(line_data['total_units'])"/>
+                                        </t>
+                                    </t>
+                                    <t t-else="">
+                                        <t t-esc="line_data['uom']"/>
+                                    </t>
+                                </td>
+                                <!-- WEIGHT -->
+                                <td style="padding: 1px">
+                                    <t t-esc="('{:,.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:,.2f}').format(doc.round_report_kg(line_data['weight']))" t-if="line_data['weight'] or ''"/>
+                                </td>
+                            </tr>
+                        </t>
+
+                        <!-- Divider -->
+                        <tr>
+                            <td style="border-bottom: 1px solid black" colspan="5"/>
+                        </tr>
+
+                        <t t-set="total_pallets" t-value="total_pallets + page_total_by_pallet"/>
+
+                        <!-- PAGE SUBTOTAL (multi-page only) -->
+                        <t t-if="total_pages &gt; 1">
+                            <tr class="text-center" style="font-size: 13px; font-weight: bold">
+                                <td>
+                                    <t t-foreach="page_total_by_uom.items()" t-as="uom_total">
+                                        <t t-if="uom_total_index == 0">
+                                            <span t-esc="page_total_by_pallet"/>
+                                        </t>
+                                        <br/>
+                                    </t>
+                                </td>
+                                <td class="text-end" style="padding: 1px">Page Subtotal:</td>
+                                <!-- QTY subtotal -->
+                                <td style="padding: 1px; text-align: right;">
+                                    <t t-foreach="page_total_by_uom.items()" t-as="uom_total">
+                                        <t t-esc="'{:,.0f}'.format(uom_total[1])"/>
+                                        <br/>
+                                    </t>
+                                </td>
+                                <!-- Dynamic column: PACKS subtotals or UOM labels -->
+                                <td style="padding: 1px; text-align: right;">
+                                    <t t-if="has_total_units">
+                                        <t t-foreach="page_total_by_uom.items()" t-as="uom_total">
+                                            <t t-esc="'{:,.0f}'.format(page_packs_by_uom.get(uom_total[0], 0))"/>
+                                            <br/>
+                                        </t>
+                                    </t>
+                                    <t t-else="">
+                                        <t t-foreach="page_total_by_uom.items()" t-as="uom_total">
+                                            <t t-esc="uom_total[0]"/>
+                                            <br/>
+                                        </t>
+                                    </t>
+                                </td>
+                                <!-- Weight subtotal -->
+                                <td style="padding: 1px; white-space: nowrap; text-align: right;">
+                                    <t t-foreach="page_weight_by_uom.items()" t-as="uom_total">
+                                        <t t-esc="('{:,.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:,.2f}').format(uom_total[1])"/>
+                                        <br/>
+                                    </t>
+                                </td>
+                            </tr>
+                        </t>
+
+                        <!-- GRAND TOTAL (last page only) -->
+                        <t t-if="page_num == total_pages - 1">
+                            <t t-foreach="grand_total_by_uom.items()" t-as="grand_uom_total">
+                                <tr class="text-center" style="font-size: 13px; font-weight: bold">
+                                    <td style="padding: 1px">
+                                        <t t-if="grand_uom_total_index == 0">
+                                            <span t-esc="total_pallets"/>
+                                        </t>
+                                    </td>
+                                    <td style="padding: 1px;">
+                                        <div class="row">
+                                            <div class="col-8 text-center">
+                                                <t t-if="grand_uom_total_index == 0">
+                                                    Total Out:
+                                                    <t t-foreach="total_out" t-as="lines">
+                                                        <span>
+                                                            <t t-esc="'{:.0f}'.format(lines['packaging'])"/>
+                                                            <t t-esc="lines['uom']"/> |
+                                                            <t t-esc="('{:.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:.2f}').format(lines['kg'])"/>KG
+                                                        </span>
+                                                    </t>
+                                                </t>
+                                            </div>
+                                            <div class="col-4 text-end">
+                                                <t t-if="grand_uom_total_index == 0">Grand Total:</t>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <!-- QTY grand total -->
+                                    <td style="padding: 1px; text-align: right;">
+                                        <t t-esc="'{:,.0f}'.format(grand_uom_total[1])"/>
+                                    </td>
+                                    <!-- Dynamic column: PACKS grand total or UOM label -->
+                                    <td style="padding: 1px; text-align: right;">
+                                        <t t-if="has_total_units">
+                                            <t t-esc="'{:,.0f}'.format(grand_packs_by_uom.get(grand_uom_total[0], 0))"/>
+                                        </t>
+                                        <t t-else="">
+                                            <t t-esc="grand_uom_total[0]"/>
+                                        </t>
+                                    </td>
+                                    <!-- Weight grand total -->
+                                    <td style="padding: 1px; white-space: nowrap; text-align: right;">
+                                        <t t-set="current_uom" t-value="grand_uom_total[0]"/>
+                                        <span t-esc="('{:,.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:,.2f}').format(doc.round_report_kg(uom_weights.get(current_uom, 0)))"/>
+                                    </td>
+                                </tr>
+                            </t>
+
+                            <!-- Underline row: QTY, PACKS (when active), WEIGHT -->
+                            <tr>
+                                <td style="border: none;"/>
+                                <td style="border: none;"/>
+                                <td style="border-bottom: 1px solid black"/>
+                                <t t-if="has_total_units">
+                                    <td style="border-bottom: 1px solid black"/>
+                                </t>
+                                <t t-else="">
+                                    <td style="border: none;"/>
+                                </t>
+                                <td style="border-bottom: 1px solid black"/>
+                            </tr>
+
+                            <!-- Summary row: combined single-line totals -->
+                            <tr class="text-center" style="font-size: 13px; font-weight: bold">
+                                <td/>
+                                <td/>
+                                <!-- Combined QTY sum -->
+                                <td style="padding: 2px; text-align: right;">
+                                    <t t-set="total_qty" t-value="0"/>
+                                    <t t-foreach="grand_total_by_uom.items()" t-as="grand_uom_total">
+                                        <t t-set="total_qty" t-value="total_qty + grand_uom_total[1]"/>
+                                    </t>
+                                    <span t-esc="'{:,.0f}'.format(total_qty)"/>
+                                </td>
+                                <!-- Combined PACKS sum (when active) -->
+                                <td style="padding: 2px; text-align: right;">
+                                    <t t-if="has_total_units">
+                                        <t t-set="total_packs" t-value="0"/>
+                                        <t t-foreach="grand_packs_by_uom.items()" t-as="packs_item">
+                                            <t t-set="total_packs" t-value="total_packs + packs_item[1]"/>
+                                        </t>
+                                        <span t-esc="'{:,.0f}'.format(total_packs)"/>
+                                    </t>
+                                </td>
+                                <!-- Combined Weight sum -->
+                                <td style="white-space: nowrap; padding: 2px; text-align: right;">
+                                    <t t-set="total_weight" t-value="0"/>
+                                    <t t-foreach="uom_weights.items()" t-as="weight_item">
+                                        <t t-set="total_weight" t-value="total_weight + weight_item[1]"/>
+                                    </t>
+                                    <span t-esc="('{:,.3f}' if doc.partner_id.x_studio_special_3_digit_decimal_pdf_report else '{:,.2f}').format(doc.round_report_kg(total_weight))"/>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Remarks section -->
+            <div class="row col-12" style="overflow: hidden; height: 40px; word-wrap: break-word;">
+                <span style="margin: 5px">
+                    <b>Remarks: </b>
+                    <t t-out="doc.note"/>
+                    <t t-if="doc.return_id">
+                        Return Reference:
+                        <t t-esc="doc.return_id.name"/> |
+                    </t>
+                    <t t-if="doc.return_id and doc.x_studio_remarks"> | </t>
+                    <t t-esc="doc.x_studio_record_remarks"/> |
+                    <t t-esc="doc.x_studio_remarks"/>
+                </span>
+            </div>
+
+            <!-- Signature Section -->
+            <div style="margin-left: 50px; page-break-inside: avoid; margin-top: 4px; font-size: 12px">
+                <div class="mt-2 text-center d-flex justify-content-around">
+                    <div class="col-3" style="white-space: nowrap;">
+                        <span t-esc="doc.documentation_staff_id.name or doc.create_uid.name"/>
+                    </div>
+                    <div class="col-1"/>
+                    <div class="col-3" style="white-space: nowrap;">
+                        <t t-esc="doc.x_studio_warehouse_checker.name"/>
+                    </div>
+                    <div class="col-1"/>
+                    <div class="col-3" style="white-space: nowrap;">
+                        <t t-esc="doc.x_studio_warehouse_supervisor.name"/>
+                    </div>
+                    <div class="col-1"/>
+                </div>
+                <div class="text-center d-flex justify-content-around">
+                    <div class="col-3" style="border-top:2px solid black; padding-top: 2px;">ENCODED BY:</div>
+                    <div class="col-1"/>
+                    <div class="col-3" style="border-top:2px solid black; padding-top: 2px">WAREHOUSE CHECKER:</div>
+                    <div class="col-1"/>
+                    <div class="col-3" style="border-top:2px solid black; padding-top: 2px">APPROVED BY:</div>
+                    <div class="col-1"/>
+                </div>
+                <div class="text-center d-flex justify-content-around" style="font-size:12px">
+                    <div class="col-3">(Printed Name and Signature)</div>
+                    <div class="col-1"/>
+                    <div class="col-3">(Printed Name and Signature)</div>
+                    <div class="col-1"/>
+                    <div class="col-3">(Printed Name and Signature)</div>
+                </div>
+                <div class="mt-1 text-center d-flex justify-content-around mt-5" style="margin-left: 75px">
+                    <div class="col-3" style="white-space: nowrap">
+                        <span t-esc="doc.x_studio_inventory_analyst.name or doc.x_studio_validated_by.name"/>
+                    </div>
+                    <div class="col-3"/>
+                    <div class="col-4"/>
+                    <div class="col-2"/>
+                </div>
+                <div class="text-center d-flex justify-content-around" style="margin-left: 75px">
+                    <div class="col-3" style="border-top:2px solid black; padding-top: 2px; position: relative;">
+                        <div style="position: absolute; top: -50px; left: -130px; font-size: 10px; border: 1px solid black; padding: 2px; text-align: center;">
+                            Validated On:
+                            <t t-esc="doc.validated_on and (doc.validated_on + datetime.timedelta(hours=8)).strftime('%m/%d/%Y %H:%M:%S') or ''"/>
+                        </div>
+                        VALIDATED BY:
+                    </div>
+                    <div class="col-2"/>
+                    <div class="col-5" style="border-top:2px solid black; padding-top: 2px; white-space: nowrap;">RECEIVED AND ACKNOWLEDGED BY CLIENT:</div>
+                    <div class="col-1"/>
+                </div>
+                <div class="text-center d-flex justify-content-around" style="font-size:12px; margin-left: 75px">
+                    <div class="col-3" style="white-space: nowrap;">(Printed Name and Signature)</div>
+                    <div class="col-2"/>
+                    <div class="col-5" style="white-space: nowrap;">(Printed Name and Signature)</div>
+                    <div class="col-1"/>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-12 text-center" style="border-bottom: 1px solid black">
+                    <span>
+                        <b>Distribution:</b> White(Billing Attachment); Blue(Acctg); Green(Client Copy); Pink(Master File)
+                    </span>
+                </div>
+            </div>
+            <div class="row mt-1">
+                <div class="col-4"/>
+                <div class="col-4 text-center">
+                    Page: <span t-esc="page_num+1"/> / <span t-esc="total_pages"/>
+                </div>
+                <div class="col-4" style="text-align: right">REV 01 09/01/2025</div>
+            </div>
+        </div>
+        <p style="page-break-after: always;"/>
+    </t>
+</t>

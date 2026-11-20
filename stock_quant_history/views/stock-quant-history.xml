@@ -24,11 +24,10 @@
                     string="Stock date"
                     name="inventory_date"
                     date="inventory_date"
-                    default_period="this_month"
+                    default_period="month"
                 />
 
-                <group expand="0" string="Group By">
-                    <filter
+                <filter
                         name="group_by_owner_id"
                         string="Owner"
                         context="{'group_by':'owner_id'}"
@@ -73,7 +72,6 @@
                         string="Is Blast Freeze"
                         context="{'group_by':'is_a_blast_freeze'}"
                     />
-                </group>
             </search>
         </field>
     </record>
@@ -82,7 +80,7 @@
         <field name="name">stock.quant.history.list</field>
         <field name="model">stock.quant.history</field>
         <field name="arch" type="xml">
-            <tree>
+            <list>
                 <field name="snapshot_id" optional="hide" />
                 <field name="inventory_date" optional="show" />
                 <field name="company_id" column_invisible="True"/>
@@ -117,7 +115,7 @@
                 <!-- <field name="reserved_quantity" optional="show" sum="Total Reserved" string="Reserved Weight(KG)"/>
                 <field name="available_quantity" optional="show" sum="Total Available" string="Available Weight(KG)"/> -->
                 <field name="product_uom_id" string="Unit" groups="uom.group_uom"/>
-            </tree>
+            </list>
         </field>
     </record>
 

@@ -75,20 +75,20 @@ class PalletKilosStockCount(models.Model):
     def _pkr_physical(self, owner_id, warehouse_id, is_bf):
         """Owner's stock in one partition: pallets (distinct packages), kg,
         quantity (2nd UoM) and packs."""
-        groups = self.env['stock.quant'].sudo().read_group(
+        groups = self.env['stock.quant'].sudo()._read_group(
             [('owner_id', '=', owner_id), ('quantity', '>', 0),
              ('location_id.usage', '=', 'internal'),
              ('location_id.warehouse_id', '=', warehouse_id),
              ('location_is_bf', '=', bool(is_bf))],
-            ['quantity:sum', 'x_studio_2nd_uom:sum', 'x_studio_total_units:sum'],
-            ['package_id'], lazy=False)
+            ['package_id'],
+            ['quantity:sum', 'x_studio_2nd_uom:sum', 'x_studio_total_units:sum'])
         res = dict.fromkeys(_MEASURES, 0.0)
-        for g in groups:
-            if g['package_id']:
+        for package, kilos, packaging, units in groups:
+            if package:
                 res['pallets'] += 1
-            res['kilos'] += g['quantity'] or 0.0
-            res['packaging'] += g['x_studio_2nd_uom'] or 0.0
-            res['units'] += g['x_studio_total_units'] or 0.0
+            res['kilos'] += kilos or 0.0
+            res['packaging'] += packaging or 0.0
+            res['units'] += units or 0.0
         return res
 
     @api.model
@@ -146,9 +146,10 @@ class PalletKilosStockCount(models.Model):
 
     # ------------------------------------------------------ live posting --
     @api.model
-    def _pkr_post_stock_count(self, before, name, first_line_id):
-        """Called after an Apply: ``before`` = {partition: physical}."""
-        now = fields.Datetime.now()
+    def _pkr_post_stock_count(self, before, name, first_line_id, when=None):
+        """Called after an Apply: ``before`` = {partition: physical}.
+        ``when``: the Apply's accounting date (Odoo 19 Apply can be dated)."""
+        now = when or fields.Datetime.now()
         MoveLine = self.env['stock.move.line'].sudo()
         for (owner_id, warehouse_id, is_bf), phys_before in before.items():
             if not self.search_count(
@@ -164,7 +165,7 @@ class PalletKilosStockCount(models.Model):
                      ('location_dest_id.usage', '=', 'inventory')])
             lines = lines.filtered(
                 lambda l: self._pkr_line_partition(l) == (warehouse_id, bool(is_bf)))
-            label = name or (lines[:1].move_id.name) or 'Inventory adjustment'
+            label = name or (lines[:1].move_id.reference) or 'Inventory adjustment'
             phys_after = self._pkr_physical(owner_id, warehouse_id, is_bf)
             if self._pkr_is_zero(phys_after) and not self._pkr_is_zero(phys_before):
                 # zeroing: reset the ledger itself to 0
@@ -353,7 +354,7 @@ class PalletKilosStockCount(models.Model):
             head = '%s (wh %s%s)' % (owner.name, wh, ', BF' if bf else '')
             ledger = self._pkr_ledger_before(owner_id, wh, bf, t_reset)
             delta = {m: -ledger[m] for m in _MEASURES}
-            name = s['reset'][0].move_id.name
+            name = s['reset'][0].move_id.reference
             report.append('%s - zeroing "%s" %s: %d lines, %.3f kg -> ledger reset %s'
                           % (head, name, t_reset, len(s['reset']),
                              sum(s['reset'].mapped('quantity')), delta))
@@ -366,7 +367,7 @@ class PalletKilosStockCount(models.Model):
                 delta = {'pallets': float(len(up.mapped('result_package_id'))),
                          'kilos': sum(up.mapped('quantity')),
                          'packaging': qty, 'units': packs}
-                name = up[0].move_id.name
+                name = up[0].move_id.reference
                 report.append('%s - upload "%s" %s: %d lines -> %s'
                               % (head, name, t, len(up), delta))
                 if not dry_run:
@@ -439,9 +440,9 @@ class StockMoveLinePkrStockCount(models.Model):
 class StockQuantPkrStockCount(models.Model):
     _inherit = 'stock.quant'
 
-    def _apply_inventory(self):
+    def _apply_inventory(self, date=None):
         if self.env.context.get('pkr_skip_stock_count'):
-            return super()._apply_inventory()
+            return super()._apply_inventory(date=date)
         PKR = self.env[_PKR].sudo()
         before = {}
         for quant in self:
@@ -454,7 +455,9 @@ class StockQuantPkrStockCount(models.Model):
         self.env.cr.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM stock_move_line")
         first_line_id = self.env.cr.fetchone()[0]
         name = self.env.context.get('inventory_name')
-        res = super()._apply_inventory()
+        res = super()._apply_inventory(date=date)
         if before:
-            PKR._pkr_post_stock_count(before, name, first_line_id)
+            PKR._pkr_post_stock_count(
+                before, name, first_line_id,
+                fields.Datetime.to_datetime(date) if date else None)
         return res

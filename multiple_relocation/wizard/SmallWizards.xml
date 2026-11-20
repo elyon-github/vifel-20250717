@@ -26,7 +26,7 @@
                             Reference your custom tree view via 'tree_view_ref'.
                         -->
                         <field name="quant_ids"
-                               mode="tree"
+                               mode="list"
                                nolabel="1"/>
 
                     <!-- Footer buttons -->

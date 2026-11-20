@@ -14,7 +14,7 @@
         <field name="model">return.package.wizard</field>
         <field name="inherit_id" ref="multiple_relocation.view_return_package_wizard_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='package_line_ids']/tree/field[@name='container_number']" position="after">
+            <xpath expr="//field[@name='package_line_ids']/list/field[@name='container_number']" position="after">
                 <field name="client_lot_no" column_invisible="1" force_save="1"/>
                 <field name="batch_no" column_invisible="1" force_save="1"/>
             </xpath>

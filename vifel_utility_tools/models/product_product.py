@@ -126,13 +126,15 @@ class ProductProduct(models.Model):
         """
         values = {
             'name': base_name,
-            'detailed_type': 'product',
+            # Odoo 19: detailed_type 'product' became type 'consu' + is_storable
+            'type': 'consu',
+            'is_storable': True,
             'tracking': 'lot',
         }
         uom_kg = self.env.ref('uom.product_uom_kgm', raise_if_not_found=False)
         if uom_kg:
+            # Odoo 19 has no separate purchase UoM (uom_po_id was removed)
             values['uom_id'] = uom_kg.id
-            values['uom_po_id'] = uom_kg.id
         return values
 
     @api.model

@@ -54,7 +54,7 @@ class StockQuantMergeWithdrawal(models.Model):
         # partial withdrawal is only ever asked of a pallet that holds stock
         # anyway. The flag itself survives line deletion (bug A1) and un-pinning
         # while full (bug D2); "holds stock" only gates the emptied case.
-        package = self.env['stock.quant.package'].browse(package_id)
+        package = self.env['stock.package'].browse(package_id)
         if (package.exists() and package.vifel_is_merge_pallet
                 and package.vifel_holds_stock()):
             return True

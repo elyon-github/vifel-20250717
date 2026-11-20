@@ -1,0 +1,281 @@
+<t t-name="studio_report_document">
+    <!-- Logo (Odoo 19): look up the attachment by name; falls back to the company logo, then to the original link -->
+    <t t-set="logo_att" t-value="doc.env['ir.attachment'].sudo().search([('name', '=', 'viber_image_2025-05-07_14-50-45-872.png'), ('res_field', '=', False)], limit=1)"/>
+    <t t-set="logo_src" t-value="(logo_att and image_data_uri(logo_att.datas)) or (doc.company_id.logo and image_data_uri(doc.company_id.logo)) or '/web/image/332-91a133d8/viber_image_2025-05-07_14-50-45-872.png'"/>
+    <!-- Split lines into chunks (lines_per_page below) -->
+    <t t-set="sorted_lines" t-value="doc.move_line_ids.sorted('x_studio_pallet_series_id')"/>
+    <!--<t t-set="sorted_lines" t-value="doc.move_line_ids"/>-->
+    <!-- lines_per_page: rows (filled + blank) on ONE page. 25 pushed the Page/REV footer onto a 2nd sheet.
+         If the footer still spills onto a 2nd sheet, lower it by 1; if there is a gap at the bottom of the page, raise it by 1. -->
+    <t t-set="lines_per_page" t-value="21"/>
+    <t t-set="total_lines" t-value="len(sorted_lines)"/>
+    <t t-set="total_pages" t-value="(total_lines + lines_per_page - 1) // lines_per_page if total_lines &gt; 0 else 1"/>
+    <!-- Loop through pages -->
+    <t t-foreach="range(total_pages)" t-as="page_num">
+        <div class="page">
+            <table class="table-bordered table-sm" style="width: 100%; border-collapse: collapse; border: 1px solid black;">
+                <tbody>
+                    <tr>
+                        <!-- Logo and Section -->
+                        <td rowspan="2" style="width: 20%; text-align: center; vertical-align: middle;">
+                            <img t-att-src="logo_src" alt="" style="max-width: 100%; height: auto;"/>
+                            <br/>
+                            <span style="font-size: 10px;">INVENTORY MANAGEMENT SECTION</span>
+                        </td>
+                        <!-- Center Form Title -->
+                        <td colspan="3" style="width: 80%; text-align: center; border-left: none;">
+                            <div style="font-size: 12px;">FORM</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <!-- TALLY SHEET + Code -->
+                        <td colspan="3" style="text-align: center; color: black; border-left: none; padding-top: 20px">
+                            <div style="font-size: 20px; font-weight: bold;">TALLY SHEET</div>
+                            <div style="font-size: 10px;">
+                                <b>F-IMS-006</b>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <!--Header Section - Appears on every page-->
+            <div style="width: 100%; ">
+                <div class="row">
+                    <div class="col-3"/>
+                    <div class="col-3"/>
+                    <div class="col-3"/>
+                    <div class="col-3" style="text-align: right; font-size: 18px; color: red">
+                        <span style="font-weight: bold">NO.</span>
+                        <t t-esc="doc.name"/>
+                    </div>
+                </div>
+                <!-- Header Information Table -->
+                <table class="col-12 table table-bordered mt-2" style="font-size:12px; table-layout:auto; border-collapse:collapse; padding:0; width: 100%; border-color: #A9A9A9; border-bottom: 1px solid black; padding: 0">
+                    <thead style="text-align: center; padding: 0px">
+                        <tr>
+                            <th class="fw-bold text-center align-middle" style="padding: 1px" colspan="2">CUSTOMER NAME:</th>
+                            <th class="fw-bold text-left align-middle" style="padding: 1px" colspan="5">
+                                <span t-field="doc.partner_id.name"/>
+                            </th>
+                            <th class="fw-bold text-center" style="padding: 1px">
+                                <span style="border: 1px solid black; margin:4px">
+                                    <i class="oi oi-close" t-att-style="'opacity: 1' if 'incoming' in (doc.picking_type_id.code or '').lower() else 'opacity: 0'"/>
+                                </span>
+                                <span>RECEIVING</span>
+                                <br/>
+                            </th>
+                            <th class="fw-bold text-center" style="padding: 1px">
+                                <span style="border: 1px solid black; margin:4px">
+                                    <i class="oi oi-close" t-att-style="'opacity: 1' if 'outgoing' in (doc.picking_type_id.code or '').lower() else 'opacity: 0'"/>
+                                </span>
+                                <span>WITHDRAWAL</span>
+                                <br/>
+                            </th>
+                            <th rowspan="2" class="align-middle" style="padding: 1px">CONTAINER NO.:</th>
+                            <th rowspan="2" colspan="3" class="align-middle" style="padding: 1px; width: 40px">
+                                <span t-esc="doc.move_line_ids and doc.move_line_ids[0].x_studio_container_number or ''"/>
+                            </th>
+                            <th class="align-middle" colspan="2" style="padding: 1px">DATE:</th>
+                            <th colspan="3" class="align-middle" style="padding: 1px">
+                                <t t-if="doc.x_studio_start_time">
+                                    <span t-esc="doc.x_studio_start_time.strftime('%m/%d/%Y')"/>
+                                </t>
+                            </th>
+                        </tr>
+                        <tr>
+                            <th colspan="2" class="align-middle" style="padding: 1px">Building:</th>
+                            <th class="align-middle" colspan="3" style="padding: 1px">REF NO.:</th>
+                            <th colspan="2" style="padding: 1px; width: 40px">
+                              <t t-if="doc.x_studio_client_reference">
+                                <span t-field="doc.x_studio_client_reference"/>
+                              </t>
+                                <t t-else="">
+                                    <span/>
+                                </t>
+                            </th>
+                            <th class="align-middle" style="padding: 1px">DRIVER:</th>
+                            <th class="align-middle" style="padding: 1px">
+                                <t t-esc="doc.x_studio_driver"/>
+                            </th>
+                            <th class="align-middle" colspan="2" style="padding: 1px">TIME START:</th>
+                            <th class="align-middle" colspan="3" style="padding: 1px;  width: 60px">
+                                <t t-if="doc.x_studio_start_time">
+                                    <span t-esc="doc.x_studio_start_time.strftime('%H:%M:%S')"/>
+                                </t>
+                                <t t-else="">
+                                    <span/>
+                                </t>
+                            </th>
+                        </tr>
+                        <tr>
+                            <th colspan="2" class="text-center align-middle" style="padding: 1px">
+                                <t t-esc="doc.x_studio_building_1.x_name"/>
+                            </th>
+                            <th colspan="3" style="padding: 1px">SEAL NO.:</th>
+                            <th colspan="2" style="padding: 1px"><t t-esc="doc.x_studio_seal_no"/></th>
+                            <th style="padding: 1px">TRUCKING:</th>
+                            <th style="padding: 1px">
+                                <t t-if="doc.truck_type" t-esc="dict(doc.fields_get(allfields=['truck_type'])['truck_type']['selection'])[doc.truck_type]"/>
+                            </th>
+                            <th style="padding: 1px">PLATE NO.:</th>
+                            <th colspan="3" style="padding: 1px">
+                                <span t-field="doc.x_studio_trucks_plate_"/>
+                            </th>
+                            <th class="align-middle" colspan="2" style="padding: 1px;">TIME END:</th>
+                            <th colspan="3" class="align-middle" style="padding: 1px; width: 60px">
+                                <t t-if="doc.x_studio_end_time">
+                                    <span t-esc="doc.x_studio_end_time.strftime('%H:%M:%S')"/>
+                                </t>
+                                <t t-else="">
+                                    <span/>
+                                </t>
+                            </th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+            <!-- Product Lines Table for this page -->
+            <div class="product-lines-section" style="width: 100%; margin-top: -15px">
+                <table class="table table-bordered" style="font-size:12px; table-layout:fixed; border-collapse:collapse; width: 100%; border-color: #A9A9A9;">
+                    <thead class="text-center" style="background-color: #f8f9fa;">
+                        <tr>
+                            <th style="width: 6%;">ITEM NO.</th>
+                            <th style="width: 12%;">LOCATION</th>
+                            <th style="width: 10%;">ACTUAL LOCATION</th>
+                            <th style="width: 8%;">PALLET SERIES</th>
+                            <th style="width: 7%;">PALLET #</th>
+                            <th style="width: 7%; font-size: 12px">P. COLOR</th>
+                            <th style="width: 28%;">ITEM DESCRIPTION/BRAND</th>
+                            <th style="width: 6%;">MFG. DATE</th>
+                            <th style="width: 6%;">EXP. DATE</th>
+                            <th style="width: 5%;">QTY</th>
+                            <th style="width: 5%;">UOM</th>
+                            <!--<th style="width: 5%;">QTY (PACKS)</th>-->
+                            <th style="width: 8%;">WEIGHT (KG)</th>
+                            <th style="width: 10%;">REMARKS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-set="start_index" t-value="page_num * lines_per_page"/>
+                        <t t-set="end_index" t-value="min((page_num + 1) * lines_per_page, total_lines)"/>
+                        <t t-set="page_lines" t-value="sorted_lines[start_index:end_index] if total_lines &gt; 0 else []"/>
+                        <t t-foreach="page_lines" t-as="o">
+                            <t t-set="counter" t-value="start_index + o_index + 1"/>
+                            <tr class="text-center" style="height: 20px;">
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <t t-esc="counter"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px; text-wrap: nowrap;">
+                                    <t t-esc="o.location_dest_id.complete_name"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <!-- Actual location content -->
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px; word-wrap: break-word;">
+                                    <t t-esc="o.x_studio_pallet_series_id"/>
+                                    <t t-esc="o.get_second_top_parent(o.location_dest_id.complete_name)"/>
+                                    <t t-esc="o.x_studio_return_count" t-if="o.x_studio_return_count"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;"><t t-esc="o.result_package_id.name"/></td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;"/>
+                                <td style="padding: 0px; text-align: left; vertical-align: middle; font-size: 10px; word-wrap: break-word;">
+                                    <t t-esc="o.product_id.name"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <t t-esc="o.x_studio_production_date or ''"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <t t-esc="o.x_studio_expiration_date or ''"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <t t-esc="int(o.x_studio_2nd_uom) if o.x_studio_2nd_uom else ''"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <t t-esc="o.x_studio_quantity_uom.name or ''"/>
+                                </td>
+                                <!--<td style="padding: 0px; vertical-align: middle; font-size: 10px;"/>-->
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;">
+                                    <t t-esc="o.quantity if o.quantity else ''"/>
+                                </td>
+                                <td style="padding: 0px; vertical-align: middle; font-size: 10px;"/>
+                            </tr>
+                        </t>
+                        <!-- Fill empty rows if needed to maintain consistent spacing -->
+                        <t t-set="empty_rows" t-value="lines_per_page - len(page_lines)"/>
+                        <t t-foreach="range(empty_rows)" t-as="empty_row">
+                            <tr style="height: 20px;">
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                                <td style="padding: 2px;"/>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </div>
+            <!-- Signatories Section - Appears on every page -->
+            <div class="signatories-section" style="width: 100%; margin-top: 20px; page-break-inside: avoid;">
+                <table class="table" style=" width: 100%; margin: 0; font-size: 11px;border: 1px solid white">
+                    <tr style="height:10px;" class="fw-bold">
+                        <td style="width: 33.33%; text-align: left; vertical-align: top; padding: 8px;">Prepared By:</td>
+                        <td style="width: 33.33%; text-align: left; vertical-align: top; padding: 8px;">Received By:</td>
+                        <td style="width: 33.33%; text-align: left; vertical-align: top; padding: 8px;">Noted By:</td>
+                    </tr>
+                    <tr class="text-center" style="font-size:11px; height: 30px;">
+                        <td style="padding: 8px; vertical-align: bottom; text-align: center;">
+                            <div style="text-align: center;">
+                                <!--<span t-esc="doc.create_uid.name"/>-->
+                            </div>
+                            <div class="fw-bold" style="border-top: 2px solid black; display: inline-block; width: 80%; margin-top: 15px; padding-top: 4px;">CHECKER</div>
+                            <br/>
+                            <span style="font-size:11px;">Signature over Printed Name</span>
+                        </td>
+                        <td style="padding: 8px; vertical-align: bottom; text-align: center;">
+                            <br/>
+                            <div class="fw-bold" style="border-top: 2px solid black; display: inline-block; width: 80%; margin-top: 15px; padding-top: 4px;">DOCUMENTATION</div>
+                            <br/>
+                            <span style="font-size:11px;">Signature over Printed Name</span>
+                        </td>
+                        <td style="padding: 8px; vertical-align: bottom; text-align: center;">
+                            <br/>
+                            <div class="fw-bold" style="border-top: 2px solid black; display: inline-block; width: 80%; margin-top: 15px; padding-top: 4px;">TL/WAREHOUSE SUPERVISOR</div>
+                            <br/>
+                            <span style="font-size:11px;">Signature over Printed Name</span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            <!-- Footer Section -->
+            <div class="row" style="margin-top: 8px; font-size: 10px;">
+                <div class="col-4"/>
+                <div class="col-4" style="text-align: center;">
+        Page 
+        
+                    
+                    
+                    <span t-esc="page_num + 1"/> of 
+        
+                    
+                    
+                    <span t-esc="total_pages"/>
+                </div>
+                <div class="col-4" style="text-align: right;">
+        REV. NO. 00 5/30/25
+    </div>
+            </div>
+        </div>
+        <!-- Page break after each page except the last one -->
+        <t t-if="page_num != (total_pages - 1)">
+            <div style="page-break-after: always;"/>
+        </t>
+    </t>
+</t>

@@ -801,7 +801,7 @@ class OverrideStockQuant(models.Model):
                 product = self.env['product.product'].browse(vals['product_id'])
                 location = self.env['stock.location'].browse(vals['location_id'])
                 lot_id = self.env['stock.lot'].browse(vals.get('lot_id'))
-                package_id = self.env['stock.quant.package'].browse(vals.get('package_id'))
+                package_id = self.env['stock.package'].browse(vals.get('package_id'))
                 owner_id = self.env['res.partner'].browse(vals.get('owner_id'))
                 quant = self.env['stock.quant']
                 if not self.env.context.get('import_file'):
@@ -934,7 +934,7 @@ class OverrideStockQuant(models.Model):
         action['context']['search_default_product_id'] = self.product_id.id
     
         # Force the use of custom tree view
-        action['views'] = [(self.env.ref('multiple_relocation.view_move_line_tree_custom_history').id, 'tree')]
+        action['views'] = [(self.env.ref('multiple_relocation.view_move_line_tree_custom_history').id, 'list')]
     
         return action
         
@@ -1098,7 +1098,6 @@ class OverrideStockQuant(models.Model):
                     move_vals = {
                         'picking_id': picking.id,
                         'product_id': prod_id,
-                        'name': product.display_name,
                         'product_uom': quant.product_uom_id.id,
                         'location_id': quant.location_id.id,
                         'location_dest_id': picking.location_dest_id.id,
@@ -1205,9 +1204,17 @@ class OverrideStockQuant(models.Model):
                     raise UserError("You selected the same location. Please relocate to another location")
 
     def _gather(self, product_id, location_id, lot_id=None, package_id=None, owner_id=None, strict=False, qty=0, x_studio_container_number=None, quant_ids_picked=None):
+        # core _get_reserve_quantity calls _gather without the VIFEL arguments; take them from the context
+        if x_studio_container_number is None:
+            x_studio_container_number = self.env.context.get('vifel_container_number')
+        if quant_ids_picked is None:
+            quant_ids_picked = self.env.context.get('vifel_quant_ids_picked')
         removal_strategy = self._get_removal_strategy(product_id, location_id)
         domain = self._get_gather_domain(product_id, location_id, lot_id, package_id, owner_id, strict)
-        domain, order = self._get_removal_strategy_domain_order(domain, removal_strategy, qty)
+        # Odoo 19 split the 17 helper _get_removal_strategy_domain_order into these two steps
+        if removal_strategy == 'least_packages' and qty:
+            domain = self._run_least_packages_removal_strategy_astar(domain, qty)
+        order = self._get_removal_strategy_order(removal_strategy)
         
         quants_cache = self.env.context.get('quants_cache')
         if quants_cache is not None and strict and removal_strategy != 'least_packages':
@@ -1253,93 +1260,10 @@ class OverrideStockQuant(models.Model):
 
         
 
-    def _get_reserve_quantity(self, product_id, location_id, quantity, product_packaging_id=None, uom_id=None, lot_id=None, package_id=None, owner_id=None, x_studio_container_number=None, quant_ids_picked=None, strict=False ):
-        """ Get the quantity available to reserve for the set of quants
-        sharing the combination of `product_id, location_id` if `strict` is set to False or sharing
-        the *exact same characteristics* otherwise. If no quants are in self, `_gather` will do a search to fetch the quants
-        Typically, this method is called before the `stock.move.line` creation to know the reserved_qty that could be use.
-        It's also called by `_update_reserve_quantity` to find the quant to reserve.
+    # _get_reserve_quantity: the 17 copy of core that lived here is gone. Odoo 19 core is used as-is;
+    # the VIFEL filters (container priority, picked pallets) reach _gather through the context set in
+    # stock.move._update_reserved_quantity.
 
-        :return: a list of tuples (quant, quantity_reserved) showing on which quant the reservation
-            could be done and how much the system is able to reserve on it
-        """
-
-        self = self.sudo()
-        rounding = product_id.uom_id.rounding
-        
-        quants = self._gather(product_id, location_id, lot_id=lot_id, package_id=package_id, owner_id=owner_id, strict=strict, qty=quantity, x_studio_container_number=x_studio_container_number, quant_ids_picked=quant_ids_picked)
-            
-        # avoid quants with negative qty to not lower available_qty
-        available_quantity = quants._get_available_quantity(product_id, location_id, lot_id, package_id, owner_id, strict)
-
-        # do full packaging reservation when it's needed
-        if product_packaging_id and product_id.product_tmpl_id.categ_id.packaging_reserve_method == "full":
-            available_quantity = product_packaging_id._check_qty(available_quantity, product_id.uom_id, "DOWN")
-
-        quantity = min(quantity, available_quantity)
-
-        # `quantity` is in the quants unit of measure. There's a possibility that the move's
-        # unit of measure won't be respected if we blindly reserve this quantity, a common usecase
-        # is if the move's unit of measure's rounding does not allow fractional reservation. We chose
-        # to convert `quantity` to the move's unit of measure with a down rounding method and
-        # then get it back in the quants unit of measure with an half-up rounding_method. This
-        # way, we'll never reserve more than allowed. We do not apply this logic if
-        # `available_quantity` is brought by a chained move line. In this case, `_prepare_move_line_vals`
-        # will take care of changing the UOM to the UOM of the product.
-        if not strict and uom_id and product_id.uom_id != uom_id:
-            quantity_move_uom = product_id.uom_id._compute_quantity(quantity, uom_id, rounding_method='DOWN')
-            quantity = uom_id._compute_quantity(quantity_move_uom, product_id.uom_id, rounding_method='HALF-UP')
-
-        if quants.product_id.tracking == 'serial':
-            if float_compare(quantity, int(quantity), precision_rounding=rounding) != 0:
-                quantity = 0
-
-        reserved_quants = []
-
-        if float_compare(quantity, 0, precision_rounding=rounding) > 0:
-            # if we want to reserve
-            available_quantity = sum(quants.filtered(lambda q: float_compare(q.quantity, 0, precision_rounding=rounding) > 0).mapped('quantity')) - sum(quants.mapped('reserved_quantity'))
-        elif float_compare(quantity, 0, precision_rounding=rounding) < 0:
-            # if we want to unreserve
-            available_quantity = sum(quants.mapped('reserved_quantity'))
-            if float_compare(abs(quantity), available_quantity, precision_rounding=rounding) > 0:
-                raise UserError(_('It is not possible to unreserve more products of %s than you have in stock.', product_id.display_name))
-        else:
-            return reserved_quants
-
-        negative_reserved_quantity = defaultdict(float)
-        for quant in quants:
-            if float_compare(quant.quantity - quant.reserved_quantity, 0, precision_rounding=rounding) < 0:
-                negative_reserved_quantity[(quant.location_id, quant.lot_id, quant.package_id, quant.owner_id)] += quant.quantity - quant.reserved_quantity
-        for quant in quants:
-            if float_compare(quantity, 0, precision_rounding=rounding) > 0:
-                max_quantity_on_quant = quant.quantity - quant.reserved_quantity
-                if float_compare(max_quantity_on_quant, 0, precision_rounding=rounding) <= 0:
-                    continue
-                negative_quantity = negative_reserved_quantity[(quant.location_id, quant.lot_id, quant.package_id, quant.owner_id)]
-                if negative_quantity:
-                    negative_qty_to_remove = min(abs(negative_quantity), max_quantity_on_quant)
-                    negative_reserved_quantity[(quant.location_id, quant.lot_id, quant.package_id, quant.owner_id)] += negative_qty_to_remove
-                    max_quantity_on_quant -= negative_qty_to_remove
-                if float_compare(max_quantity_on_quant, 0, precision_rounding=rounding) <= 0:
-                    continue
-                max_quantity_on_quant = min(max_quantity_on_quant, quantity)
-                reserved_quants.append((quant, max_quantity_on_quant))
-                quantity -= max_quantity_on_quant
-                available_quantity -= max_quantity_on_quant
-            else:
-                max_quantity_on_quant = min(quant.reserved_quantity, abs(quantity))
-                reserved_quants.append((quant, -max_quantity_on_quant))
-                quantity += max_quantity_on_quant
-                available_quantity += max_quantity_on_quant
-
-            if float_is_zero(quantity, precision_rounding=rounding) or float_is_zero(available_quantity, precision_rounding=rounding):
-                break
-        return reserved_quants
-
-
-    
-    # Add Total to available_quantity and inventory_quantity_auto_apply columns on Group By
     @api.model
     def read_group(self, domain, fields, groupby, offset=0, limit=None, orderby=False, lazy=True):
         # Call the parent method and get the result
@@ -1371,22 +1295,23 @@ class OverrideStockQuant(models.Model):
 
         :param location_id: `stock.location`
         :param location_dest_id: `stock.location`
-        :param package_id: `stock.quant.package`
-        :param package_dest_id: `stock.quant.package`
+        :param package_id: `stock.package`
+        :param package_dest_id: `stock.package`
         :return: dict with all values needed to create a new `stock.move` with its move line.
         """
         # raise UserError(qty)
         self.ensure_one()
         if self.env.context.get('inventory_name'):
             name = self.env.context.get('inventory_name')
-        elif fields.Float.is_zero(qty, 0, precision_rounding=self.product_uom_id.rounding):
+        elif fields.Float.is_zero(qty, precision_rounding=self.product_uom_id.rounding):
             name = _('Product Quantity Confirmed')
         else:
             name = _('Product Quantity Updated')
         if self.user_id and self.user_id.id != SUPERUSER_ID:
             name += f' ({self.user_id.display_name})'
         return {
-            'name': name,
+            # 19 dropped stock.move.name; inventory_name feeds the move's reference
+            'inventory_name': name,
             'product_id': self.product_id.id,
             'product_uom': self.product_uom_id.id,
             'product_uom_qty': qty,
@@ -1468,7 +1393,7 @@ class OverrideStockQuant(models.Model):
         """ Directly move a stock.quant to another location and/or package by creating a stock.move.
 
         :param location_dest_id: `stock.location` destination location for the quants
-        :param package_dest_id: `stock.quant.package´ destination package for the quants
+        :param package_dest_id: `stock.package´ destination package for the quants
         :param message: String to fill the reference field on the generated stock.move
         :param unpack: set to True when needing to unpack the quant
         """
@@ -1591,7 +1516,7 @@ class OverrideStockQuant(models.Model):
                 self.x_studio_pallet_series_id or self.bf_pallet_char
                 or self.package_id.name or self.lot_id.name or 'quant'),
             'res_model': 'stock.quant.history',
-            'view_mode': 'tree,form',
+            'view_mode': 'list,form',
             'domain': OR(domain),
             'context': {'create': False},
         }

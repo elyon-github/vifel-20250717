@@ -15,7 +15,7 @@ class StockQuantRelocationLine(models.TransientModel):
     owner_id = fields.Many2one('res.partner', string="Owner", readonly=True)
     product_id = fields.Many2one('product.product', string='Product', readonly=True)
     x_studio_pallet_series_id = fields.Char(string='Pallet Series', readonly=True)
-    package_id = fields.Many2one('stock.quant.package', string='Package', readonly=True)
+    package_id = fields.Many2one('stock.package', string='Package', readonly=True)
     current_location = fields.Many2one('stock.location', string="Current Location", readonly=True)
     new_location = fields.Many2one(
         'stock.location', string="New Location",
@@ -26,7 +26,7 @@ class StockQuantRelocationLine(models.TransientModel):
     x_studio_quantity_uom = fields.Many2one('uom.uom', string='Quantity UOM', readonly=True)
     x_studio_total_units = fields.Float(string='Total Packs', readonly=True)
     x_studio_min_quantity_uom = fields.Many2one('uom.uom', string='Packs UOM', readonly=True)
-    quantity = fields.Float(string='Weight (KG)', readonly=True, digits='Product Unit of Measure')
+    quantity = fields.Float(string='Weight (KG)', readonly=True, digits='Product Unit')
     building = fields.Many2one('x_warehouse_building', string="Building", compute="_compute_building", store=True)
     warehouse_id = fields.Many2one(
         'stock.warehouse', string="Warehouse",

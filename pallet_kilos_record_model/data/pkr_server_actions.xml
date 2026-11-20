@@ -52,7 +52,7 @@
         <field name="model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
         <field name="binding_model_id" ref="model_pallet_kilos_record_model_pallet_kilos_record_model"/>
         <field name="binding_type">action</field>
-        <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
+        <field name="group_ids" eval="[(4, ref('base.group_system'))]"/>
         <field name="state">code</field>
         <field name="code">action = model.action_book_past_reuploads()</field>
     </record>

@@ -10,11 +10,11 @@ class ReturnPackageWizardLine(models.TransientModel):
 
     wizard_id = fields.Many2one('return.package.wizard', string="Wizard")
     select_package = fields.Boolean(string="Select")
-    result_package_id = fields.Many2one('stock.quant.package', string="Pallet #" , domain="[('location_id', '=', False), ('x_studio_is_reserved', '=', False)]")
+    result_package_id = fields.Many2one('stock.package', string="Pallet #" , domain="[('location_id', '=', False), ('x_studio_is_reserved', '=', False)]")
     pallet_series_id = fields.Char(string='Pallet Series ID')
     bf_pallet_char = fields.Char(string="Pallet # - Text")
     product_id = fields.Many2one('product.product', string="Products")
-    quantity = fields.Float(string="Actual Weight (KG)", digits='Product Unit of Measure')
+    quantity = fields.Float(string="Actual Weight (KG)", digits='Product Unit')
     production_date=fields.Date(string="Production Date")
     expiration_date=fields.Date(string="Expiration Date")
     container_number = fields.Char(string="Container #")
@@ -33,7 +33,7 @@ class ReturnPackageWizardLine(models.TransientModel):
     result_package_id_is_fallback = fields.Boolean(string="Pallet is Fallback", default=False)
     pack_uom = fields.Many2one('uom.uom', string='Unit of Measure', readonly=True)
     min_uom = fields.Many2one('uom.uom', string='Unit of Measure', readonly=True)
-    actual_quantity = fields.Float(string="Original Weight (KG)", digits='Product Unit of Measure')
+    actual_quantity = fields.Float(string="Original Weight (KG)", digits='Product Unit')
     actual_pack_uom_unit = fields.Float(string="Original Quantity Unit")
     actual_min_uom_unit = fields.Float(string="Original Packs Unit")
     is_a_blast_freeze = fields.Boolean(related="wizard_id.is_a_blast_freeze")
@@ -277,7 +277,7 @@ class ReturnPackageWizard(models.TransientModel):
                         # Final fallback: pick a fresh unreserved/unlocated "NP" pallet
                         # that hasn't been recommended on an earlier line in this wizard
                         if not pallet_result_id:
-                            np_pallet = self.env['stock.quant.package'].search([
+                            np_pallet = self.env['stock.package'].search([
                                 ('name', 'ilike', 'NP'),
                                 ('location_id', '=', False),
                                 ('x_studio_is_reserved', '=', False),
@@ -683,7 +683,7 @@ class ReturnPackageWizard(models.TransientModel):
         })
 
         # Remove any existing move lines from the copied picking
-        for move_line in new_picking.move_ids_without_package:
+        for move_line in new_picking.move_ids:
             move_line.unlink()
 
         return {
@@ -743,7 +743,7 @@ class ReturnPackageWizard(models.TransientModel):
         # wizard run can get flipped back to 'confirmed'/'waiting' by Odoo's
         # reservation recomputation. Force the picking and its moves to 'assigned'
         # so the return doesn't show "Waiting for Availability".
-        existing_return.move_ids_without_package.write({'state': 'assigned'})
+        existing_return.move_ids.write({'state': 'assigned'})
         existing_return.write({'state': 'assigned'})
 
         return {
@@ -781,7 +781,7 @@ class ReturnPackageWizard(models.TransientModel):
             product_data[product_id]['packages'].append(package)
     
         # Check for existing moves by product_id and update/create accordingly
-        existing_moves = existing_return.move_ids_without_package
+        existing_moves = existing_return.move_ids
         existing_move_map = {move.product_id.id: move for move in existing_moves}
         
         move_line_mapping = {}
@@ -821,7 +821,6 @@ class ReturnPackageWizard(models.TransientModel):
             else:
                 # Create new move for this product
                 new_move = self.env['stock.move'].create({
-                    'name': self.env['product.product'].browse(product_id).display_name,
                     'product_id': product_id,
                     'product_uom_qty': data['quantity'],
                     'product_uom': self.env['product.product'].browse(product_id).uom_id.id,
@@ -982,7 +981,7 @@ class ReturnPackageWizard(models.TransientModel):
             product_data[product_id]['pack_uom'] = pack_uom
 
         # Remove any existing move lines from the copied picking
-        for move_line in new_picking.move_ids_without_package:
+        for move_line in new_picking.move_ids:
             move_line.unlink()
 
         move_line_mapping = {}
@@ -990,7 +989,6 @@ class ReturnPackageWizard(models.TransientModel):
         # Create a stock.move for each product in product_data
         for product_id, data in product_data.items():
             move = self.env['stock.move'].create({
-                'name': self.env['product.product'].browse(product_id).display_name,
                 'product_id': product_id,
                 'product_uom_qty': data['quantity'],
                 'product_uom': self.env['product.product'].browse(product_id).uom_id.id,

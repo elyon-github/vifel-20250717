@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <!-- Operations tab line: "Open Move" icon (see stock_move_open_detail.js) -->
+    <t t-name="multiple_relocation.MovesListRenderer.RecordRow" t-inherit="web.ListRenderer.RecordRow" t-inherit-mode="primary">
+        <xpath expr="//t[@t-foreach='getColumns(record)']" position="inside">
+            <t t-if="column.type === 'vifel_open_move'">
+                <td class="o_data_cell cursor-pointer o_list_button" tabindex="-1">
+                    <button t-if="record.resId and record.data.show_details_visible"
+                            name="Open Move" title="Open Move"
+                            class="btn btn-link fa fa-list"
+                            t-on-click.stop="() => props.openRecord(record)"/>
+                </td>
+            </t>
+        </xpath>
+    </t>
+</templates>

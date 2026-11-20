@@ -95,7 +95,7 @@ class StockQuantHistory(models.Model):
         readonly=True,
     )
     package_id = fields.Many2one(
-        "stock.quant.package",
+        "stock.package",
         string="Package",
         readonly=True,
         check_company=True,

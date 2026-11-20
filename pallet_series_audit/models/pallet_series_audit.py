@@ -99,9 +99,10 @@ class PalletSeriesAudit(models.Model):
              'that is expected and says nothing about the pallet series.',
     )
 
-    _sql_constraints = [
-        ('picking_uniq', 'unique(picking_id)', 'Only one audit record per RR transfer.'),
-    ]
+    _picking_uniq = models.Constraint(
+        'unique(picking_id)',
+        'Only one audit record per RR transfer.',
+    )
 
     # ------------------------------------------------------------------
     # Computes

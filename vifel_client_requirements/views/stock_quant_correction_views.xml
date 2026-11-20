@@ -11,7 +11,7 @@
         <field name="inherit_id"
                ref="multiple_relocation.view_stock_quant_correction_wizard"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='line_ids']/tree/field[@name='x_studio_container_number']"
+            <xpath expr="//field[@name='line_ids']/list/field[@name='x_studio_container_number']"
                    position="before">
                 <field name="client_lot_no" string="Lot No." optional="show"/>
             </xpath>

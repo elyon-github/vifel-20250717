@@ -137,7 +137,7 @@ class StockQuantHistorySnapshot(models.Model):
         domain = [
             ("state", "=", "done"),
             ("date", "<=", self.inventory_date),
-            ("product_id.type", "=", "product"),
+            ("product_id.is_storable", "=", True),
         ]
         # raise UserError(inventory_date_manila)
         if previous_quant_snapshot.exists():
@@ -302,7 +302,7 @@ class StockQuantHistorySnapshot(models.Model):
             # seed directly from it (Approach B). This eliminates the phantom stock
             # from direct quant writes that never produced a move line (RC-1/RC-4).
             latest_move = self.env["stock.move.line"].sudo().search(
-                [("state", "=", "done"), ("product_id.type", "=", "product")],
+                [("state", "=", "done"), ("product_id.is_storable", "=", True)],
                 order="date desc",
                 limit=1,
             )
@@ -372,7 +372,7 @@ class StockQuantHistorySnapshot(models.Model):
         """
         ignored_location_usage = self._ignored_location_usage()
         quants = self.env["stock.quant"].sudo().search([
-            ("product_id.type", "=", "product"),
+            ("product_id.is_storable", "=", True),
             ("location_id.usage", "not in", ignored_location_usage),
             ("quantity", "!=", 0),
         ])
@@ -499,6 +499,11 @@ class StockQuantHistorySnapshot(models.Model):
         correction move line carrying the NEW x_studio_* values. The plain
         replay ignores zero-qty lines, discarding those changes. Re-apply the
         metadata onto the matching existing history row (latest move wins)."""
+        # The adjustment flag lives in multiple_relocation, which depends on
+        # this module: while only stock_quant_history is loaded (its own
+        # at-install tests) there are no adjustment lines to replay.
+        if "is_quant_detail_adjusted" not in self.env["stock.move.line"]._fields:
+            return
         domain = [
             ("is_quant_detail_adjusted", "=", True),
             ("quantity", "=", 0),

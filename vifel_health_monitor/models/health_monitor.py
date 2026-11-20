@@ -65,9 +65,10 @@ class VifelHealthCheck(models.Model):
     ignored_count = fields.Integer(compute='_compute_counts', string='Ignored')
     resolved_last_run = fields.Integer(readonly=True)
 
-    _sql_constraints = [
-        ('code_uniq', 'unique(code)', 'Check code must be unique.'),
-    ]
+    _code_uniq = models.Constraint(
+        'unique(code)',
+        'Check code must be unique.',
+    )
 
     def _compute_counts(self):
         groups = self.env['vifel.health.finding'].read_group(
@@ -96,7 +97,7 @@ class VifelHealthCheck(models.Model):
             'type': 'ir.actions.act_window',
             'name': _('%s — Findings') % self.name,
             'res_model': 'vifel.health.finding',
-            'view_mode': 'tree,form',
+            'view_mode': 'list,form',
             'domain': [('check_id', '=', self.id)],
             'context': {'search_default_unresolved': 1},
         }
@@ -366,7 +367,7 @@ class VifelHealthCheck(models.Model):
                    string_agg(DISTINCT pkg.name, ', ')
             FROM stock_quant q
             JOIN stock_location l ON l.id = q.location_id
-            JOIN stock_quant_package pkg ON pkg.id = q.package_id
+            JOIN stock_package pkg ON pkg.id = q.package_id
             WHERE l.usage = 'internal' AND q.quantity > 0
               AND q.x_studio_pallet_series_id IS NOT NULL
               AND q.x_studio_pallet_series_id <> ''
@@ -393,13 +394,13 @@ class VifelHealthCheck(models.Model):
                    string_agg(DISTINCT l.complete_name, ' | ')
             FROM stock_quant q
             JOIN stock_location l ON l.id = q.location_id
-            JOIN stock_quant_package pkg ON pkg.id = q.package_id
+            JOIN stock_package pkg ON pkg.id = q.package_id
             WHERE l.usage = 'internal' AND q.quantity > 0
             GROUP BY 1, 2 HAVING count(DISTINCT q.location_id) > 1
         """)
         return [{
             'dedup_key': 'pkg2loc:%s' % pkg_id,
-            'res_model': 'stock.quant.package', 'res_id': pkg_id,
+            'res_model': 'stock.package', 'res_id': pkg_id,
             'reference': name,
             'detail': 'Pallet %s has stock in %d locations at once: %s.'
                       % (name, n, locs),
@@ -413,7 +414,7 @@ class VifelHealthCheck(models.Model):
             SELECT q.id, q.owner_id, pkg.name, l.complete_name
             FROM stock_quant q
             JOIN stock_location l ON l.id = q.location_id
-            JOIN stock_quant_package pkg ON pkg.id = q.package_id
+            JOIN stock_package pkg ON pkg.id = q.package_id
             WHERE l.usage = 'internal' AND q.quantity > 0
               AND COALESCE(q.x_studio_pallet_series_id, '') = ''
         """)
@@ -714,10 +715,10 @@ class VifelHealthCheck(models.Model):
               AND (sp.id IS NULL OR sp.state IN ('done', 'cancel')
                    OR COALESCE(sp.x_studio_voided, false) = true)
         """),
-        'pallet': ('stock.quant.package', """
+        'pallet': ('stock.package', """
             SELECT t.id, t.name AS label,
                    sp.name, sp.state, COALESCE(sp.x_studio_voided, false)
-            FROM stock_quant_package t
+            FROM stock_package t
             LEFT JOIN stock_picking sp
               ON sp.id = t.x_studio_receiving_report_id
             WHERE t.x_studio_is_reserved = true
@@ -892,10 +893,10 @@ class VifelHealthFinding(models.Model):
         help='Domain of the stock.quants behind this finding — drives the '
              '"View Quants" preview button.')
 
-    _sql_constraints = [
-        ('dedup_uniq', 'unique(dedup_key)',
-         'A finding with this identity already exists.'),
-    ]
+    _dedup_uniq = models.Constraint(
+        'unique(dedup_key)',
+        'A finding with this identity already exists.',
+    )
 
     def action_view_quants(self):
         """Preview the actual quants behind this finding, in the VIFEL
@@ -914,8 +915,8 @@ class VifelHealthFinding(models.Model):
             'type': 'ir.actions.act_window',
             'name': _('%s — Quants') % (self.reference or self.check_id.name),
             'res_model': 'stock.quant',
-            'view_mode': 'tree,form',
-            'views': [(tree.id if tree else False, 'tree'), (False, 'form')],
+            'view_mode': 'list,form',
+            'views': [(tree.id if tree else False, 'list'), (False, 'form')],
             'domain': domain,
             'context': {'create': False},
         }
@@ -1067,7 +1068,7 @@ class VifelHealthRun(models.Model):
         self.ensure_one()
         group = self.env.ref('multiple_relocation.inventory_super_admin',
                              raise_if_not_found=False)
-        recipients = group.users.filtered('active') if group \
+        recipients = group.user_ids.filtered('active') if group \
             else self.env['res.users']
         if not recipients:
             recipients = self.env.ref('base.user_admin')

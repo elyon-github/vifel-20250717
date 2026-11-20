@@ -11,9 +11,7 @@
         <field name="interval_type">days</field>
         <!-- 12:05 AM Manila = 16:05 UTC (previous day) -->
         <field name="nextcall" eval="'2026-03-12 16:05:00'"/>
-        <field name="numbercall">-1</field>
         <field name="active">True</field>
-        <field name="doall">False</field>
     </record>
 
     <!-- Backfill CRON: generate 5 snapshots per run every 20 mins,
@@ -26,9 +24,7 @@
         <field name="interval_number">20</field>
         <field name="interval_type">minutes</field>
         <field name="nextcall" eval="'2026-03-11 16:00:00'"/>
-        <field name="numbercall">-1</field>
         <field name="active">True</field>
-        <field name="doall">False</field>
     </record>
 
 </odoo>

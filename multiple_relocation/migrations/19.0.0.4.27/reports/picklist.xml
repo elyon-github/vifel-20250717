@@ -1,0 +1,412 @@
+<t t-name="studio_customization.studio_report_docume_d1a437ed-d7c4-4e46-950f-104d575cc280_document_copy_2">
+    <t t-set="sorted_move_lines" t-value="doc.get_picklist_sorted_move_line_ids()"/>
+    <t t-set="line_count" t-value="len(sorted_move_lines)"/>
+    <t t-set="page_boundaries" t-value="doc.get_picklist_page_boundaries()"/>
+    <t t-set="page_count" t-value="max(1, len(page_boundaries))"/>
+
+    <!-- Generated-date stamp (sits outside page flow) -->
+    <div style="position: absolute; top: 30px; right: 20px; font-size: 10px; border: 1px solid black; padding: 2px; text-align: center;">
+        Generated Date:
+        <t t-esc="(datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime('%m/%d/%Y %H:%M:%S')"/>
+    </div>
+
+    <t t-foreach="page_boundaries" t-as="page_boundary">
+        <t t-set="page_num" t-value="page_boundary_index"/>
+        <t t-set="page_start_index" t-value="page_boundary[0]"/>
+        <t t-set="page_end_index" t-value="page_boundary[1]"/>
+        <t t-set="is_last_page" t-value="page_boundary_index == page_count - 1"/>
+
+        <!--
+            position: relative + fixed height = wkhtmltopdf-safe page container.
+            Footer uses position: absolute; bottom: 0 — works in wkhtmltopdf (Qt WebKit).
+            overflow: hidden clips any content that slightly exceeds the budget.
+            DO NOT use flex, grid, margin-top: auto — unsupported in wkhtmltopdf.
+        -->
+        <div class="page" style="position: relative; height: 1200px; overflow: hidden; page-break-after: always; font-size: 13px; text-transform: uppercase;">
+
+            <t t-if="doc.state == 'draft'">
+                <div style="position: absolute; top: 20px; left: 30px; font-size: 24px; color: black; opacity: 0.6; transform: rotate(-15deg); z-index: 1000;">DRAFT</div>
+            </t>
+
+            <!-- ═══════════════════════════ HEADER ═══════════════════════════ -->
+            <table class="table-bordered table-sm mt-1" style="width: 100%; border-collapse: collapse; border: 1px solid black;">
+                <tbody>
+                    <tr>
+                        <td rowspan="2" style="width: 25%; text-align: left; vertical-align: middle;">
+                            <table style="width: 100%;">
+                                <tr style="border: 1px solid white">
+                                    <td style="width: 30%; vertical-align: middle;">
+                                        <img src="/web/image/532-ee9f38ad/jobscloud-removebg-preview.png" alt="" class="img img-fluid o_we_custom_image" style="max-width: 100%; height: auto;"/>
+                                    </td>
+                                    <td style="width: 70%; vertical-align: middle; padding-left: 10px;">
+                                        <span style="font-size: 10px;">Vifel Ice Plant and<br/>Cold Storage, Inc.</span>
+                                    </td>
+                                </tr>
+                            </table>
+                            <br/>
+                            <div style="text-align: center;">
+                                <span style="font-size: 10px;">INVENTORY MANAGEMENT SECTION</span>
+                            </div>
+                        </td>
+                        <td colspan="3" style="width: 80%; text-align: center; border-left: none;">
+                            <div style="font-size: 12px;">FORM</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" style="text-align: center; color: black; border-left: none; padding-top: 20px">
+                            <div style="font-size: 20px; font-weight: bold;">PICKLIST REPORT</div>
+                            <br/>
+                            <div style="font-size: 12px;"><b>F-IMS-013</b></div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="row">
+                <div class="col-3"/><div class="col-3"/><div class="col-3"/>
+                <div class="col-3" style="text-align: right; font-size: 20px; color: black;">
+                    <span>NO.</span> <t t-esc="doc.name"/>
+                </div>
+            </div>
+
+            <div class="row d-flex justify-content-end">
+                <div class="col-3 text-end" style="padding-right: 5px">DATE:
+                    <span style="border-bottom: 1px solid black; min-width: 80px; display: inline-block;" t-esc="(doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') if doc.x_studio_start_time else ''"/>
+                </div>
+                <div class="col-3 text-start">TIME START:
+                    <span style="border-bottom: 1px solid black; min-width: 60px; display: inline-block;" t-esc="(doc.x_studio_start_time + datetime.timedelta(hours=8)).strftime('%H%MH') if doc.x_studio_start_time else ''"/>
+                </div>
+            </div>
+            <div class="row d-flex justify-content-end">
+                <div class="col-6 text-start">Customer:
+                    <span t-field="doc.partner_id.name" class="ms-2" style="font-size: 17px;"/>
+                </div>
+                <div class="col-3 text-end" style="padding-right: 5px">DATE:
+                    <span style="border-bottom: 1px solid black; min-width: 80px; display: inline-block;" t-esc="(doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y') if doc.x_studio_end_time else ''"/>
+                </div>
+                <div class="col-3 text-start">TIME END:
+                    <span style="border-bottom: 1px solid black; min-width: 60px; display: inline-block;" t-esc="(doc.x_studio_end_time + datetime.timedelta(hours=8)).strftime('%H%MH') if doc.x_studio_end_time else ''"/>
+                </div>
+            </div>
+
+            <table class="table table-bordered table-sm mt-0 mb-0" style="border: 1px solid black; margin-bottom: 0; text-align: center">
+                <tr>
+                    <th>BUILDING:</th><th>ATW NO.:</th><th>LOADING DOCK NO.:</th>
+                    <th>PLATE NO.:</th><th>DESTINATION:</th><th>PICK-UP DATE&amp;TIME:</th>
+                </tr>
+                <tr style="height: 30px">
+                    <td><span t-esc="doc.get_branch_from_location('WR')"/></td>
+                    <td t-esc="doc.x_studio_atw_no if doc.x_studio_atw_no else ''"/>
+                    <td t-esc="doc.x_studio_loading_dock_no if doc.x_studio_loading_dock_no else '.'"/>
+                    <td t-esc="doc.x_studio_trucks_plate_ if doc.x_studio_trucks_plate_ else '.'"/>
+                    <td t-esc="doc.x_studio_destination if doc.x_studio_destination else '.'"/>
+                    <td>
+                        <span t-esc="(doc.x_studio_pick_up_date_time + datetime.timedelta(hours=8)).strftime('%b-%d-%y %H%MH') if doc.x_studio_pick_up_date_time else '-'"/>
+                    </td>
+                </tr>
+            </table>
+            <table class="table table-bordered table-sm mt-0 mb-0" style="border: 1px solid black; text-align: center">
+                <tr>
+                    <td style="width: 50%">DATE AND TIME PRINTED:
+                        <t t-esc="(datetime.datetime.strptime(time.strftime('%b-%d-%y %H%MH'), '%b-%d-%y %H%MH') + datetime.timedelta(hours=8)).strftime('%b-%d-%y %H%MH')"/>
+                    </td>
+                    <td style="width: 50%; text-align: left; padding-left: 15px">WHSE RECEIVED:</td>
+                </tr>
+            </table>
+            <!-- ═══════════════════════════ END HEADER ═══════════════════════════ -->
+
+            <!-- ═══════════════════════════ ITEMS TABLE ══════════════════════════ -->
+            <table class="table table-sm text-center" style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 13px; border: 1px solid white; margin-top: 2px;">
+                <thead>
+                    <tr style="border-bottom: 1px solid black;">
+                        <th style="width:  4%; border-bottom: 1px solid black;">No.</th>
+                        <th style="width: 13%; border-bottom: 1px solid black;">LOCATION</th>
+                        <th style="width: 15%; border-bottom: 1px solid black;">PALLET NO.</th>
+                        <th style="width: 48%; border-bottom: 1px solid black;">ITEM DESCRIPTION</th>
+                        <th style="width:  7%; border-bottom: 1px solid black;">QTY</th>
+<th style="width: 6%; border-bottom: 1px solid black;" t-if="not any(line.x_studio_min_quantity_uom for line in doc.move_line_ids)">UOM</th>
+
+<th style="width: 6%; border-bottom: 1px solid black;" t-if="any(line.x_studio_min_quantity_uom for line in doc.move_line_ids)">PACKS</th>
+                        <th style="width:  7%; border-bottom: 1px solid black;">WEIGHT (kg)</th>
+                        <th style="width:  7%;">REMARKS</th>
+                    </tr>
+                </thead>
+                <tbody style="font-size: 14px;">
+
+                    <t t-set="last_product_id" t-value="None"/>
+                    <t t-set="last_prod_date" t-value="None"/>
+                    <t t-set="last_exp_date" t-value="None"/>
+                    <t t-set="last_lot_no" t-value="None"/>
+                    <t t-set="last_move_id" t-value="None"/>
+
+                    <t t-foreach="range(page_end_index - page_start_index)" t-as="i">
+                        <t t-set="idx" t-value="page_start_index + i"/>
+
+                        <t t-set="current_container" t-value="sorted_move_lines[idx].x_studio_container_number if sorted_move_lines[idx].x_studio_container_number else ''"/>
+                        <t t-set="current_product_id" t-value="sorted_move_lines[idx].product_id.id"/>
+                        <t t-set="current_move_id" t-value="sorted_move_lines[idx].move_id.id"/>
+                        <t t-set="current_prod_date" t-value="sorted_move_lines[idx].x_studio_production_date"/>
+                        <t t-set="current_exp_date" t-value="sorted_move_lines[idx].x_studio_expiration_date"/>
+                        <t t-set="current_lot_no" t-value="doc.get_picklist_lot_no(sorted_move_lines[idx])"/>
+
+                        <t t-set="show_product" t-value="current_product_id != last_product_id or current_prod_date != last_prod_date or current_exp_date != last_exp_date or current_lot_no != last_lot_no"/>
+
+                        <t t-set="last_product_id" t-value="current_product_id"/>
+                        <t t-set="last_prod_date" t-value="current_prod_date"/>
+                        <t t-set="last_exp_date" t-value="current_exp_date"/>
+                        <t t-set="last_lot_no" t-value="current_lot_no"/>
+
+                        <t t-set="next_idx" t-value="idx + 1"/>
+                        <t t-set="is_last_item" t-value="next_idx &gt;= line_count"/>
+                        <t t-set="next_container" t-value="sorted_move_lines[next_idx].x_studio_container_number if not is_last_item and next_idx &lt; line_count and sorted_move_lines[next_idx].x_studio_container_number else ''"/>
+                        <t t-set="next_move_id" t-value="sorted_move_lines[next_idx].move_id.id if not is_last_item and next_idx &lt; line_count else None"/>
+                        <t t-set="container_changed" t-value="is_last_item or (next_container and current_container and current_container != next_container)"/>
+                        <t t-set="move_changed" t-value="is_last_item or (current_move_id != next_move_id)"/>
+
+                        <!-- Data row -->
+                        <tr style="height: 24px; border-bottom: 1px solid white; font-size: 13px;">
+                            <td style="padding: 2px;"><t t-esc="idx + 1"/></td>
+                            <td style="white-space: nowrap; padding: 2px;">
+                                <span style="white-space: nowrap;" t-esc="doc.convert_location_string(sorted_move_lines[idx].location_id.complete_name)"/>
+                            </td>
+                            <td style="white-space: nowrap; font-size: 12px; padding: 2px;">
+                                <t t-if="sorted_move_lines[idx].bf_pallet_char">
+                                    <span style="white-space: nowrap;" t-esc="sorted_move_lines[idx].bf_pallet_char or sorted_move_lines[idx].package_id.name"/>
+                                </t>
+                                <t t-if="not sorted_move_lines[idx].bf_pallet_char">
+                                    <span style="white-space: nowrap;" t-esc="sorted_move_lines[idx].bf_pallet_char or sorted_move_lines[idx].x_studio_pallet_series_id"/>/<span style="white-space: nowrap;" t-esc="sorted_move_lines[idx].bf_pallet_char or sorted_move_lines[idx].package_id.name"/>
+                                </t>
+                            </td>
+                            <td style="padding: 2px;">
+                                <t t-if="show_product">
+                                    <t t-set="text_for_count" t-value="sorted_move_lines[idx].product_id.name"/>
+                                    <t t-set="font_size" t-value="min(13, max(8, 13 - (len(text_for_count) - 79) // 3))"/>
+                                    <span t-att-style="'font-size: ' + str(font_size) + 'px;'">
+                                        <t t-esc="sorted_move_lines[idx].product_id.name"/>
+                                    </span>
+                                    <t t-if="current_prod_date or current_exp_date">
+                                        <br/>
+                                        <span style="font-size: 13px; font-weight: bold;">
+                                            <t t-if="current_prod_date and current_exp_date">
+                                                <t t-esc="current_prod_date.strftime('%b%d.%Y').upper()"/> -
+                                                <t t-esc="current_exp_date.strftime('%b%d.%Y').upper()"/>
+                                            </t>
+                                            <t t-elif="current_prod_date">
+                                                <t t-esc="current_prod_date.strftime('%b%d.%Y').upper()"/>
+                                            </t>
+                                            <t t-else="">
+                                                <t t-esc="current_exp_date.strftime('%b%d.%Y').upper()"/>
+                                            </t>
+                                        </span>
+                                    </t>
+                                    <t t-if="current_lot_no">
+                                        <br/>
+                                        <span style="font-size: 13px; font-weight: bold;">LOT NO.: <t t-esc="current_lot_no"/></span>
+                                    </t>
+                                    <t t-if="container_changed and current_container">
+                                        <br/>
+                                        <span style="font-weight: bold;" t-esc="current_container"/>
+                                    </t>
+                                </t>
+                                <t t-if="not show_product and container_changed and current_container">
+                                    <span style="font-weight: bold;" t-esc="current_container"/>
+                                </t>
+                            </td>
+                            <td style="text-align: right; padding: 2px;">
+                                <t t-esc="sorted_move_lines[idx].x_studio_actual_packaging" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 0, &quot;thousands_sep&quot;: &quot;,&quot;}" t-if="sorted_move_lines[idx].x_studio_affected_2nd_uom"/>
+                            </td>
+                            <td style="text-align: right; padding: 2px;">
+                                <span t-field="sorted_move_lines[idx].x_studio_quantity_uom_delivery" t-if="not sorted_move_lines[idx].x_studio_min_quantity_uom "/>
+                                <span t-field="sorted_move_lines[idx].x_studio_withdraw_units" t-if="sorted_move_lines[idx].x_studio_min_quantity_uom "/>
+                            </td>
+                            <td style="text-align: right; padding: 2px;">
+                                <t t-esc="sorted_move_lines[idx].x_studio_actual_kg" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 2, &quot;thousands_sep&quot;: &quot;,&quot;}"/>
+                            </td>
+                            <td style="border-right: 1px solid white; padding: 2px;"/>
+                        </tr>
+
+                        <!-- Total Request row (when move group ends) -->
+                        <t t-if="move_changed and sorted_move_lines[idx].move_id.x_studio_total_request">
+                            <tr>
+                                <td colspan="8" style="border: 1px solid white; padding: 4px; text-align: center; font-style: italic;">
+                                    Total Request: <t t-esc="sorted_move_lines[idx].move_id.x_studio_total_request"/>
+                                </td>
+                            </tr>
+                        </t>
+
+                        <!-- Spacing row between container groups -->
+                        <t t-if="container_changed and current_container and not is_last_item">
+                            <tr style="height: 12px;">
+                                <td colspan="8" style="border: 1px solid white; padding: 0; margin: 0;"/>
+                            </tr>
+                        </t>
+
+                    </t><!-- end line loop -->
+
+                </tbody>
+
+                <!-- ═══════════════ SUBTOTAL / GRAND TOTAL ═══════════════ -->
+                <tfoot>
+                    <!-- Subtotal: every page when multi-page -->
+                    <t t-if="page_count &gt; 1">
+                        <t t-set="page_totals_by_uom" t-value="doc.get_picklist_page_totals_by_uom(page_start_index, page_end_index, sorted_move_lines)"/>
+                        <t t-set="uom_list" t-value="doc.get_picklist_sorted_uom_list()"/>
+                        <t t-foreach="uom_list" t-as="uom_name">
+                            <t t-if="uom_name in page_totals_by_uom">
+<!-- SUBTOTAL row -->
+<tr style="border-top: 1px solid black; font-size: 14px; font-weight: bold;">
+    <td colspan="4" class="text-start" style="padding: 3px;">
+        <strong t-if="uom_name_index == 0">SUBTOTAL:</strong>
+    </td>
+    <td style="text-align: right; padding: 3px;">
+        <!-- qty (pieces) -->
+        <t t-esc="page_totals_by_uom[uom_name]['qty']" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 0, &quot;thousands_sep&quot;: &quot;,&quot;}"/>
+    </td>
+    <td style="text-align: right; padding: 3px;">
+        <!-- packs count on its own line, then UOM name -->
+        <t t-if="page_totals_by_uom[uom_name]['packs']">
+            <t t-esc="page_totals_by_uom[uom_name]['packs']" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 0, &quot;thousands_sep&quot;: &quot;,&quot;}"/>
+            <br/>
+        </t>
+        <span t-esc="page_totals_by_uom[uom_name]['uom'].name"/>
+    </td>
+    <td style="text-align: right; padding: 3px;">
+        <t t-esc="page_totals_by_uom[uom_name]['kg']" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 2, &quot;thousands_sep&quot;: &quot;,&quot;}" t-if="page_totals_by_uom[uom_name]['kg']"/>
+    </td>
+    <td/>
+</tr>
+                            </t>
+                        </t>
+                    </t>
+
+                    <!-- Grand Total: last page only -->
+                    <t t-if="is_last_page">
+                        <t t-set="grand_totals_by_uom" t-value="doc.get_picklist_grand_totals_by_uom()"/>
+                        <t t-set="uom_list" t-value="doc.get_picklist_sorted_uom_list()"/>
+                        <t t-foreach="uom_list" t-as="uom_name">
+                            <t t-if="uom_name in grand_totals_by_uom">
+                                <tr style="border-top: 1px solid black; font-size: 14px; font-weight: bold;">
+                                    <td colspan="4" class="text-start" style="padding: 3px;">
+                                        <strong t-if="uom_name_index == 0">GRAND TOTAL:</strong>
+                                    </td>
+                                    <td style="text-align: right; padding: 3px;">
+                                        <t t-esc="grand_totals_by_uom[uom_name]['qty']" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 0, &quot;thousands_sep&quot;: &quot;,&quot;}" t-if="grand_totals_by_uom[uom_name]['qty']"/>
+                                    </td>
+                                    <td style="text-align: right; padding: 3px;">
+                                        <t t-esc="grand_totals_by_uom[uom_name]['packs']" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 0, &quot;thousands_sep&quot;: &quot;,&quot;}" t-if="grand_totals_by_uom[uom_name]['packs']"/>
+                                        <span t-esc="grand_totals_by_uom[uom_name]['uom'].name"/>
+                                    </td>
+                                    <td style="text-align: right; padding: 3px;">
+                                        <t t-esc="grand_totals_by_uom[uom_name]['kg']" t-options="{&quot;widget&quot;: &quot;float&quot;, &quot;precision&quot;: 2, &quot;thousands_sep&quot;: &quot;,&quot;}" t-if="grand_totals_by_uom[uom_name]['kg']"/>
+                                    </td>
+                                    <td/>
+                                </tr>
+                            </t>
+                        </t>
+                    </t>
+                </tfoot>
+            </table>
+            <!-- ═══════════════════════════ END ITEMS TABLE ══════════════════════ -->
+
+            <!-- ═══════════════════════════ FOOTER (pinned to bottom) ═══════════════════════
+                 position: absolute; bottom: 0 is fully supported by wkhtmltopdf (Qt WebKit).
+                 Always sits at the very bottom of the 1060px page regardless of content height.
+                 Estimated height: ~186px (without Remarks) or ~211px (with Remarks on last page).
+            ════════════════════════════════════════════════════════════════════════════════ -->
+            <div style="position: absolute; bottom: 0; left: 0; right: 0;">
+
+                <!-- Remarks: last page only -->
+                <t t-if="is_last_page">
+                    <div style="min-height: 18px; margin-bottom: 3px;">
+                        <span style="margin: 5px; font-size: 13px;">
+                            <b>Remarks: </b>
+                            <t t-esc="doc.note"/>
+                            <t t-if="doc.return_ids">
+                                Return Reference:
+                                <t t-esc="', '.join(return_id.name for return_id in doc.return_ids)"/>
+                            </t>
+                            <t t-if="doc.return_ids and doc.x_studio_remarks"> | </t>
+                            <t t-esc="doc.x_studio_remarks"/>
+                        </span>
+                    </div>
+                </t>
+
+                <!-- Signatures: every page -->
+                <div style="margin-left: 50px;">
+                    <div class="text-center d-flex justify-content-around" style="margin-bottom: 2px;">
+                        <div class="col-3">
+                            <span t-esc="doc.documentation_staff_id.name or ''" style="white-space: nowrap;"/>
+                        </div>
+                        <div class="col-1"/>
+                        <div class="col-3"/>
+                        <div class="col-2"/>
+                        <div class="col-3">
+                            <span t-esc="doc.x_studio_warehouse_checker.name or ''" style="white-space: nowrap;"/>
+                        </div>
+                        <div class="col-1"/>
+                    </div>
+                    <div class="text-center d-flex justify-content-around">
+                        <div class="col-3" style="border-top: 2px solid black; padding-top: 2px;">DOCUMENATION STAFF</div>
+                        <div class="col-1"/>
+                        <div class="col-4" style="border-top: 2px solid black; padding-top: 2px; white-space: nowrap; text-align: center;">LOCATOR &amp; FORKLIFT OPERATOR</div>
+                        <div class="col-1"/>
+                        <div class="col-3" style="border-top: 2px solid black; padding-top: 2px;">WAREHOUSE CHECKER</div>
+                    </div>
+                    <div class="text-center d-flex justify-content-around" style="font-size: 11px;">
+                        <div class="col-3">(PREPARED BY)</div>
+                        <div class="col-1"/>
+                        <div class="col-4">(PICKED BY)</div>
+                        <div class="col-1"/>
+                        <div class="col-3">(CHECKED BY)</div>
+                    </div>
+                    <div class="text-center d-flex justify-content-around" style="margin-left: 75px; margin-top: 25px;">
+                        <div class="col-3" style="text-align: center;">
+                            <span t-esc="doc.x_studio_inventory_analyst.name or ''" style="white-space: nowrap;"/>
+                        </div>
+                        <div class="col-2"/>
+                        <div class="col-4" style="text-align: center;">
+                            <span t-esc="doc.x_studio_warehouse_supervisor.name or ''" style="white-space: nowrap;"/>
+                        </div>
+                        <div class="col-2"/>
+                    </div>
+                    <div class="text-center d-flex justify-content-around" style="margin-left: 75px;">
+                        <div class="col-3" style="border-top: 2px solid black; padding-top: 2px;">INVENTORY ANALYST</div>
+                        <div class="col-2"/>
+                        <div class="col-5" style="border-top: 2px solid black; padding-top: 2px; white-space: nowrap;">TEAM LEADER / WAREHOUSE SUPERVISOR</div>
+                        <div class="col-1"/>
+                    </div>
+                    <div class="text-center d-flex justify-content-around" style="font-size: 11px; margin-left: 75px;">
+                        <div class="col-3" style="white-space: nowrap;">(VERIFIED BY)</div>
+                        <div class="col-2"/>
+                        <div class="col-5" style="white-space: nowrap;">(RECEIVED BY)</div>
+                        <div class="col-1"/>
+                    </div>
+                </div>
+
+                <!-- Distribution + page number -->
+                <div class="row" style="margin-top: 4px;">
+                    <div class="col-12 text-center" style="border-bottom: 1px solid black;">
+                        <span>
+                            <b>Distribution:</b> White(Inventory); Yellow (Locator); Pink(Master File); Blue (Accounting)
+                        </span>
+                    </div>
+                </div>
+                <div class="row" style="margin-top: 3px;">
+                    <div class="col-4"/>
+                    <div class="col-4 text-center">
+                        Page: <span t-esc="page_num + 1"/> / <span t-esc="page_count"/>
+                    </div>
+                    <div class="col-4"/>
+                </div>
+
+            </div>
+            <!-- ═══════════════════════════ END FOOTER ═══════════════════════════ -->
+
+        </div><!-- end .page -->
+
+        <t t-if="not is_last_page">
+            <p style="page-break-before: always;"/>
+        </t>
+
+    </t><!-- end page_boundaries loop -->
+</t>

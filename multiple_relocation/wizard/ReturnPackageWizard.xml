@@ -54,7 +54,7 @@
                         <notebook class="o_notebook">
                             <page string="Pallet Lines" class="o_notebook_page" invisible="not return_reason">
                                 <field name="package_line_ids" nolabel="1" widget="one2many" style="width: 100%; height: 100%;">
-                                    <tree editable="bottom" multi_edit="1" limit="80">
+                                    <list editable="bottom" multi_edit="1" limit="80">
                                         <field name="location_id" column_invisible="1" invisible="1"/>
                                         <field name="pallet_type" column_invisible="1" invisible="1"/>
                                         <field name="warehouse_id" column_invisible="1" invisible="1"/>
@@ -113,7 +113,7 @@
                                         <field name="min_uom"/>
 
                                         <!-- decoration-warning="actual_quantity != quantity" -->
-                                    </tree>
+                                    </list>
                                 </field>
                             </page>
                         </notebook>

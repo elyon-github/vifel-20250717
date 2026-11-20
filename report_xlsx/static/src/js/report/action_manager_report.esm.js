@@ -2,6 +2,7 @@
 
 import {download} from "@web/core/network/download";
 import {registry} from "@web/core/registry";
+import {user} from "@web/core/user";
 
 registry
     .category("ir.actions.report handlers")
@@ -14,7 +15,7 @@ registry
             // first active_ids_limit (20,000) ids, so a report can use
             // active_domain to cover the rest. report_download reads the
             // context posted below (not the one in the url) for id reports.
-            const reportContext = {...env.services.user.context};
+            const reportContext = {...user.context};
             if (actionContext.active_domain) {
                 reportContext.active_domain = actionContext.active_domain;
             }

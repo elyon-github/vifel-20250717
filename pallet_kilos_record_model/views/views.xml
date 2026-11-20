@@ -16,11 +16,9 @@
 
             <separator/>
 
-            <group expand="0" string="Group By">
-                <filter string="Owner" name="group_by_owner" context="{'group_by': 'owner_id'}"/>
+            <filter string="Owner" name="group_by_owner" context="{'group_by': 'owner_id'}"/>
                 <filter string="Operation Type" name="group_by_operation_type" context="{'group_by': 'operation_type_id'}"/>
                 <filter string="Warehouse" name="group_by_warehouse" context="{'group_by': 'warehouse'}"/>
-            </group>
         </search>
     </field>
 </record>
@@ -29,7 +27,7 @@
     <field name="name">pallet.kilos.record.tree</field>
     <field name="model">pallet_kilos_record_model.pallet_kilos_record_model</field>
     <field name="arch" type="xml">
-    <tree string="Pallet and Kilos Records" create="0" default_order="start_time desc, id desc" js_class="pkr_list_report_button">
+    <list string="Pallet and Kilos Records" create="0" default_order="start_time desc, id desc" js_class="pkr_list_report_button">
             <field name="active" optional="hide" string="Active"/>
             <field name="create_date" optional="hide"/>
             <field name="owner_id"/>
@@ -66,7 +64,7 @@
             <field name="beginning_balance_in_kilos" optional="hide"/>
             <field name="remarks" optional="hide"/>
 
-        </tree>
+        </list>
     </field>
 </record>
 
@@ -177,7 +175,7 @@
 <record id="action_pallet_kilos_records" model="ir.actions.act_window">
     <field name="name">Pallet and Kilos Records</field>
     <field name="res_model">pallet_kilos_record_model.pallet_kilos_record_model</field>
-    <field name="view_mode">tree,form</field>
+    <field name="view_mode">list,form</field>
     <field name="search_view_id" ref="view_pallet_kilos_record_search"/>
     <field name="help" type="html">
         <p class="o_view_nocontent_smiling_face">

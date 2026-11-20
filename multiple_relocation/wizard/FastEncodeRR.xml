@@ -19,7 +19,7 @@
         <field name="name">stock.move.line.fast_encode_rr.line.list</field>
         <field name="model">stock.move.line.fast_encode_rr.line</field>
         <field name="arch" type="xml">
-            <tree editable="bottom" create="false" js_class="fast_encode_rr_list_button" multi_edit="1" class="no-footer">
+            <list editable="bottom" create="false" js_class="fast_encode_rr_list_button" multi_edit="1" class="no-footer">
                 <field name="has_duplicate_pallet" column_invisible="1"/>
                 <field name="needs_new_pallet_series" column_invisible="1"/>
                 <field name="transfer_id" column_invisible="1"/>
@@ -49,10 +49,10 @@
                 <field name="production_date" string="Prod. Date"/>
                 <field name="expiration_date" string="Exp. Date"/>
                 <field name="quantity"/>
-                <field name="quantity_uom" string="Qty UOM" options="{'no_create': True, 'no_open': True}" domain="[('category_id', 'ilike', 'Packaging UOM')]"/>
+                <field name="quantity_uom" string="Qty UOM" options="{'no_create': True, 'no_open': True}" domain="['|', ('name', '=', 'SACKS'), ('relative_uom_id.name', '=', 'SACKS')]"/>
                 <field name="kilogram" sum="Total"/>
                 <field name="min_uom_unit"/>
-                <field name="packs_uom" string="Packs UOM" options="{'no_create': True, 'no_open': True}" domain="[('category_id', 'ilike', 'min uom')]"/>
+                <field name="packs_uom" string="Packs UOM" options="{'no_create': True, 'no_open': True}" domain="['|', ('name', '=', 'PIECES'), ('relative_uom_id.name', '=', 'PIECES')]"/>
                 <field name="remarks" string="Remarks"/>
                 <field name="pre_wizard_pallet_series_id" column_invisible="1"/>
                 <field name="original_pallet_series_id" column_invisible="1"/>
@@ -63,7 +63,7 @@
                 <field name="original_quantity_uom" column_invisible="1"/>
                 <field name="original_packs_uom" column_invisible="1"/>
 
-            </tree>
+            </list>
         </field>
     </record>
 
@@ -75,8 +75,8 @@
             <form string="Fast Encode RR">
                 <sheet style="width: 100%; max-width: none; height: 800px;">
                     <div>
-                        <field name="line_ids" nolabel="1" mode="tree,kanban">
-                            <tree editable="bottom" limit="80">
+                        <field name="line_ids" nolabel="1" mode="list,kanban">
+                            <list editable="bottom" limit="80">
                                 <field name="needs_new_pallet_series" column_invisible="1"/>
                                 <field name="x_studio_" string="#" readonly="1"/>
                                 <field name="product_id"/>
@@ -86,7 +86,7 @@
                                 <field name="quantity" sum="Total"/>
                                 <field name="kilogram" sum="Total"/>
                                 <field name="min_uom_unit" sum="Total"/>
-                            </tree>
+                            </list>
                         </field>
                     </div>
                 </sheet>

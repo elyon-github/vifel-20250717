@@ -7,7 +7,7 @@ fragile: reset/clean SAs delete the lines (identity lost — bug A1), and becaus
 package is never deleted (only unreserved) a recycled package still matched its
 old merged done-lines (false positive — bug A2).
 
-This makes the identity DURABLE by storing it on ``stock.quant.package`` itself:
+This makes the identity DURABLE by storing it on ``stock.package`` itself:
 
 * ``vifel_is_merge_pallet`` is set True whenever a move line on the package
   carries a merge marker (``is_pallet_merge`` / ``vifel_premerge_captured``) — set
@@ -28,7 +28,7 @@ from odoo import api, fields, models
 
 
 class StockQuantPackageMergeIdentity(models.Model):
-    _inherit = 'stock.quant.package'
+    _inherit = 'stock.package'
 
     vifel_is_merge_pallet = fields.Boolean(
         string='Merge / Condition Pallet', default=False, copy=False, index=True,

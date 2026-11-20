@@ -175,7 +175,7 @@ class StockPickingMergeCounting(models.Model):
         A package is ONE physical pallet in ONE place: every line that touches
         it says where it stands, and whatever the history still books at any
         OTHER location is dropped. Stock can leave a package without a move
-        line of its own (17.0.1.0.3: R 3292 kept 566.33 kg of a 04-29 OB at
+        line of its own (19.0.1.0.3: R 3292 kept 566.33 kg of a 04-29 OB at
         M/EX/31/B/R14 forever; the 08-07 clearing line at another bin moved
         0 kg), so a plain running sum showed emptied pallets as still full."""
         MoveLine = self.env['stock.move.line']
@@ -211,7 +211,7 @@ class StockPickingMergeCounting(models.Model):
         Re-running finds nothing (flagged lines are skipped)."""
         MoveLine = self.env['stock.move.line']
         PKR = self.env['pallet_kilos_record_model.pallet_kilos_record_model']
-        pkgs = self.env['stock.quant.package'].search(
+        pkgs = self.env['stock.package'].search(
             [('vifel_is_merge_pallet', '=', True)]) \
             | self.env['res.partner']._vifel_fixed_merge_packages()
         if not pkgs:
@@ -271,7 +271,7 @@ class StockPickingMergeCounting(models.Model):
 
     @api.model
     def _vifel_undo_ghost_return_merge_flags(self, dry_run=False):
-        """17.0.1.0.3: undo backfill flags that rest on ghost history.
+        """19.0.1.0.3: undo backfill flags that rest on ghost history.
 
         The earlier backfill (run as the superuser) flagged a return +0 when
         the rebuilt history said its merge / Fixed pallet still held stock.
@@ -282,7 +282,7 @@ class StockPickingMergeCounting(models.Model):
         in fact empty (M/RR/06528 R 3292: WR/10210 had emptied it 19 s
         earlier)."""
         MoveLine = self.env['stock.move.line']
-        pkgs = self.env['stock.quant.package'].search(
+        pkgs = self.env['stock.package'].search(
             [('vifel_is_merge_pallet', '=', True)]) \
             | self.env['res.partner']._vifel_fixed_merge_packages()
         if not pkgs:
