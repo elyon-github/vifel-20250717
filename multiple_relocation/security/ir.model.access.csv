@@ -15,3 +15,5 @@ access_stock_quant_adjustment_request_user,stock.quant.adjustment.request user,m
 access_stock_quant_adjustment_line_user,stock.quant.adjustment.line user,model_stock_quant_adjustment_line,stock.group_stock_user,1,1,1,0
 access_stock_quant_adjustment_line_manager,stock.quant.adjustment.line manager,model_stock_quant_adjustment_line,stock.group_stock_manager,1,1,1,1
 access_stock_quant_relocate_vifel_user,stock.quant.relocate (VIFEL: all internal users as on 17),stock.model_stock_quant_relocate,base.group_user,1,1,1,0
+access_vifel_print_log_user,vifel.print.log user,model_vifel_print_log,base.group_user,1,0,0,0
+access_vifel_print_log_system,vifel.print.log system,model_vifel_print_log,base.group_system,1,1,1,1

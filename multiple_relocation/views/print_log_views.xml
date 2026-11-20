@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="vifel_print_log_view_list" model="ir.ui.view">
+        <field name="name">vifel.print.log.list</field>
+        <field name="model">vifel.print.log</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0" default_order="print_date desc, id desc">
+                <field name="print_no"/>
+                <field name="print_date"/>
+                <field name="printed_by"/>
+                <field name="user_id"/>
+                <field name="report_name"/>
+                <field name="picking_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- "Print Count" smart button next to Returns on the Transfer -->
+    <record id="view_picking_form_print_count_button" model="ir.ui.view">
+        <field name="name">stock.picking.form.print.count.button</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_print_logs" type="object"
+                        class="oe_stat_button" icon="fa-print"
+                        invisible="not vifel_print_count">
+                    <field string="Print Count" name="vifel_print_count" widget="statinfo"/>
+                </button>
+            </xpath>
+        </field>
+    </record>
+</odoo>
