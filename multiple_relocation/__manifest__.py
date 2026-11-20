@@ -81,7 +81,7 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
     'website': "https://templanza-portfolio.netlify.app/",
 
     'category': 'Inventory/Inventory',
-    'version': '19.0.0.4.37',
+    'version': '19.0.0.4.38',
 
     # any module necessary for this one to work correctly
     'depends': ['base', 'stock', 'web', 'report_xlsx', 'pallet_kilos_record_model'],
@@ -121,6 +121,8 @@ Fix Pallet Duplicates support fields for physical-inventory imports.
         'views/noted_by_views.xml',
         # Print History list + Print Count smart button (19.0.0.4.36)
         'views/print_log_views.xml',
+        # Printed By dropdown + its list in the Configuration tab (19.0.0.4.38)
+        'views/printed_by_views.xml',
 
     ],
     # only loaded in demonstration mode
