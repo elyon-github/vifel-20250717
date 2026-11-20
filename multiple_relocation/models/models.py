@@ -425,6 +425,22 @@ class ProductProduct(models.Model):
             # Normalize: remove extra spaces (double, leading, trailing)
             product.name = " ".join(raw_name.split())
 
+    def _search_display_name(self, operator, value):
+        """Product searches also match the full variant name.
+
+        Odoo 19 matches a product only on its template name, internal
+        reference and barcode, so a brand that lives in a variant attribute
+        (template "CHICKEN MDM", variant NOELMA = "CHICKEN MDM (NOELMA)") was
+        not found by "noelma" in Product filters (Normal Inventory Overview,
+        INTAQ 2026-11-20) - on 17 it was, through this stored name.
+        """
+        from odoo.fields import Domain
+        domain = super()._search_display_name(operator, value)
+        name_domain = Domain('name', operator, value)
+        if operator in Domain.NEGATIVE_OPERATORS:
+            return Domain.AND([domain, name_domain])
+        return Domain.OR([domain, name_domain])
+
     def _compute_display_name(self):
         super()._compute_display_name()
         for product in self:

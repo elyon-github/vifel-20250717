@@ -37,6 +37,11 @@ def migrate(cr, version):
         ('model_id.model', '=', 'stock.picking'),
         ('state', '=', 'code'),
         ('code', 'ilike', 'Please complete the following required fields'),
+        # Only the Verify Transfer action. The same list also sits in the
+        # "Disable Validate if has Discrepancy" automation (on validation),
+        # which must not start requiring Printed By (automatic validations).
+        ('usage', '=', 'ir_actions_server'),
+        ('name', '=', 'X_Verifier Check on Receipt'),
     ])
     for action in actions:
         code = action.code or ''
