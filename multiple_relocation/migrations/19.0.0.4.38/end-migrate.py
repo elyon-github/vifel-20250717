@@ -6,7 +6,7 @@ In the Studio Transfer form, next to the typed Printed By
 vifel_printed_by_name_id (models/printed_by_name.py) and hide the typed one.
 Picking a name fills the text field, so reports, the print check, Verify
 Transfer and the print history keep reading it. The dropdown is read-only
-once the transfer is done, locked and filled; Unlock makes it editable.
+once the transfer is done; Unlock (x_studio_edit_record) makes it editable.
 Old arch kept as an attachment; a view that already has the dropdown is
 skipped; no anchor = warning, form untouched.
 """
@@ -48,7 +48,11 @@ def migrate(cr, version):
             'name': DROPDOWN,
             'string': 'Printed By',
             'options': "{'no_create': True, 'no_open': True}",
-            'readonly': "state == 'done' and is_locked and %s" % DROPDOWN,
+            # Same lock as the typed field: done = read-only until Unlock
+            # (x_studio_edit_record). 19.0.0.4.41 corrects databases where
+            # this ran with the older, self-referencing rule.
+            'readonly': "state == 'done' and not x_studio_edit_record",
+            'force_save': '1',
         })
         nodes[0].addnext(new)
         try:
