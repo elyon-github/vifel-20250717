@@ -48,6 +48,15 @@
                     <div class="alert alert-info" role="alert" invisible="not return_reason">
                         <strong><i class="fa fa-info-circle"></i> Automatic Assignment:</strong> When locations/pallets are unavailable, the system automatically assigns: <strong>Aisle locations</strong> for destinations and <strong>NP Pallets</strong> (unoccupied, unreserved) for pallet assignment. <strong style="color: #FF9800;">Automatically assigned values are highlighted in orange.</strong> Please review assigned values and manually adjust if needed before proceeding.
                     </div>
+                    <!-- Partial Withdraw lists only pallets whose Actual is below what
+                         was picked; say why the list is empty instead of showing nothing -->
+                    <div class="alert alert-warning" role="alert"
+                         invisible="return_reason != 'Partial Withdraw' or package_line_ids">
+                        <strong><i class="fa fa-exclamation-triangle"></i> No pallet to return yet.</strong>
+                        No pallet on this withdrawal has an Actual quantity lower than what was picked.
+                        Enter the actual loaded quantity (<strong>Actual KG</strong> / <strong>Actual Quantity</strong>)
+                        in <strong>Pallet Breakdown</strong> first, then open <strong>Return Pallets</strong> again.
+                    </div>
 
                     <!-- Notebook with full width -->
                     <div style="width: 100%; margin-top: 10px;">
