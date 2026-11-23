@@ -2120,6 +2120,8 @@ class transfer_locations(models.Model):
                 raise UserError(
                     _("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
+    RETURN_OVER_TOLERANCE_KG = 0.5
+
     def _vifel_return_over_withdrawn(self):
         """Pallets this return puts back MORE onto than its withdrawal took.
 
@@ -2164,10 +2166,14 @@ class transfer_locations(models.Model):
             if ml.state != 'cancel' and key in withdrawn:
                 now[key] += _qty(ml)
 
+        # Re-weighing on return may add a little: allow 0.5 kg per pallet.
+        kg = self.env.ref('uom.product_uom_kgm', raise_if_not_found=False)
         problems = []
         for key, qty in now.items():
             product, package = key
-            if float_compare(already[key] + qty, withdrawn[key],
+            tolerance = self.RETURN_OVER_TOLERANCE_KG if (
+                kg and product.uom_id == kg) else 0.0
+            if float_compare(already[key] + qty, withdrawn[key] + tolerance,
                              precision_rounding=product.uom_id.rounding) > 0:
                 problems.append({
                     'product': product, 'package': package,
