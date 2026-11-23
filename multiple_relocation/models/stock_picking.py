@@ -2337,7 +2337,7 @@ class transfer_locations(models.Model):
                     "was changed after. Validating would add stock that never "
                     "left the warehouse.\n\n"
                     "Correct the quantity on this return to what really came "
-                    "back, or cancel it if nothing came back, then validate.",
+                    "back, then validate.",
                     doc=record.name, src=record.return_id.name,
                     lines='\n'.join(lines)))
 
