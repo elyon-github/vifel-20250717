@@ -1137,8 +1137,11 @@ class OverrideStockQuant(models.Model):
         all_move_lines = []
         for merge_key, update_data in moves_to_update.items():
             move = update_data['move']
-            # Update the move quantity
-            new_qty = move.product_uom_qty + update_data['additional_qty']
+            # Demand = what is already picked on the move + what is picked
+            # now. Adding to the old DEMAND double-counted a pallet that was
+            # taken off and picked again (M/WR/16855: 454.5 -> 909 -> 1818 ->
+            # 2727 kg for one 909 kg pallet, stuck in Waiting).
+            new_qty = move.quantity + update_data['additional_qty']
             move.write({
                 'product_uom_qty': new_qty,
                 'quant_ids_picked': [(4, q_id) for q_id in update_data['quant_ids']]

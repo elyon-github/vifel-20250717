@@ -2120,6 +2120,69 @@ class transfer_locations(models.Model):
                 raise UserError(
                     _("No associated pallet kilos record found for transfer %s. Cannot unvoid.") % record.name)
 
+    RETURN_OVER_TOLERANCE_KG = 0.5
+
+    def _vifel_return_over_withdrawn(self):
+        """Pallets this return puts back MORE onto than its withdrawal took.
+
+        A return can only give back what its WR took from that pallet. The
+        check covers non-void returns of a withdrawal, per product + pallet,
+        for pallets the WR itself took from (returns to a new pallet and Void
+        Transfer returns are left alone). Earlier done returns of the same WR
+        count too. Case M/RR/11372: created while M/WR/16856 held the whole
+        pallet R 4996 (552.5 kg), then the WR was cut back to 98 kg and
+        validated; the return still put 454.5 kg back - stock that never left.
+
+        Returns a list of dicts, empty when the return is fine.
+        """
+        self.ensure_one()
+        src = self.return_id
+        if (not src or self.is_void_return
+                or self.picking_type_code != 'incoming'
+                or src.picking_type_code != 'outgoing'):
+            return []
+
+        def _qty(ml):
+            return ml.product_uom_id._compute_quantity(
+                ml.quantity, ml.product_id.uom_id, rounding_method='HALF-UP')
+
+        withdrawn = defaultdict(float)
+        for ml in src.move_line_ids:
+            if ml.package_id and ml.state != 'cancel':
+                withdrawn[(ml.product_id, ml.package_id)] += _qty(ml)
+
+        earlier = self.search([
+            ('return_id', '=', src.id), ('state', '=', 'done'),
+            ('id', '!=', self.id),
+        ]).filtered(lambda p: not p.is_void_return)
+        already = defaultdict(float)
+        for ml in earlier.move_line_ids:
+            key = (ml.product_id, ml.result_package_id)
+            if ml.state == 'done' and key in withdrawn:
+                already[key] += _qty(ml)
+        now = defaultdict(float)
+        for ml in self.move_line_ids:
+            key = (ml.product_id, ml.result_package_id)
+            if ml.state != 'cancel' and key in withdrawn:
+                now[key] += _qty(ml)
+
+        # Re-weighing on return may add a little: allow 0.5 kg per pallet.
+        kg = self.env.ref('uom.product_uom_kgm', raise_if_not_found=False)
+        problems = []
+        for key, qty in now.items():
+            product, package = key
+            tolerance = self.RETURN_OVER_TOLERANCE_KG if (
+                kg and product.uom_id == kg) else 0.0
+            if float_compare(already[key] + qty, withdrawn[key] + tolerance,
+                             precision_rounding=product.uom_id.rounding) > 0:
+                problems.append({
+                    'product': product, 'package': package,
+                    'returning': qty, 'already': already[key],
+                    'withdrawn': withdrawn[key],
+                    'uom': product.uom_id.name,
+                })
+        return problems
+
     def _vifel_pending_multitruck_siblings(self):
         """For a Partial-Withdraw return, the pending outgoing withdrawals that
         still reserve stock on the SAME pallet this return re-adds to — i.e. the
@@ -2242,6 +2305,41 @@ class transfer_locations(models.Model):
                     "realign this return to %(wr)s, then validate.",
                     doc=record.name, ret=record.partner_id.name,
                     src=src.name, wr=src.partner_id.name))
+
+        # A RETURN CANNOT GIVE BACK MORE THAN ITS WITHDRAWAL TOOK FROM A PALLET.
+        # A return made while the WR held the whole pallet, then left open
+        # after the WR was cut back, re-adds stock that never left
+        # (M/RR/11372 vs M/WR/16856, R 4996).
+        if not self.env.context.get('skip_return_over_withdrawn_guard'):
+            for record in self:
+                problems = record._vifel_return_over_withdrawn()
+                if not problems:
+                    continue
+                lines = []
+                for p in problems:
+                    lines.append(_(
+                        "- %(pal)s %(prod)s: %(src)s took %(wd).3f %(uom)s, "
+                        "this return gives back %(ret).3f %(uom)s"
+                        "%(prev)s",
+                        pal=p['package'].name,
+                        prod=p['product'].display_name,
+                        src=record.return_id.name,
+                        wd=p['withdrawn'], ret=p['returning'],
+                        uom=p['uom'],
+                        prev=(_(" (earlier returns already gave back "
+                                "%(a).3f %(uom)s)", a=p['already'],
+                                uom=p['uom']) if p['already'] else '')))
+                raise UserError(_(
+                    "Cannot validate %(doc)s: it returns more than %(src)s "
+                    "took from the pallet.\n\n%(lines)s\n\n"
+                    "This happens when the return was made while the "
+                    "withdrawal held more of the pallet, and the withdrawal "
+                    "was changed after. Validating would add stock that never "
+                    "left the warehouse.\n\n"
+                    "Correct the quantity on this return to what really came "
+                    "back, then validate.",
+                    doc=record.name, src=record.return_id.name,
+                    lines='\n'.join(lines)))
 
         result = super(transfer_locations, self).button_validate()
 
