@@ -1,5 +1,15 @@
 from odoo import models
 from datetime import datetime, date, timedelta
+import re
+
+
+def _safe_sheet_name(name):
+    """Excel sheet name: max 31 chars, none of the characters [ ] : * ? / \\,
+    and it may not start or end with an apostrophe (11-24: "MAGIC 5 INDUSTRY,
+    D'..." cut to 31 chars ended with ' and xlsxwriter refused the whole report)."""
+    name = re.sub(r"[\[\]:*?/\\]", " ", name or '')
+    name = name[:31].strip("' ")
+    return name or 'Unknown'
 
 
 class InventorySummary(models.AbstractModel):
@@ -175,7 +185,7 @@ class InventorySummary(models.AbstractModel):
                 continue
             customer_name = owner.name or 'Unknown'
             sorted_moves = sorted(moves, key=lambda move: move.x_studio_expiration_date or date.max)
-            sheet = workbook.add_worksheet(customer_name[:31])
+            sheet = workbook.add_worksheet(_safe_sheet_name(customer_name))
             
             # Set column widths for better readability - Adjusted for production date column
             sheet.set_column(0, 0, 40)  # Item Description
