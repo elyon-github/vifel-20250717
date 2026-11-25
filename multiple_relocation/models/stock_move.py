@@ -447,7 +447,7 @@ class stock_move_line_Override(models.Model):
                     'contains sub-locations. Please pick the exact bin '
                     '(e.g. ...R07/L6/P1).') % dest.complete_name)
 
-    x_studio_ = fields.Integer(string="#", group_operator=False)
+    x_studio_ = fields.Integer(string="#", group_operator=False, copy=False)
 
     x_studio_reason_for_adjustment = fields.Char(
         string="Reason for Adjustment")
