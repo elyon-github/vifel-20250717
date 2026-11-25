@@ -31,4 +31,15 @@ patch(SelectMenu.prototype, {
         const value = super.displayValue;
         return value === BLANK_LABEL ? "" : value;
     },
+    // An empty field "matches" the blank line, so Odoo would think there is
+    // something to clear. Clicking an option first blurs the (empty) input,
+    // which then cleared the field and closed the list before the click
+    // landed - the option was never set (e.g. Truck Type on a new RR/WR).
+    // Nothing to clear when the field is already empty.
+    get canDeselect() {
+        if (!this.props.multiSelect && this.selectedChoice?.value === false) {
+            return false;
+        }
+        return super.canDeselect;
+    },
 });
