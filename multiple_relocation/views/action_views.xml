@@ -41,7 +41,9 @@
     <record id="action_stock_move_line_relocation_history" model="ir.actions.act_window">
         <field name="name">Pallet Relocation History</field>
         <field name="res_model">stock.move.line</field>
-        <field name="view_mode">list</field>
+        <!-- form: clicking a row opens the move's details (as the old Studio
+             screen action 335 did); the menu showed a list only -->
+        <field name="view_mode">list,form</field>
         <field name="view_id" ref="view_stock_move_line_relocation_history_tree"/>
         <field name="domain">[('x_relocate_batch', '!=', False)]</field>
         <field name="target">current</field>
