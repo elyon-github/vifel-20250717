@@ -1732,6 +1732,27 @@ class transfer_locations(models.Model):
                         return_names=return_names,
                     ))
 
+                # An OPEN manual return of this WR would be reused by the
+                # void (_find_existing_return in voided context) and the
+                # append rewrites its move demand/source, which makes Odoo
+                # collapse the existing line into one lump line with no
+                # pallet/location and count the kilos twice (M/RR/11647).
+                # The void builds its own void record, so the manual
+                # return must be finished or cancelled first.
+                open_returns = record.return_ids.filtered(
+                    lambda r: r.state not in ('done', 'cancel')
+                    and not r.is_void_return
+                )
+                if open_returns:
+                    raise UserError(_(
+                        "Cannot void this withdrawal record.\n\n"
+                        "It has an open return that is not validated yet:\n"
+                        "%(return_names)s\n\n"
+                        "Voiding creates its own void record, so a manual return is not needed. "
+                        "Validate or cancel that return first, then void this withdrawal record.",
+                        return_names=', '.join(open_returns.mapped('name')),
+                    ))
+
                 # Check if any of this WR's return RRs are voided and have unvalidated void children
                 # e.g., WR → RR (voided) → child void WR (still draft) = block voiding the original WR
                 voided_returns = record.return_ids.filtered(
@@ -3492,6 +3513,28 @@ class transfer_locations(models.Model):
 
     def auto_fix_discrepancy(self):
         for record in self:
+            # Fix Discrepancy copies the lines' total into the demand. A line
+            # with kilos but no pallet, no series and no location bin is not
+            # a real pallet (e.g. the lump line on M/RR/11647); accepting it
+            # would make bad stock look correct. Make the user look first.
+            if record.picking_type_code == 'incoming':
+                bad = record.move_line_ids.filtered(
+                    lambda ml: ml.quantity > 0
+                    and not ml.result_package_id
+                    and not ml.x_studio_pallet_series_id
+                    and not ml.bf_pallet_char
+                )
+                if bad:
+                    raise UserError(_(
+                        "Cannot fix the discrepancy yet.\n\n"
+                        "These Pallet Breakdown line(s) have kilos but no pallet and no pallet series:\n"
+                        "%(lines)s\n\n"
+                        "Check them first: delete the line if it is not a real pallet, "
+                        "or complete its pallet and series. Then click Fix Discrepancy again.",
+                        lines='\n'.join(
+                            "  - Line #%s: %s kg" % (ml.x_studio_ or '?', ml.quantity)
+                            for ml in bad),
+                    ))
             stock_moves = record.move_ids
 
             for lines in stock_moves:
